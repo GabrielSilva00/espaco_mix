@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "User profile with LGPD compliance info",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "cpf": { "type": "string" },
+        "lgpdConsent": { "type": "boolean" },
+        "consentDate": { "type": "string" }
+      },
+      "required": ["name", "email", "lgpdConsent"]
+    },
+    "event": {
+      "title": "Event",
+      "description": "Event details",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "location": { "type": "string" },
+        "status": { "type": "string" },
+        "img": { "type": "string" },
+        "assignedStaffIds": { "type": "array" }
+      }
+    },
+    "inventory": {
+      "title": "Inventory",
+      "description": "Tracking table and ticket availability",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "itemId": { "type": "string" },
+        "reservedBy": { "type": "string" },
+        "status": { "type": "string" },
+        "price": { "type": "number" },
+        "lockExpires": { "type": "string" }
+      }
+    },
+    "order": {
+      "title": "Order",
+      "description": "Purchase transaction",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "eventId": { "type": "string" },
+        "total": { "type": "number" },
+        "status": { "type": "string" },
+        "paymentId": { "type": "string" },
+        "items": { "type": "array" }
+      }
+    }
+  },
+  "firestore": {
+    "users/{userId}": { "schema": "user", "description": "User profiles" },
+    "events/{eventId}": { "schema": "event", "description": "Events" },
+    "events/{eventId}/inventory/{itemId}": { "schema": "inventory", "description": "Event inventory" },
+    "orders/{orderId}": { "schema": "order", "description": "Purchase orders" }
+  }
+}
