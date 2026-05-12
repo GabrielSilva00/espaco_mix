@@ -6,7 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsToolti
 import {
   supabase,
   signIn, signOut, signUp, getMyProfile,
-  getEvents, saveEvent as saveEventToDb, createEvent, deleteEvent, updateEventStatus,
+  getEvents, saveEvent as saveEventToDb, createEvent, deleteEvent, updateEventStatus, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations,
   getStaffAccounts, createStaffAccount,
   getSystemConfig, updateSystemConfig,
@@ -329,7 +329,6 @@ function mapAppEventToDb(evt: Event): any {
     additional_info: evt.additionalInfo,
     pos_locations: evt.posLocations,
     category: evt.category,
-    capacity: evt.capacity,
     is_recurring: evt.isRecurring,
     custom_url: evt.customUrl,
     refund_policy: evt.refundPolicy,
@@ -394,6 +393,7 @@ export default function App() {
   const [isApprovedEventCreator, setIsApprovedEventCreator] = useState(false);
   const [isStaff, setIsStaff] = useState(false);
   const adminScrollRef = useRef<HTMLDivElement | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const { can, role, isAtLeast } = usePermissions(userRole, { isApprovedEventCreator });
   const [loggedInUserId, setLoggedInUserId] = useState<string | null>(null);
   const [dashboardMode, setDashboardMode] = useState<'list' | 'details' | 'staff' | 'check-in' | 'edit' | 'settings' | 'approval-queue' | 'producer-onboarding' | 'producer-dashboard'>('list');
@@ -858,6 +858,20 @@ export default function App() {
     setFormEvent(newEvt);
     setSelectedDashboardEvent(newEvt.id);
     setDashboardMode('edit');
+  };
+
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !formEvent) return;
+    try {
+      showToast('Fazendo upload da imagem...', 'info');
+      const url = await uploadEventImage(file, formEvent.id);
+      setFormEvent({ ...formEvent, img: url });
+      showToast('Imagem atualizada com sucesso!', 'success');
+    } catch (err: any) {
+      showToast('Erro no upload: ' + err.message, 'error');
+    }
+    e.target.value = '';
   };
 
   const handleSaveEvent = async (isDraft = false) => {
@@ -4161,7 +4175,17 @@ export default function App() {
                         <h3 className="text-base font-serif text-white uppercase tracking-widest">Mídia Oficial</h3>
                       </div>
                       <div className="space-y-6">
-                        <div className="aspect-[4/5] rounded-2xl border-2 border-dashed border-white/20 bg-white/2 flex flex-col items-center justify-center relative overflow-hidden group cursor-pointer hover:border-[#d4af37]/50 hover:bg-[#d4af37]/5 transition-colors">
+                        <input
+                          ref={imageFileInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleImageFileChange}
+                        />
+                        <div
+                          onClick={() => imageFileInputRef.current?.click()}
+                          className="aspect-[4/5] rounded-2xl border-2 border-dashed border-white/20 bg-white/2 flex flex-col items-center justify-center relative overflow-hidden group cursor-pointer hover:border-[#d4af37]/50 hover:bg-[#d4af37]/5 transition-colors"
+                        >
                             {formEvent.img ? (
                               <>
                                 <img src={formEvent.img} alt="Preview" className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-40 transition" />
@@ -4172,7 +4196,7 @@ export default function App() {
                             ) : (
                               <div className="text-center p-6">
                                 <UploadCloud className="w-8 h-8 text-white/30 mx-auto mb-3 group-hover:text-[#d4af37] transition-colors" />
-                                <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest leading-relaxed">Arraste a imagem oficial ou clique para Escolher</p>
+                                <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest leading-relaxed">Clique para escolher a imagem</p>
                                 <p className="text-[8px] text-[#d4af37]/80 mt-2 uppercase tracking-widest border border-[#d4af37]/30 px-2 py-0.5 rounded-full inline-block">1080x1350px recomendado</p>
                               </div>
                             )}

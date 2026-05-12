@@ -365,21 +365,37 @@ export async function saveEvent(event: Event): Promise<Event> {
 
   if (batches && batches.length > 0) {
     for (const batch of batches) {
-      const { sectors, ...batchData } = batch;
+      const { sectors, id, name, startDate, endDate, sort_order } = batch as any;
 
-      // 2. Upsert do lote
+      // 2. Upsert do lote (mapeia camelCase → snake_case)
       const { data: savedBatch, error: bErr } = await supabase
         .from('batches')
-        .upsert({ ...batchData, event_id: savedEvent.id })
+        .upsert({
+          id,
+          name,
+          start_date: startDate ?? batch.start_date,
+          end_date: endDate ?? batch.end_date,
+          sort_order,
+          event_id: savedEvent.id,
+        })
         .select()
         .single();
 
       if (bErr) throw bErr;
 
       if (sectors && sectors.length > 0) {
-        // 3. Upsert dos setores
-        const sectorsToUpsert = sectors.map((s: Sector) => ({
-          ...s,
+        // 3. Upsert dos setores (mapeia camelCase → snake_case)
+        const sectorsToUpsert = sectors.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          quantity: s.quantity,
+          price: s.price,
+          price_male: s.priceMale ?? s.price_male,
+          price_female: s.priceFemale ?? s.price_female,
+          convenience_fee: s.convenienceFee ?? s.convenience_fee,
+          limit_per_user: s.limitPerUser ?? s.limit_per_user,
+          visibility: s.visibility,
+          description: s.description,
           batch_id: savedBatch.id,
           event_id: savedEvent.id,
         }));
@@ -394,6 +410,24 @@ export async function saveEvent(event: Event): Promise<Event> {
   }
 
   return savedEvent as Event;
+}
+
+/** Upload de imagem do evento para o Supabase Storage */
+export async function uploadEventImage(file: File, eventId: number): Promise<string> {
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `events/${eventId}-${Date.now()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from('event-images')
+    .upload(path, file, { upsert: true });
+
+  if (error) throw error;
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('event-images')
+    .getPublicUrl(path);
+
+  return publicUrl;
 }
 
 /** Deletar evento (cascata: lotes e setores são deletados automaticamente) */
@@ -559,7 +593,7 @@ export async function deleteStaffAccount(staffId: string): Promise<void> {
 export async function getPendingApplications(): Promise<ProducerApplication[]> {
   const { data, error } = await supabase
     .from('producer_applications')
-    .select('*, profiles(name, email, avatar_url)')
+    .select('*, profiles!producer_applications_user_id_fkey(name, email, avatar_url)')
     .eq('status', 'pending')
     .order('created_at', { ascending: true });
 
