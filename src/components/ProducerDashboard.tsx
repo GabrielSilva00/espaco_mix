@@ -27,7 +27,7 @@ export const ProducerDashboard = () => {
           <div className="inline-flex items-center gap-2 bg-black/20 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-4">
             <CheckCircle2 className="w-3 h-3" /> Conta Verificada
           </div>
-          <h1 className="text-3xl md:text-5xl font-serif mb-4 text-black">Bem-vindo à Eventix! Seu cadastro foi aprovado.</h1>
+          <h1 className="text-3xl md:text-5xl font-serif mb-4 text-black">Bem-vindo ao Espaço Mix! Seu cadastro foi aprovado.</h1>
           <p className="text-black/80 text-sm md:text-base leading-relaxed mb-6 font-medium">
             Você já pode publicar eventos, configurar lotes e iniciar suas vendas. A melhor experiência em gestão de eventos foca no que importa: o seu público. Nós cuidamos do resto.
           </p>

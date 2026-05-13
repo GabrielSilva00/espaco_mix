@@ -13,7 +13,7 @@ interface Event {
   time?: string;
   endTime?: string;
   location: string;
-  status: 'Ativo' | 'Em breve' | 'Rascunho' | 'Finalizado' | 'Pausado';
+  status: 'Ativo' | 'Em breve' | 'Vendas liberadas' | 'Rascunho' | 'Finalizado' | 'Pausado';
   img: string;
   assignedStaffIds: string[];
   priceType: 'unique' | 'gender';

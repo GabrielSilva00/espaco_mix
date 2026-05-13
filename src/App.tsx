@@ -201,7 +201,7 @@ interface Event {
   time?: string;
   endTime?: string;
   location: string;
-  status: 'Ativo' | 'Em breve' | 'Rascunho' | 'Finalizado' | 'Pausado';
+  status: 'Ativo' | 'Em breve' | 'Vendas liberadas' | 'Rascunho' | 'Finalizado' | 'Pausado';
   img: string;
   assignedStaffIds: string[];
   priceType: 'unique' | 'gender';
@@ -505,7 +505,7 @@ export default function App() {
       .owner{font-size:16px;color:#fff}
       @media print{body{background:#fff}.ticket{background:#fff;color:#000;border-color:#000}.event,.brand{color:#000}.tid,.lbl{color:#666}.owner{color:#000}hr{border-color:#ccc}}
     </style></head><body><div class="ticket">
-      <p class="brand">Eventix</p>
+      <p class="brand">Espaço Mix</p>
       <h1 class="event">Midnight Soirée</h1>
       <p class="type">${ticket.name}</p>
       <div class="qr-wrap"><img src="${qrUrl}" alt="QR"/></div>
@@ -847,7 +847,7 @@ export default function App() {
       date: new Date().toISOString().split('T')[0],
       time: '20:00',
       location: '',
-      status: 'Em breve',
+      status: 'Rascunho',
       img: '',
       assignedStaffIds: [],
       priceType: 'unique',
@@ -881,8 +881,10 @@ export default function App() {
       return;
     }
     try {
+      const isNew = !events.some(e => e.id === formEvent.id);
+      const statusToSave = isNew ? 'Rascunho' : (isDraft ? 'Rascunho' : formEvent.status);
       const eventToSave = {
-        ...mapAppEventToDb({ ...formEvent, status: isDraft ? 'Rascunho' : (formEvent.status || 'Ativo') }),
+        ...mapAppEventToDb({ ...formEvent, status: statusToSave }),
         created_by: loggedInUserId || undefined,
       };
       const saved = await saveEventToDb(eventToSave as any);
@@ -894,9 +896,19 @@ export default function App() {
       );
       setFormEvent(null);
       setDashboardMode('list');
-      showToast('Evento salvo com sucesso!', 'success');
+      showToast(isNew ? 'Rascunho salvo! Acesse o painel do evento para publicar.' : 'Evento atualizado com sucesso!', 'success');
     } catch (err: any) {
       showToast('Erro ao salvar evento: ' + err.message, 'error');
+    }
+  };
+
+  const handleUpdateEventStatus = async (eventId: number, newStatus: Event['status']) => {
+    try {
+      await updateEventStatus(eventId, newStatus);
+      setEvents(prev => prev.map(e => e.id === eventId ? { ...e, status: newStatus } : e));
+      showToast(`Status alterado para "${newStatus}"`, 'success');
+    } catch (err: any) {
+      showToast('Erro ao alterar status: ' + err.message, 'error');
     }
   };
 
@@ -973,11 +985,11 @@ export default function App() {
     return 'available';
   };
 
-  const activeEvent = (currentView === 'booking' && isPreviewingEvent && formEvent) 
-    ? formEvent 
+  const activeEvent = (currentView === 'booking' && isPreviewingEvent && formEvent)
+    ? formEvent
     : (currentView === 'booking' && !isPreviewingEvent
-        ? (events.find(e => e.status === 'Ativo') || events[0])
-        : (events.find(e => e.id === Number(selectedDashboardEvent)) || events.find(e => e.status === 'Ativo') || events[0]));
+        ? (events.find(e => e.id === Number(selectedDashboardEvent)) || events.find(e => e.status === 'Vendas liberadas') || events.find(e => e.status === 'Ativo') || events.find(e => e.status === 'Em breve') || events[0])
+        : (events.find(e => e.id === Number(selectedDashboardEvent)) || events.find(e => e.status === 'Vendas liberadas') || events.find(e => e.status === 'Ativo') || events[0]));
 
   const activeBatch = activeEvent?.batches?.[0];
   const previewSectors = activeBatch?.sectors || [];
@@ -1188,7 +1200,7 @@ export default function App() {
                 <div className="w-8 h-8 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0">
                   <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-base">E</span>
                 </div>
-                {!isAdminSidebarCollapsed && <span className="text-lg font-display tracking-widest text-[#d4af37] uppercase whitespace-nowrap animate-in fade-in">Eventix</span>}
+                {!isAdminSidebarCollapsed && <span className="text-lg font-display tracking-widest text-[#d4af37] uppercase whitespace-nowrap animate-in fade-in">Espaço Mix</span>}
               </div>
               <button 
                 onClick={() => setIsAdminSidebarCollapsed(!isAdminSidebarCollapsed)} 
@@ -1370,7 +1382,7 @@ export default function App() {
               <div className="w-6 h-6 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0">
                 <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-xs">E</span>
               </div>
-              <span className="text-sm font-serif tracking-widest text-[#d4af37] uppercase">Eventix Admin</span>
+              <span className="text-sm font-serif tracking-widest text-[#d4af37] uppercase">Espaço Mix Admin</span>
             </div>
             <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-white/70 hover:text-white transition">
               <Menu className="w-6 h-6" />
@@ -1385,7 +1397,7 @@ export default function App() {
             <div className="w-6 h-6 md:w-8 md:h-8 bg-[#d4af37] rotate-45 flex items-center justify-center">
               <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-xs md:text-base">E</span>
             </div>
-            <span className="text-base md:text-lg font-serif tracking-widest text-[#d4af37] uppercase">Eventix</span>
+            <span className="text-base md:text-lg font-serif tracking-widest text-[#d4af37] uppercase">Espaço Mix</span>
           </div>
 
           {/* Desktop Menu */}
@@ -1680,8 +1692,19 @@ export default function App() {
             {/* Left Column: Events, Tables & Details */}
             <div className="lg:col-span-8 flex flex-col gap-10 md:gap-16">
               
+              {/* Aviso de "Em breve" */}
+              {activeEvent?.status === 'Em breve' && !isPreviewingEvent && (
+                <section className="bg-blue-500/10 border border-blue-500/20 rounded-3xl p-8 text-center">
+                  <div className="w-14 h-14 rounded-full bg-blue-500/20 flex items-center justify-center mx-auto mb-4">
+                    <Calendar className="w-7 h-7 text-blue-400" />
+                  </div>
+                  <h3 className="text-lg font-serif text-blue-300 mb-2">Em breve</h3>
+                  <p className="text-sm text-white/50">As vendas ainda não foram abertas. Fique de olho para não perder os ingressos!</p>
+                </section>
+              )}
+
               {/* Espaço Avulso & Selection Area */}
-              {activeEvent?.batches && activeEvent.batches.length > 0 && (
+              {activeEvent?.batches && activeEvent.batches.length > 0 && (activeEvent?.status === 'Vendas liberadas' || activeEvent?.status === 'Ativo' || isPreviewingEvent) && (
                 <section>
                   <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
                     <Ticket className="w-5 h-5 text-[#d4af37]" />
@@ -1800,7 +1823,7 @@ export default function App() {
                 </section>
               )}
 
-              {activeEvent?.hasTables && (
+              {activeEvent?.hasTables && (activeEvent?.status === 'Vendas liberadas' || activeEvent?.status === 'Ativo' || isPreviewingEvent) && (
                 <section>
                   <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
                     <Armchair className="w-5 h-5 text-[#d4af37]" />
@@ -2046,7 +2069,7 @@ export default function App() {
                         <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
                       </summary>
                       <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
-                        Sim, a transferência de titularidade pode ser feita pelo app da Eventix até 24h antes do evento. Apenas um repasse é permitido por ingresso.
+                        Sim, a transferência de titularidade pode ser feita pelo app do Espaço Mix até 24h antes do evento. Apenas um repasse é permitido por ingresso.
                       </div>
                     </details>
 
@@ -2075,7 +2098,7 @@ export default function App() {
             </div>
             
             {/* Right Column: Ingressos e Resumo */}
-            <div className="lg:col-span-4 flex flex-col">
+            <div className={`lg:col-span-4 flex flex-col ${activeEvent?.status === 'Em breve' && !isPreviewingEvent ? 'hidden' : ''}`}>
               <div className="sticky top-24 flex flex-col gap-8">
             
             {/* Resumo do Pedido */}
@@ -2666,7 +2689,7 @@ export default function App() {
                     </div>
                     <div>
                         <h4 className="text-[10px] uppercase tracking-widest text-[#d4af37] mb-2 font-bold">E-mail Corporativo</h4>
-                        <p className="text-xs opacity-50 underline">suporte@eventix.com.br</p>
+                        <p className="text-xs opacity-50 underline">suporte@espacomix.com.br</p>
                     </div>
                  </div>
                </div>
@@ -3072,7 +3095,7 @@ export default function App() {
               </button>
             </div>
           </div>
-        ) : (
+        ) : currentView === 'dashboard' ? (
           <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-10 mt-8 mb-20 animate-in fade-in duration-500">
             {showDefaultCredentialsWarning && userRole === 'admin' && (
               <div className="mx-4 sm:mx-0 mb-6 p-4 border border-amber-500/30 bg-amber-500/10 rounded-2xl">
@@ -3124,7 +3147,7 @@ export default function App() {
                           className="bg-[#0d0d0d] border border-white/10 rounded-2xl md:rounded-3xl overflow-hidden group cursor-pointer hover:border-[#d4af37]/30 transition-all duration-500"
                       >
                         <div className="h-40 md:h-48 overflow-hidden relative">
-                          <img src={evt.img} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-60" referrerPolicy="no-referrer" />
+                          {evt.img ? <img src={evt.img} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-60" referrerPolicy="no-referrer" /> : <div className="w-full h-full bg-white/5" />}
                           <div className="absolute top-4 right-4 px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-md text-[8px] uppercase tracking-widest font-bold text-[#d4af37]">
                               {evt.status}
                           </div>
@@ -3210,17 +3233,57 @@ export default function App() {
                 {/* Cabeçalho do Detalhe */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-white/5 pb-6">
                   <div>
-                    <div className="flex items-center gap-3 mb-2">
-                       <span className="text-white/40 text-xs font-mono">ID: #DK92-80</span>
-                    </div>
                     <h2 className="text-2xl font-serif text-white flex items-center gap-2">
-                      Midnight Soirée
+                      {events.find(e => e.id === selectedDashboardEvent)?.title || 'Evento'}
                     </h2>
                   </div>
-                  <span className="bg-[#d4af37]/20 text-[#d4af37] px-3 py-1 rounded-full text-[9px] uppercase font-bold tracking-widest border border-[#d4af37]/30 flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 bg-[#d4af37] rounded-full animate-pulse"></div> Live
-                  </span>
+                  {(() => {
+                    const evt = events.find(e => e.id === selectedDashboardEvent);
+                    if (!evt) return null;
+                    const statusColor = evt.status === 'Vendas liberadas' ? 'bg-green-500/20 text-green-400 border-green-500/30' : evt.status === 'Em breve' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-white/10 text-white/50 border-white/10';
+                    return (
+                      <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold tracking-widest border ${statusColor}`}>
+                        {evt.status}
+                      </span>
+                    );
+                  })()}
                 </div>
+
+                {/* Controle de Status */}
+                {(() => {
+                  const evt = events.find(e => e.id === selectedDashboardEvent);
+                  if (!evt) return null;
+                  return (
+                    <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-5">
+                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-4 font-bold">Status do Evento</p>
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          onClick={() => handleUpdateEventStatus(evt.id, 'Rascunho')}
+                          className={`px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Rascunho' ? 'bg-white/20 text-white border-white/30' : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white'}`}
+                        >
+                          Rascunho
+                        </button>
+                        <button
+                          onClick={() => handleUpdateEventStatus(evt.id, 'Em breve')}
+                          className={`px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Em breve' ? 'bg-blue-500/30 text-blue-300 border-blue-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-blue-500/10 hover:text-blue-300'}`}
+                        >
+                          Em breve
+                        </button>
+                        <button
+                          onClick={() => handleUpdateEventStatus(evt.id, 'Vendas liberadas')}
+                          className={`px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Vendas liberadas' ? 'bg-green-500/30 text-green-300 border-green-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-green-500/10 hover:text-green-300'}`}
+                        >
+                          Vendas liberadas
+                        </button>
+                      </div>
+                      <p className="text-[9px] opacity-30 mt-3">
+                        {evt.status === 'Rascunho' && 'Rascunho: evento oculto para o público.'}
+                        {evt.status === 'Em breve' && 'Em breve: visível ao público, sem opção de compra.'}
+                        {evt.status === 'Vendas liberadas' && 'Vendas liberadas: público pode comprar ingressos e reservar mesas.'}
+                      </p>
+                    </div>
+                  );
+                })()}
 
                 {/* Smart Alerts */}
                 <div className="bg-[#d4af37]/5 border-l-2 border-[#d4af37] rounded-r-2xl p-4 flex items-start sm:items-center justify-between gap-4">
@@ -3329,7 +3392,7 @@ export default function App() {
                            <option>Últimos 30 dias</option>
                          </select>
                        </div>
-                       <div className="flex-1 w-full relative">
+                       <div className="flex-1 w-full relative min-h-0" style={{height: 240}}>
                          {(() => {
                             const chartData = [
                               { name: 'Seg', ingressos: 15, mesas: 2 },
@@ -3341,7 +3404,7 @@ export default function App() {
                               { name: 'Dom', ingressos: 120, mesas: 18 }
                             ];
                             return (
-                              <ResponsiveContainer width="100%" height="100%">
+                              <ResponsiveContainer width="100%" height={240}>
                                 <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
                                   <defs>
                                     <linearGradient id="colorIngressos" x1="0" y1="0" x2="0" y2="1">
@@ -3586,10 +3649,11 @@ export default function App() {
                     {/* Scanner Area */}
                     <div className="bg-[#0d0d0d] border border-white/10 rounded-3xl overflow-hidden relative shadow-xl">
                        <div className="relative aspect-[4/5] sm:aspect-video w-full bg-black flex items-center justify-center">
-                          <Scanner 
-                            onScan={(detectedCodes) => { if(detectedCodes?.[0]?.rawValue) handleCheckIn(detectedCodes[0].rawValue); }} 
+                          <Scanner
+                            onScan={(detectedCodes) => { if(detectedCodes?.[0]?.rawValue) handleCheckIn(detectedCodes[0].rawValue); }}
                             formats={['qr_code']}
                             allowMultiple={false}
+                            onError={(err) => { console.warn('[Scanner]', err); }}
                           />
                           
                           {/* Full Screen Overlay for Results */}
@@ -3735,23 +3799,17 @@ export default function App() {
                 {/* Sticky Header */}
                 <div className="sticky top-0 z-40 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-white/10 pb-4 pt-4 mb-10 flex justify-end">
                   <div className="flex flex-wrap sm:flex-nowrap w-full sm:w-auto gap-2 sm:gap-3">
-                    <button 
+                    <button
                       onClick={() => { setDashboardMode('details'); setFormEvent(null); }}
                       className="flex-1 sm:flex-none px-2 sm:px-5 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[9px] sm:text-[10px] uppercase font-bold tracking-widest hover:bg-white/10 transition text-center whitespace-nowrap"
                     >
                       Cancelar
                     </button>
-                    <button 
-                      onClick={() => handleSaveEvent(true)}
-                      className="flex-1 sm:flex-none px-2 sm:px-5 py-2.5 bg-white/10 text-white rounded-xl text-[9px] sm:text-[10px] uppercase font-bold tracking-widest hover:bg-white/20 transition flex items-center justify-center gap-1 sm:gap-2 border border-white/5 whitespace-nowrap"
+                    <button
+                      onClick={() => handleSaveEvent(!events.find(e => e.id === formEvent.id))}
+                      className="flex-1 sm:flex-none px-4 sm:px-6 py-2.5 bg-[#d4af37] text-black rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest hover:brightness-110 shadow-lg shadow-[#d4af3733] transition flex items-center justify-center gap-1 sm:gap-2 whitespace-nowrap"
                     >
-                      Salvar Rascunho
-                    </button>
-                    <button 
-                      onClick={() => handleSaveEvent(false)}
-                      className="w-full sm:w-auto px-4 sm:px-6 py-2.5 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 shadow-lg shadow-[#d4af3733] transition flex items-center justify-center gap-2 whitespace-nowrap"
-                    >
-                      <Check className="w-4 h-4 stroke-[3px]" /> {events.find(e => e.id === formEvent.id) ? 'Atualizar Evento' : 'Publicar Evento'}
+                      <Check className="w-4 h-4 stroke-[3px]" /> {events.find(e => e.id === formEvent.id) ? 'Salvar' : 'Salvar Rascunho'}
                     </button>
                   </div>
                 </div>
@@ -3795,20 +3853,7 @@ export default function App() {
                           />
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                          <div>
-                            <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Status do Evento</label>
-                            <select 
-                              value={formEvent.status || 'Em breve'}
-                              onChange={(e) => setFormEvent({ ...formEvent, status: e.target.value as any })}
-                              className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all appearance-none text-white [&>option]:bg-[#0d0d0d]"
-                            >
-                              <option value="Ativo">Ativo (Único visível para compra)</option>
-                              <option value="Em breve">Em breve</option>
-                              <option value="Cancelado">Cancelado</option>
-                              <option value="Rascunho">Rascunho</option>
-                            </select>
-                          </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                           <div>
                             <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Categoria</label>
                             <select 
@@ -4503,13 +4548,13 @@ export default function App() {
             </>
           )}
         </div>
-      )}
+      ) : null}
     </main>
 
       {/* Footer */}
       <footer className="px-6 md:px-10 py-8 md:py-6 border-t border-[#ffffff1a] flex flex-col md:flex-row justify-between items-center gap-6 bg-[#0a0a0a]/50 backdrop-blur-sm relative z-40">
         <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-6 text-center md:text-left">
-          <p className="text-[9px] md:text-[10px] opacity-40 uppercase tracking-widest">© 2026 Eventix Eventos de Luxo</p>
+          <p className="text-[9px] md:text-[10px] opacity-40 uppercase tracking-widest">© 2026 Espaço Mix Eventos</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>

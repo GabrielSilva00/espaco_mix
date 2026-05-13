@@ -121,7 +121,7 @@ export const ProducerProfileForm = ({ onComplete }: { onComplete?: (data: any) =
               <label className="block text-[10px] uppercase tracking-[2px] opacity-70 mb-1 ml-1">URL Personalizada (Slug) *</label>
               <div className="flex items-center">
                 <span className="bg-white/5 border border-white/10 border-r-0 rounded-l-xl px-3 h-[48px] flex items-center text-sm opacity-50 font-mono">
-                  eventix.com/p/
+                  espacomix.com.br/p/
                 </span>
                 <input 
                   type="text" 

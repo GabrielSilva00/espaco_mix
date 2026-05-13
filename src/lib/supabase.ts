@@ -31,7 +31,7 @@ export interface Event {
   time?: string;
   end_time?: string;
   location: string;
-  status: 'Ativo' | 'Em breve' | 'Rascunho' | 'Finalizado' | 'Pausado';
+  status: 'Ativo' | 'Em breve' | 'Vendas liberadas' | 'Rascunho' | 'Finalizado' | 'Pausado';
   img?: string;
   price_type: 'unique' | 'gender';
   has_tables: boolean;

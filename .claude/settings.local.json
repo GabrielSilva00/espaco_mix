@@ -6,7 +6,9 @@
       "Bash(npx vite *)",
       "Bash(npm install *)",
       "Bash(npx tsc *)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(Select-String -Pattern '\"dev\"')",
+      "Bash(node -e \"const p = require\\('./package.json'\\); console.log\\(JSON.stringify\\({scripts: p.scripts, dependencies: p.dependencies?.playwright, devDependencies: p.devDependencies?.playwright}, null, 2\\)\\)\")"
     ]
   }
 }

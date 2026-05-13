@@ -122,7 +122,7 @@ export const RegisterProducerStep1 = ({
            <ShieldCheck className="w-5 h-5 text-[#d4af37]" />
            Conta de Produtor
          </h1>
-         <p className="text-[11px] uppercase tracking-[0.1em] opacity-50">Crie e gerencie seus eventos com a Eventix.</p>
+         <p className="text-[11px] uppercase tracking-[0.1em] opacity-50">Crie e gerencie seus eventos com o Espaço Mix.</p>
        </div>
 
        <form onSubmit={handleSubmit} className="space-y-4">
@@ -244,7 +244,7 @@ export const RegisterProducerStep1 = ({
                className="mt-1 accent-[#d4af37]"
              />
              <label htmlFor="terms" className="text-xs opacity-70 leading-relaxed cursor-pointer">
-               Li e aceito os <a href="#" className="text-[#d4af37] hover:underline">Termos de Uso</a> e a <a href="#" className="text-[#d4af37] hover:underline">Política de Privacidade</a> da Eventix.
+               Li e aceito os <a href="#" className="text-[#d4af37] hover:underline">Termos de Uso</a> e a <a href="#" className="text-[#d4af37] hover:underline">Política de Privacidade</a> do Espaço Mix.
              </label>
            </div>
            {errors.termsAccepted && <p className="text-red-400 text-[10px] uppercase tracking-widest mt-1 ml-1">{errors.termsAccepted}</p>}

@@ -40,7 +40,7 @@ export const FirstEventWizard = ({ onComplete }: { onComplete: () => void }) => 
         </p>
         <div className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center">
           <div className="flex items-center gap-2 bg-white/5 border border-white/10 p-3 rounded-xl max-w-md w-full">
-            <span className="text-white/40 text-xs truncate flex-1">https://eventix.com.br/e/{form.title.toLowerCase().replace(/\s+/g, '-')}</span>
+            <span className="text-white/40 text-xs truncate flex-1">https://espacomix.com.br/e/{form.title.toLowerCase().replace(/\s+/g, '-')}</span>
             <button className="text-[#d4af37] hover:text-white transition p-2 bg-white/5 rounded-lg" title="Copiar link">
               <Copy className="w-4 h-4" />
             </button>

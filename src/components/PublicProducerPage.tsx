@@ -46,7 +46,7 @@ export const PublicProducerPage = ({ profile }: { profile: ProducerProfile }) =>
              <div className="w-6 h-6 bg-[#d4af37] rotate-45 flex items-center justify-center">
               <span className="text-black font-bold -rotate-45 text-xs">E</span>
             </div>
-            <span className="font-serif text-[#d4af37] tracking-widest text-sm">EVENTIX</span>
+            <span className="font-serif text-[#d4af37] tracking-widest text-sm">ESPAÇO MIX</span>
           </div>
         </div>
       </nav>
@@ -155,7 +155,7 @@ export const PublicProducerPage = ({ profile }: { profile: ProducerProfile }) =>
               <div className="absolute top-0 right-0 w-32 h-32 bg-[#d4af37] opacity-5 blur-3xl rounded-full"></div>
               <h3 className="text-xs font-bold uppercase tracking-widest text-[#d4af37] mb-4">Sobre a Caixa</h3>
               <p className="text-sm text-white/70 leading-relaxed max-w-none prose prose-invert">
-                {profile.bio || 'Produtor cadastrado na Eventix.'}
+                {profile.bio || 'Produtor cadastrado na Espaço Mix.'}
               </p>
               
               <div className="mt-6 pt-6 border-t border-white/5 flex gap-4">
@@ -190,7 +190,7 @@ export const PublicProducerPage = ({ profile }: { profile: ProducerProfile }) =>
                <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl flex gap-3 items-center">
                  <CheckCircle className="w-5 h-5 text-blue-400 shrink-0" />
                  <p className="text-xs text-blue-400 font-medium">
-                   A identidade e documentação deste produtor foram verificadas pela Eventix.
+                   A identidade e documentação deste produtor foram verificadas pela Espaço Mix.
                  </p>
                </div>
             )}

@@ -19,7 +19,7 @@ export function AdminSettings({
 
   const defaultSettings = {
     // General
-    platformName: 'Eventix Eventos de Luxo',
+    platformName: 'Espaço Mix Eventos de Luxo',
     supportEmail: 'contato@eventix.com.br',
     supportPhone: '+55 11 99999-9999',
     mainUrl: 'https://eventix.com.br',
@@ -511,7 +511,7 @@ export function AdminSettings({
                       <select name="refundType" value={settings.refundType} onChange={handleChange} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition">
                          <option value="total">Integral (Boleto/PIX/Cartão)</option>
                          <option value="partial">Parcial (Dedução de taxa)</option>
-                         <option value="no-fee">Valor Nominal (Sem devolução da taxa Eventix)</option>
+                         <option value="no-fee">Valor Nominal (Sem devolução da taxa Espaço Mix)</option>
                       </select>
                    </div>
                    {settings.refundType === 'partial' && (
