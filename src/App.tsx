@@ -6,7 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsToolti
 import {
   supabase,
   signIn, signOut, signUp, getMyProfile,
-  getEvents, saveEvent as saveEventToDb, createEvent, deleteEvent, updateEventStatus, uploadEventImage,
+  getEvents, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations,
   getStaffAccounts, createStaffAccount,
   getSystemConfig, updateSystemConfig,
@@ -903,12 +903,20 @@ export default function App() {
   };
 
   const handleUpdateEventStatus = async (eventId: number, newStatus: Event['status']) => {
+    const evt = events.find(e => e.id === eventId);
+    if (!evt) return;
     try {
-      await updateEventStatus(eventId, newStatus);
-      setEvents(prev => prev.map(e => e.id === eventId ? { ...e, status: newStatus } : e));
+      const eventToSave = {
+        ...mapAppEventToDb({ ...evt, status: newStatus }),
+        created_by: loggedInUserId || undefined,
+      };
+      const saved = await saveEventToDb(eventToSave as any);
+      const mappedSaved = mapDbEventToApp(saved);
+      setEvents(prev => prev.map(e => e.id === eventId ? mappedSaved : e));
       showToast(`Status alterado para "${newStatus}"`, 'success');
     } catch (err: any) {
-      showToast('Erro ao alterar status: ' + err.message, 'error');
+      console.error('[handleUpdateEventStatus]', err);
+      showToast('Erro ao alterar status: ' + (err?.message || String(err)), 'error');
     }
   };
 
@@ -1607,7 +1615,7 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <div ref={adminScrollRef} className={`${isAdminLayout ? 'flex-1 h-screen overflow-y-auto custom-scrollbar relative' : 'w-full'} flex flex-col`}>
+      <div ref={adminScrollRef} data-lenis-prevent className={`${isAdminLayout ? 'flex-1 h-screen overflow-y-auto custom-scrollbar relative' : 'w-full'} flex flex-col`}>
         <main className={`${isAdminLayout ? 'pt-20 md:pt-10' : 'pt-16 md:pt-20'} pb-24 px-0 md:px-0 flex-1`}>
           {currentView === 'home' && <Home events={events} onEventClick={event => {
             setSelectedDashboardEvent(event.id);
@@ -3242,9 +3250,17 @@ export default function App() {
                     if (!evt) return null;
                     const statusColor = evt.status === 'Vendas liberadas' ? 'bg-green-500/20 text-green-400 border-green-500/30' : evt.status === 'Em breve' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-white/10 text-white/50 border-white/10';
                     return (
-                      <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold tracking-widest border ${statusColor}`}>
-                        {evt.status}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold tracking-widest border ${statusColor}`}>
+                          {evt.status}
+                        </span>
+                        <button
+                          onClick={() => handleEditEvent(evt)}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] text-[10px] font-bold uppercase tracking-widest hover:bg-[#d4af37]/20 transition"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" /> Editar Evento
+                        </button>
+                      </div>
                     );
                   })()}
                 </div>
@@ -3255,23 +3271,23 @@ export default function App() {
                   if (!evt) return null;
                   return (
                     <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-5">
-                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-4 font-bold">Status do Evento</p>
-                      <div className="flex flex-wrap gap-3">
+                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-4 font-bold text-center">Status do Evento</p>
+                      <div className="flex flex-wrap justify-center gap-3">
                         <button
                           onClick={() => handleUpdateEventStatus(evt.id, 'Rascunho')}
-                          className={`px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Rascunho' ? 'bg-white/20 text-white border-white/30' : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white'}`}
+                          className={`px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Rascunho' ? 'bg-white/20 text-white border-white/30' : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white'}`}
                         >
                           Rascunho
                         </button>
                         <button
                           onClick={() => handleUpdateEventStatus(evt.id, 'Em breve')}
-                          className={`px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Em breve' ? 'bg-blue-500/30 text-blue-300 border-blue-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-blue-500/10 hover:text-blue-300'}`}
+                          className={`px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Em breve' ? 'bg-blue-500/30 text-blue-300 border-blue-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-blue-500/10 hover:text-blue-300'}`}
                         >
                           Em breve
                         </button>
                         <button
                           onClick={() => handleUpdateEventStatus(evt.id, 'Vendas liberadas')}
-                          className={`px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Vendas liberadas' ? 'bg-green-500/30 text-green-300 border-green-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-green-500/10 hover:text-green-300'}`}
+                          className={`px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Vendas liberadas' ? 'bg-green-500/30 text-green-300 border-green-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-green-500/10 hover:text-green-300'}`}
                         >
                           Vendas liberadas
                         </button>
