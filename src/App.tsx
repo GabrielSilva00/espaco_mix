@@ -246,6 +246,31 @@ const mockTables: TableDef[] = Array.from({ length: 20 }).map((_, i) => ({
   price: 300,
 }));
 
+const STATUS_TO_DB: Record<Event['status'], string> = {
+  'Rascunho':          'draft',
+  'Em breve':          'upcoming',
+  'Ativo':             'active',
+  'Vendas liberadas':  'sales_open',
+  'Finalizado':        'ended',
+  'Pausado':           'paused',
+};
+
+const STATUS_FROM_DB: Record<string, Event['status']> = {
+  draft:       'Rascunho',
+  upcoming:    'Em breve',
+  active:      'Ativo',
+  sales_open:  'Vendas liberadas',
+  ended:       'Finalizado',
+  paused:      'Pausado',
+  // compatibilidade: valores em pt já salvos anteriormente
+  'Rascunho':          'Rascunho',
+  'Em breve':          'Em breve',
+  'Ativo':             'Ativo',
+  'Vendas liberadas':  'Vendas liberadas',
+  'Finalizado':        'Finalizado',
+  'Pausado':           'Pausado',
+};
+
 function mapDbEventToApp(db: any): Event {
   return {
     id: db.id,
@@ -256,7 +281,7 @@ function mapDbEventToApp(db: any): Event {
     time: db.time,
     endTime: db.end_time ?? db.endTime,
     location: db.location ?? '',
-    status: db.status ?? 'Em breve',
+    status: STATUS_FROM_DB[db.status] ?? 'Em breve',
     img: db.img ?? '',
     assignedStaffIds: db.assigned_staff ?? db.assignedStaffIds ?? [],
     priceType: db.price_type ?? db.priceType ?? 'unique',
@@ -313,7 +338,7 @@ function mapAppEventToDb(evt: Event): any {
     time: evt.time,
     end_time: evt.endTime,
     location: evt.location,
-    status: evt.status,
+    status: STATUS_TO_DB[evt.status] ?? evt.status,
     img: evt.img,
     assigned_staff: evt.assignedStaffIds,
     price_type: evt.priceType,
