@@ -10,7 +10,11 @@
       "Bash(Select-String -Pattern '\"dev\"')",
       "Bash(node -e \"const p = require\\('./package.json'\\); console.log\\(JSON.stringify\\({scripts: p.scripts, dependencies: p.dependencies?.playwright, devDependencies: p.devDependencies?.playwright}, null, 2\\)\\)\")",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(supabase *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Gabriel\\\\Portifolio\\\\espaco_mix\" -Recurse -Directory)",
+      "Bash(Select-Object -First 20)",
+      "Bash(Find src *)"
     ]
   }
 }

@@ -150,6 +150,8 @@ export interface ProducerApplication {
 export interface SystemConfig {
   id: string;
   site_name: string;
+  site_logo_url?: string;
+  primary_color?: string;
   venue_max_capacity?: number;
   platform_fee_percent?: number;
   max_tickets_per_purchase?: number;
@@ -158,7 +160,112 @@ export interface SystemConfig {
   default_event_status?: string;
   require_cpf?: boolean;
   limit_per_cpf?: number;
+  block_simultaneous?: boolean;
+  verify_email?: boolean;
+  late_participant_info?: boolean;
   payment_provider?: string;
+  // Transferências
+  allow_transfer?: boolean;
+  transfer_max_delay_hours?: number;
+  allow_multiple_transfers?: boolean;
+  transfer_require_email?: boolean;
+  // Notificações
+  notify_purchase?: boolean;
+  notify_transfer?: boolean;
+  notify_cancel?: boolean;
+  notify_reminder?: boolean;
+  // Cancelamento e reembolso
+  allow_cancellation?: boolean;
+  cancel_max_delay_hours?: number;
+  auto_refund?: boolean;
+  refund_type?: 'total' | 'partial';
+  cancel_fee_percent?: number;
+  refund_process_days?: number;
+  // Checkout / ingressos
+  show_fee_to_buyer?: boolean;
+  ticket_require_name?: boolean;
+  ticket_require_email?: boolean;
+  same_owner_for_all?: boolean;
+  // Gateway de pagamento
+  gateway_fee_percent?: number;
+  fee_payer?: 'buyer' | 'seller';
+  // Relatórios e suporte
+  enable_reports?: boolean;
+  allow_export?: boolean;
+  show_sensitive_data?: boolean;
+  support_email?: string;
+  support_phone?: string;
+  main_url?: string;
+}
+
+export interface BankingDetails {
+  id: string;
+  user_id: string;
+  pix_key?: string;
+  pix_key_type?: 'cpf' | 'cnpj' | 'email' | 'phone' | 'random';
+  pix_holder_name?: string;
+  bank_code?: string;
+  bank_name?: string;
+  account_type?: 'corrente' | 'poupanca';
+  agency?: string;
+  account?: string;
+  account_holder_name?: string;
+  account_holder_cpf?: string;
+  preferred_method?: 'PIX' | 'TED';
+  payout_schedule?: 'after_event' | 'weekly' | 'monthly';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TransferLog {
+  id: string;
+  ticket_id: string;
+  from_user_id?: string;
+  to_email: string;
+  to_user_id?: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'expired' | 'cancelled';
+  initiated_at: string;
+  resolved_at?: string;
+  expires_at?: string;
+}
+
+export interface Cancellation {
+  id: string;
+  reservation_id: string;
+  requested_by?: string;
+  reason?: string;
+  refund_amount?: number;
+  refund_type?: 'total' | 'partial' | 'none';
+  status: 'pending' | 'approved' | 'rejected' | 'processed';
+  processed_by?: string;
+  processed_at?: string;
+  gateway_refund_id?: string;
+  notes?: string;
+  created_at: string;
+}
+
+export interface SectorAccessCode {
+  id: string;
+  sector_id: string;
+  code: string;
+  label?: string;
+  max_uses?: number;
+  used_count: number;
+  expires_at?: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuditLog {
+  id: string;
+  user_id?: string;
+  action: string;
+  entity_type: string;
+  entity_id?: string;
+  changes?: Record<string, any>;
+  ip_address?: string;
+  user_agent?: string;
+  created_at: string;
 }
 
 // ─── Inicialização do cliente ─────────────────────────────────
@@ -756,4 +863,263 @@ export function subscribeToPendingApplications(
     .subscribe();
 
   return () => supabase.removeChannel(channel);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DADOS BANCÁRIOS DO PRODUTOR
+// ═══════════════════════════════════════════════════════════════
+
+export async function getBankingDetails(userId: string): Promise<BankingDetails | null> {
+  const { data, error } = await supabase
+    .from('banking_details')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as BankingDetails | null;
+}
+
+export async function saveBankingDetails(
+  userId: string,
+  details: Omit<BankingDetails, 'id' | 'user_id' | 'created_at' | 'updated_at'>
+): Promise<BankingDetails> {
+  const { data, error } = await supabase
+    .from('banking_details')
+    .upsert({ ...details, user_id: userId }, { onConflict: 'user_id' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as BankingDetails;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TRANSFERÊNCIAS DE INGRESSOS
+// ═══════════════════════════════════════════════════════════════
+
+export async function initiateTransfer(
+  ticketId: string,
+  fromUserId: string,
+  toEmail: string,
+  expiresInHours = 48
+): Promise<TransferLog> {
+  const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString();
+
+  const { data: log, error: logErr } = await supabase
+    .from('transfer_logs')
+    .insert({ ticket_id: ticketId, from_user_id: fromUserId, to_email: toEmail, expires_at: expiresAt })
+    .select()
+    .single();
+
+  if (logErr) throw logErr;
+
+  const { error: ticketErr } = await supabase
+    .from('ticket_items')
+    .update({ status: 'pending_transfer', pending_transfer_email: toEmail })
+    .eq('id', ticketId);
+
+  if (ticketErr) throw ticketErr;
+
+  return log as TransferLog;
+}
+
+export async function resolveTransfer(
+  transferId: string,
+  resolution: 'accepted' | 'rejected' | 'cancelled',
+  toUserId?: string
+): Promise<void> {
+  const { data: log, error: fetchErr } = await supabase
+    .from('transfer_logs')
+    .select('ticket_id')
+    .eq('id', transferId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+
+  await supabase
+    .from('transfer_logs')
+    .update({ status: resolution, resolved_at: new Date().toISOString(), to_user_id: toUserId })
+    .eq('id', transferId);
+
+  if (resolution === 'accepted') {
+    await supabase
+      .from('ticket_items')
+      .update({ status: 'transferred', pending_transfer_email: null, original_buyer_id: toUserId })
+      .eq('id', log.ticket_id);
+  } else {
+    await supabase
+      .from('ticket_items')
+      .update({ status: 'active', pending_transfer_email: null })
+      .eq('id', log.ticket_id);
+  }
+}
+
+export async function getTransferLogs(ticketId: string): Promise<TransferLog[]> {
+  const { data, error } = await supabase
+    .from('transfer_logs')
+    .select('*')
+    .eq('ticket_id', ticketId)
+    .order('initiated_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as TransferLog[];
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CANCELAMENTOS E REEMBOLSOS
+// ═══════════════════════════════════════════════════════════════
+
+export async function requestCancellation(
+  reservationId: string,
+  requestedBy: string,
+  reason: string,
+  refundType: Cancellation['refund_type'] = 'total'
+): Promise<Cancellation> {
+  const { data: reservation } = await supabase
+    .from('reservations')
+    .select('total')
+    .eq('id', reservationId)
+    .single();
+
+  const { data, error } = await supabase
+    .from('cancellations')
+    .insert({
+      reservation_id: reservationId,
+      requested_by: requestedBy,
+      reason,
+      refund_type: refundType,
+      refund_amount: reservation?.total ?? 0,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Cancellation;
+}
+
+export async function processCancellation(
+  cancellationId: string,
+  processedBy: string,
+  status: 'approved' | 'rejected',
+  gatewayRefundId?: string,
+  notes?: string
+): Promise<void> {
+  const { data: cancellation, error: fetchErr } = await supabase
+    .from('cancellations')
+    .select('reservation_id')
+    .eq('id', cancellationId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+
+  await supabase
+    .from('cancellations')
+    .update({
+      status: status === 'approved' ? 'processed' : 'rejected',
+      processed_by: processedBy,
+      processed_at: new Date().toISOString(),
+      gateway_refund_id: gatewayRefundId,
+      notes,
+    })
+    .eq('id', cancellationId);
+
+  if (status === 'approved') {
+    await supabase
+      .from('reservations')
+      .update({ payment_status: 'refunded', updated_at: new Date().toISOString() })
+      .eq('id', cancellation.reservation_id);
+  }
+}
+
+export async function getCancellations(reservationId: string): Promise<Cancellation[]> {
+  const { data, error } = await supabase
+    .from('cancellations')
+    .select('*')
+    .eq('reservation_id', reservationId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as Cancellation[];
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CÓDIGOS DE ACESSO A SETORES PRIVADOS
+// ═══════════════════════════════════════════════════════════════
+
+export async function createSectorAccessCode(
+  sectorId: string,
+  code: string,
+  options?: { label?: string; maxUses?: number; expiresAt?: string }
+): Promise<SectorAccessCode> {
+  const { data, error } = await supabase
+    .from('sector_access_codes')
+    .insert({
+      sector_id: sectorId,
+      code: code.toUpperCase().trim(),
+      label: options?.label,
+      max_uses: options?.maxUses,
+      expires_at: options?.expiresAt,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as SectorAccessCode;
+}
+
+export async function validateSectorCode(sectorId: string, code: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .rpc('validate_sector_code', { p_sector_id: sectorId, p_code: code });
+  if (error) throw error;
+  return data as boolean;
+}
+
+export async function getSectorAccessCodes(sectorId: string): Promise<SectorAccessCode[]> {
+  const { data, error } = await supabase
+    .from('sector_access_codes')
+    .select('*')
+    .eq('sector_id', sectorId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as SectorAccessCode[];
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUDITORIA
+// ═══════════════════════════════════════════════════════════════
+
+export async function logAudit(
+  userId: string | null,
+  action: string,
+  entityType: string,
+  entityId?: string,
+  changes?: Record<string, any>
+): Promise<void> {
+  await supabase
+    .from('audit_logs')
+    .insert({
+      user_id: userId,
+      action,
+      entity_type: entityType,
+      entity_id: entityId,
+      changes,
+      ip_address: null,
+    });
+}
+
+export async function getAuditLogs(filters?: {
+  entityType?: string;
+  entityId?: string;
+  userId?: string;
+  limit?: number;
+}): Promise<AuditLog[]> {
+  let query = supabase
+    .from('audit_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(filters?.limit ?? 100);
+
+  if (filters?.entityType) query = query.eq('entity_type', filters.entityType);
+  if (filters?.entityId)   query = query.eq('entity_id', filters.entityId);
+  if (filters?.userId)     query = query.eq('user_id', filters.userId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as AuditLog[];
 }

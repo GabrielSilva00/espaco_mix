@@ -84,18 +84,48 @@ export function AdminSettings({
 
   useEffect(() => {
     getSystemConfig()
-      .then((config) => {
+      .then((c) => {
         setSettings((prev) => ({
           ...prev,
-          platformName: config.site_name ?? prev.platformName,
-          venueMaxCapacity: config.venue_max_capacity ?? prev.venueMaxCapacity,
-          platformFee: String(config.platform_fee_percent ?? prev.platformFee),
-          maxTicketsPerPurchase: String(config.max_tickets_per_purchase ?? prev.maxTicketsPerPurchase),
-          cartExpirationTime: String(config.cart_expiration_minutes ?? prev.cartExpirationTime),
-          allowScheduled: config.allow_scheduled ?? prev.allowScheduled,
-          defaultEventStatus: config.default_event_status ?? prev.defaultEventStatus,
-          requireCPF: config.require_cpf ?? prev.requireCPF,
-          limitPerCPF: String(config.limit_per_cpf ?? prev.limitPerCPF),
+          platformName:         c.site_name              ?? prev.platformName,
+          supportEmail:         c.support_email          ?? prev.supportEmail,
+          supportPhone:         c.support_phone          ?? prev.supportPhone,
+          mainUrl:              c.main_url               ?? prev.mainUrl,
+          venueMaxCapacity:     c.venue_max_capacity     ?? prev.venueMaxCapacity,
+          platformFee:          String(c.platform_fee_percent    ?? prev.platformFee),
+          gatewayFee:           String(c.gateway_fee_percent     ?? prev.gatewayFee),
+          feePayer:             c.fee_payer              ?? prev.feePayer,
+          showFeeToBuyer:       c.show_fee_to_buyer      ?? prev.showFeeToBuyer,
+          paymentGateway:       c.payment_provider       ?? prev.paymentGateway,
+          maxTicketsPerPurchase: String(c.max_tickets_per_purchase ?? prev.maxTicketsPerPurchase),
+          cartExpirationTime:   String(c.cart_expiration_minutes  ?? prev.cartExpirationTime),
+          allowScheduled:       c.allow_scheduled        ?? prev.allowScheduled,
+          defaultEventStatus:   c.default_event_status   ?? prev.defaultEventStatus,
+          requireCPF:           c.require_cpf            ?? prev.requireCPF,
+          limitPerCPF:          String(c.limit_per_cpf   ?? prev.limitPerCPF),
+          blockSimultaneous:    c.block_simultaneous     ?? prev.blockSimultaneous,
+          verifyEmail:          c.verify_email           ?? prev.verifyEmail,
+          lateParticipantInfo:  c.late_participant_info  ?? prev.lateParticipantInfo,
+          ticketRequireName:    c.ticket_require_name    ?? prev.ticketRequireName,
+          ticketRequireEmail:   c.ticket_require_email   ?? prev.ticketRequireEmail,
+          sameOwnerForAll:      c.same_owner_for_all     ?? prev.sameOwnerForAll,
+          allowTransfer:        c.allow_transfer         ?? prev.allowTransfer,
+          transferMaxDelay:     String(c.transfer_max_delay_hours ?? prev.transferMaxDelay),
+          multipleTransfers:    c.allow_multiple_transfers ?? prev.multipleTransfers,
+          transferRequireEmail: c.transfer_require_email  ?? prev.transferRequireEmail,
+          allowCancellation:    c.allow_cancellation     ?? prev.allowCancellation,
+          cancelMaxDelay:       String(c.cancel_max_delay_hours ?? prev.cancelMaxDelay),
+          autoCancel:           c.auto_refund            ?? prev.autoCancel,
+          refundType:           c.refund_type            ?? prev.refundType,
+          cancelFee:            String(c.cancel_fee_percent ?? prev.cancelFee),
+          refundProcessTime:    String(c.refund_process_days ?? prev.refundProcessTime),
+          notifyPurchase:       c.notify_purchase        ?? prev.notifyPurchase,
+          notifyTransfer:       c.notify_transfer        ?? prev.notifyTransfer,
+          notifyCancel:         c.notify_cancel          ?? prev.notifyCancel,
+          notifyReminder:       c.notify_reminder        ?? prev.notifyReminder,
+          enableReports:        c.enable_reports         ?? prev.enableReports,
+          allowExport:          c.allow_export           ?? prev.allowExport,
+          showSensitiveData:    c.show_sensitive_data    ?? prev.showSensitiveData,
         }));
       })
       .catch((err) => console.error('[AdminSettings] Erro ao carregar config:', err));
@@ -113,15 +143,54 @@ export function AdminSettings({
   const handleSave = async () => {
     try {
       await updateSystemConfig({
-        site_name: settings.platformName,
-        venue_max_capacity: Number(settings.venueMaxCapacity) || undefined,
-        platform_fee_percent: Number(settings.platformFee) || undefined,
+        // Geral
+        site_name:               settings.platformName,
+        support_email:           settings.supportEmail,
+        support_phone:           settings.supportPhone,
+        main_url:                settings.mainUrl,
+        // Eventos
+        venue_max_capacity:      Number(settings.venueMaxCapacity) || undefined,
+        allow_scheduled:         settings.allowScheduled,
+        default_event_status:    settings.defaultEventStatus,
+        // Pagamento
+        platform_fee_percent:    Number(settings.platformFee) || undefined,
+        gateway_fee_percent:     Number(settings.gatewayFee) || undefined,
+        fee_payer:               settings.feePayer as 'buyer' | 'seller',
+        show_fee_to_buyer:       settings.showFeeToBuyer,
+        payment_provider:        settings.paymentGateway as any,
+        // Segurança
+        require_cpf:             settings.requireCPF,
+        limit_per_cpf:           Number(settings.limitPerCPF) || undefined,
+        block_simultaneous:      settings.blockSimultaneous,
+        verify_email:            settings.verifyEmail,
+        // Ingressos
         max_tickets_per_purchase: Number(settings.maxTicketsPerPurchase) || undefined,
-        cart_expiration_minutes: Number(settings.cartExpirationTime) || undefined,
-        allow_scheduled: settings.allowScheduled,
-        default_event_status: settings.defaultEventStatus,
-        require_cpf: settings.requireCPF,
-        limit_per_cpf: Number(settings.limitPerCPF) || undefined,
+        cart_expiration_minutes:  Number(settings.cartExpirationTime) || undefined,
+        late_participant_info:    settings.lateParticipantInfo,
+        ticket_require_name:      settings.ticketRequireName,
+        ticket_require_email:     settings.ticketRequireEmail,
+        same_owner_for_all:       settings.sameOwnerForAll,
+        // Transferências
+        allow_transfer:           settings.allowTransfer,
+        transfer_max_delay_hours: Number(settings.transferMaxDelay) || undefined,
+        allow_multiple_transfers: settings.multipleTransfers,
+        transfer_require_email:   settings.transferRequireEmail,
+        // Cancelamento
+        allow_cancellation:       settings.allowCancellation,
+        cancel_max_delay_hours:   Number(settings.cancelMaxDelay) || undefined,
+        auto_refund:              settings.autoCancel,
+        refund_type:              settings.refundType as 'total' | 'partial',
+        cancel_fee_percent:       Number(settings.cancelFee) || undefined,
+        refund_process_days:      Number(settings.refundProcessTime) || undefined,
+        // Notificações
+        notify_purchase:          settings.notifyPurchase,
+        notify_transfer:          settings.notifyTransfer,
+        notify_cancel:            settings.notifyCancel,
+        notify_reminder:          settings.notifyReminder,
+        // Relatórios
+        enable_reports:           settings.enableReports,
+        allow_export:             settings.allowExport,
+        show_sensitive_data:      settings.showSensitiveData,
       });
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
