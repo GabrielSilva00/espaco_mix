@@ -3800,7 +3800,7 @@ export default function App() {
                 <div className="sticky top-0 z-40 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-white/10 pb-4 pt-4 mb-10 flex justify-end">
                   <div className="flex flex-wrap sm:flex-nowrap w-full sm:w-auto gap-2 sm:gap-3">
                     <button
-                      onClick={() => { setDashboardMode('details'); setFormEvent(null); }}
+                      onClick={() => { setDashboardMode(events.find(e => e.id === formEvent.id) ? 'details' : 'list'); setFormEvent(null); }}
                       className="flex-1 sm:flex-none px-2 sm:px-5 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[9px] sm:text-[10px] uppercase font-bold tracking-widest hover:bg-white/10 transition text-center whitespace-nowrap"
                     >
                       Cancelar
