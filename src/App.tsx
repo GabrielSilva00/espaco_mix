@@ -354,6 +354,7 @@ function mapAppEventToDb(evt: Event): any {
     additional_info: evt.additionalInfo,
     pos_locations: evt.posLocations,
     category: evt.category,
+    capacity: evt.capacity ?? null,
     is_recurring: evt.isRecurring,
     custom_url: evt.customUrl,
     refund_policy: evt.refundPolicy,
@@ -492,6 +493,13 @@ export default function App() {
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [messageText, setMessageText] = useState('');
   const [actionToast, setActionToast] = useState<{message: string, type?: 'success' | 'warning' | 'error' | 'info'} | null>(null);
+  const [salesChartPeriod, setSalesChartPeriod] = useState<'7d' | '30d'>('7d');
+  const [consoleDisplayCount, setConsoleDisplayCount] = useState(4);
+  const [consoleSearchInput, setConsoleSearchInput] = useState('');
+  const [consoleSearch, setConsoleSearch] = useState('');
+  const [consoleFilter, setConsoleFilter] = useState<'todos' | 'data' | 'comprador' | 'tipo' | 'status'>('todos');
+  const [consoleFilterOpen, setConsoleFilterOpen] = useState(false);
+  const [releaseValidationFields, setReleaseValidationFields] = useState<string[]>([]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
@@ -499,16 +507,50 @@ export default function App() {
   }, [currentView, dashboardMode]);
 
   const downloadPDFList = () => {
-    const csvContent = "data:text/csv;charset=utf-8,Nome,Email,Tipo,Status\n" 
-      + buyers.map(b => `${b.name},${b.email},${b.type},${b.checkedIn ? 'Presente' : 'Aguardando'}`).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `lista_participantes_${selectedDashboardEvent}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast("Download da lista iniciado (CSV)", "success");
+    const win = window.open('', '_blank');
+    if (!win) {
+      showToast("Bloqueio de pop-up detectado. Permita pop-ups e tente novamente.", "warning");
+      return;
+    }
+    const evt = events.find(e => e.id === selectedDashboardEvent);
+    const rows = buyers.map((b, i) => `
+      <tr>
+        <td>${new Date(Date.now() - i * 3600000).toLocaleDateString('pt-BR')}</td>
+        <td><div class="name">${b.name}</div><div class="sub">${b.email}</div></td>
+        <td>${b.phone || '—'}</td>
+        <td class="badge">${b.type}</td>
+        <td class="status" style="color:${b.status==='Pago'?'#4ade80':b.status==='Cancelado'?'#f87171':'#fbbf24'}">${b.status}</td>
+        <td class="status" style="color:${b.checkedIn?'#4ade80':'#aaa'}">${b.checkedIn ? 'Presente' : 'Aguardando'}</td>
+      </tr>`).join('');
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Participantes</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:Georgia,serif;background:#0a0a0a;color:#fff;padding:40px}
+        header{border-bottom:1px solid #d4af3740;padding-bottom:20px;margin-bottom:24px}
+        h1{color:#d4af37;font-size:24px;margin-bottom:4px}
+        .meta{font-size:10px;text-transform:uppercase;letter-spacing:.15em;color:#555;margin-top:4px}
+        table{width:100%;border-collapse:collapse;font-size:12px}
+        th{padding:10px 14px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.2em;color:#555;border-bottom:1px solid #222;font-family:sans-serif}
+        td{padding:10px 14px;border-bottom:1px solid #1a1a1a;vertical-align:middle}
+        .name{font-weight:600;color:#fff;font-size:13px}
+        .sub{font-size:10px;color:#555;margin-top:2px}
+        .badge{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#d4af37}
+        .status{font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:600}
+        @media print{body{background:#fff;color:#000}h1{color:#333}.meta,.sub{color:#999}td{border-color:#eee}.name{color:#000}.badge,.status{color:#333 !important}}
+      </style>
+    </head><body>
+      <header>
+        <h1>${evt?.title || 'Lista de Participantes'}</h1>
+        <p class="meta">Total: ${buyers.length} participante${buyers.length !== 1 ? 's' : ''} &nbsp;•&nbsp; Gerado em ${new Date().toLocaleString('pt-BR')}</p>
+      </header>
+      <table>
+        <thead><tr><th>Data Compra</th><th>Comprador</th><th>Celular</th><th>Lote / Tipo</th><th>Status Pgto</th><th>Check-in</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <script>window.onload=function(){setTimeout(function(){window.print();window.close();},700);};</script>
+    </body></html>`);
+    win.document.close();
+    showToast("Gerando PDF da lista de participantes...", "success");
   };
 
   const downloadTicketPDF = (ticket: { id: string; name: string; ownerName?: string }) => {
@@ -905,31 +947,81 @@ export default function App() {
       setErrors({ form: 'Por favor, preencha os campos obrigatórios (Nome, Data, Local).' });
       return;
     }
+    const cap = formEvent.capacity ?? 0;
+    if (cap > 0) {
+      const totalQty = formEvent.batches.reduce((sum, b) => sum + b.sectors.reduce((s2, sec) => s2 + (sec.quantity ?? 0), 0), 0);
+      if (totalQty > cap) {
+        showToast(`Total de ingressos (${totalQty}) excede a capacidade máxima (${cap}). Corrija as quantidades antes de salvar.`, 'error');
+        return;
+      }
+    }
     try {
       const isNew = !events.some(e => e.id === formEvent.id);
       const statusToSave = isNew ? 'Rascunho' : (isDraft ? 'Rascunho' : formEvent.status);
       const eventToSave = {
         ...mapAppEventToDb({ ...formEvent, status: statusToSave }),
+        batches: formEvent.batches,
         created_by: loggedInUserId || undefined,
       };
       const saved = await saveEventToDb(eventToSave as any);
       const mappedSaved = mapDbEventToApp(saved);
+      // Preservar os lotes retornados pelo DB ou manter os do formEvent
+      const savedWithBatches = {
+        ...mappedSaved,
+        batches: (saved as any).batches?.length ? (saved as any).batches.map((b: any) => ({
+          id: b.id,
+          name: b.name ?? '',
+          startDate: b.start_date ?? '',
+          endDate: b.end_date ?? '',
+          sectors: (b.sectors ?? []).map((s: any) => ({
+            id: s.id,
+            name: s.name ?? '',
+            quantity: s.quantity ?? 0,
+            price: s.price ?? 0,
+            priceMale: s.price_male,
+            priceFemale: s.price_female,
+            convenienceFee: s.convenience_fee,
+            limitPerUser: s.limit_per_user,
+            visibility: s.visibility ?? 'public',
+            description: s.description,
+          })),
+        })) : formEvent.batches,
+      };
       setEvents(prev =>
-        prev.some(e => e.id === mappedSaved.id)
-          ? prev.map(e => e.id === mappedSaved.id ? mappedSaved : e)
-          : [...prev, mappedSaved]
+        prev.some(e => e.id === savedWithBatches.id)
+          ? prev.map(e => e.id === savedWithBatches.id ? savedWithBatches : e)
+          : [...prev, savedWithBatches]
       );
       setFormEvent(null);
       setDashboardMode('list');
+      setReleaseValidationFields([]);
       showToast(isNew ? 'Rascunho salvo! Acesse o painel do evento para publicar.' : 'Evento atualizado com sucesso!', 'success');
     } catch (err: any) {
-      showToast('Erro ao salvar evento: ' + err.message, 'error');
+      showToast('Erro ao salvar evento: ' + (err?.message || String(err)), 'error');
     }
   };
 
   const handleUpdateEventStatus = async (eventId: number, newStatus: Event['status']) => {
     const evt = events.find(e => e.id === eventId);
     if (!evt) return;
+
+    if (newStatus === 'Vendas liberadas') {
+      const missing: string[] = [];
+      if (!evt.title?.trim()) missing.push('Nome do Evento');
+      if (!evt.date) missing.push('Data');
+      if (!evt.time) missing.push('Horário');
+      if (!evt.location?.trim()) missing.push('Local');
+      if (!evt.img) missing.push('Imagem de Capa');
+      if (!evt.batches || evt.batches.length === 0) missing.push('Pelo menos 1 Lote de Ingressos');
+      if (missing.length > 0) {
+        setReleaseValidationFields(missing);
+        showToast(`Campos obrigatórios: ${missing.join(' • ')}`, 'error');
+        handleEditEvent(evt);
+        return;
+      }
+    }
+
+    setReleaseValidationFields([]);
     try {
       const eventToSave = {
         ...mapAppEventToDb({ ...evt, status: newStatus }),
@@ -3423,29 +3515,63 @@ export default function App() {
                   <div className="lg:col-span-2 space-y-8">
                     
                     {/* Gráfico de Vendas */}
-                    <div className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 h-[340px] flex flex-col">
+                    <div className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 flex flex-col" style={{minHeight: 340}}>
                        <div className="flex justify-between items-center mb-6">
-                         <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] flex items-center gap-2">
-                           <TrendingUp className="w-4 h-4" /> Evolução de Vendas
-                         </h3>
-                         <select className="bg-white/5 border border-white/10 rounded-lg text-xs px-3 py-1.5 focus:outline-none">
-                           <option>Últimos 7 dias</option>
-                           <option>Últimos 30 dias</option>
-                         </select>
+                         <div>
+                           <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] flex items-center gap-2">
+                             <TrendingUp className="w-4 h-4" /> Evolução de Vendas
+                           </h3>
+                           <p className="text-[10px] opacity-30 mt-1 uppercase tracking-widest">
+                             {salesChartPeriod === '7d' ? 'Últimos 7 dias' : 'Últimos 30 dias'}
+                           </p>
+                         </div>
+                         <div className="flex bg-white/5 border border-white/10 rounded-xl p-0.5">
+                           <button
+                             onClick={() => setSalesChartPeriod('7d')}
+                             className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${salesChartPeriod === '7d' ? 'bg-[#d4af37] text-black' : 'text-white/40 hover:text-white/70'}`}
+                           >
+                             7 dias
+                           </button>
+                           <button
+                             onClick={() => setSalesChartPeriod('30d')}
+                             className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${salesChartPeriod === '30d' ? 'bg-[#d4af37] text-black' : 'text-white/40 hover:text-white/70'}`}
+                           >
+                             30 dias
+                           </button>
+                         </div>
                        </div>
-                       <div className="flex-1 w-full relative min-h-0" style={{height: 240}}>
+                       <div className="flex gap-4 mb-4">
+                         <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#d4af37]"></div><span className="text-[9px] uppercase tracking-widest opacity-50">Ingressos</span></div>
+                         <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-white/40"></div><span className="text-[9px] uppercase tracking-widest opacity-50">Mesas</span></div>
+                       </div>
+                       <div className="flex-1 w-full relative min-h-0" style={{height: 220}}>
                          {(() => {
-                            const chartData = [
+                            const data7d = [
                               { name: 'Seg', ingressos: 15, mesas: 2 },
                               { name: 'Ter', ingressos: 30, mesas: 3 },
                               { name: 'Qua', ingressos: 25, mesas: 1 },
                               { name: 'Qui', ingressos: 40, mesas: 5 },
                               { name: 'Sex', ingressos: 60, mesas: 8 },
                               { name: 'Sab', ingressos: 95, mesas: 12 },
-                              { name: 'Dom', ingressos: 120, mesas: 18 }
+                              { name: 'Dom', ingressos: 120, mesas: 18 },
                             ];
+                            const data30d = [
+                              { name: 'S1', ingressos: 42, mesas: 5 },
+                              { name: 'S2', ingressos: 78, mesas: 9 },
+                              { name: 'S3', ingressos: 55, mesas: 6 },
+                              { name: 'S4', ingressos: 93, mesas: 11 },
+                              { name: 'S5', ingressos: 110, mesas: 14 },
+                              { name: 'S6', ingressos: 88, mesas: 10 },
+                              { name: 'S7', ingressos: 130, mesas: 17 },
+                              { name: 'S8', ingressos: 145, mesas: 20 },
+                              { name: 'S9', ingressos: 102, mesas: 13 },
+                              { name: 'S10', ingressos: 168, mesas: 22 },
+                              { name: 'S11', ingressos: 190, mesas: 26 },
+                              { name: 'S12', ingressos: 215, mesas: 30 },
+                            ];
+                            const chartData = salesChartPeriod === '7d' ? data7d : data30d;
                             return (
-                              <ResponsiveContainer width="100%" height={240}>
+                              <ResponsiveContainer width="100%" height={220}>
                                 <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
                                   <defs>
                                     <linearGradient id="colorIngressos" x1="0" y1="0" x2="0" y2="1">
@@ -3460,12 +3586,13 @@ export default function App() {
                                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
                                   <XAxis dataKey="name" stroke="#ffffff50" fontSize={10} tickLine={false} axisLine={false} />
                                   <YAxis stroke="#ffffff50" fontSize={10} tickLine={false} axisLine={false} />
-                                  <RechartsTooltip 
-                                    contentStyle={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', fontSize: '12px' }}
+                                  <RechartsTooltip
+                                    contentStyle={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', fontSize: '12px', padding: '8px 12px' }}
                                     itemStyle={{ color: '#fff' }}
+                                    labelStyle={{ color: '#d4af37', fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}
                                   />
-                                  <Area type="monotone" dataKey="ingressos" stroke="#d4af37" strokeWidth={2} fillOpacity={1} fill="url(#colorIngressos)" />
-                                  <Area type="monotone" dataKey="mesas" stroke="#ffffff40" strokeWidth={2} fillOpacity={1} fill="url(#colorMesas)" />
+                                  <Area type="monotone" dataKey="ingressos" name="Ingressos" stroke="#d4af37" strokeWidth={2} fillOpacity={1} fill="url(#colorIngressos)" dot={false} activeDot={{ r: 4, fill: '#d4af37', strokeWidth: 0 }} />
+                                  <Area type="monotone" dataKey="mesas" name="Mesas" stroke="#ffffff40" strokeWidth={2} fillOpacity={1} fill="url(#colorMesas)" dot={false} activeDot={{ r: 4, fill: '#fff', strokeWidth: 0 }} />
                                 </AreaChart>
                               </ResponsiveContainer>
                             );
@@ -3474,20 +3601,92 @@ export default function App() {
                     </div>
 
                     {/* Console de Acessos Recentes */}
+                    {(() => {
+                      const filteredBuyers = buyers
+                        .filter(b => {
+                          if (!consoleSearch) return true;
+                          const q = consoleSearch.toLowerCase();
+                          return b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q) || (b.cpf || '').includes(q);
+                        })
+                        .sort((a, b) => {
+                          if (consoleFilter === 'comprador') return a.name.localeCompare(b.name);
+                          if (consoleFilter === 'tipo') return a.type.localeCompare(b.type);
+                          if (consoleFilter === 'status') {
+                            const order = { Presente: 0, Aguardando: 1, Cancelado: 2 };
+                            const sa = a.checkedIn ? 'Presente' : a.status === 'Cancelado' ? 'Cancelado' : 'Aguardando';
+                            const sb = b.checkedIn ? 'Presente' : b.status === 'Cancelado' ? 'Cancelado' : 'Aguardando';
+                            return (order[sa as keyof typeof order] ?? 3) - (order[sb as keyof typeof order] ?? 3);
+                          }
+                          return 0;
+                        });
+                      const visibleBuyers = filteredBuyers.slice(0, consoleDisplayCount);
+                      const hasMore = filteredBuyers.length > consoleDisplayCount;
+                      return (
                      <div className="bg-[#0d0d0d] border border-white/10 rounded-3xl overflow-hidden flex flex-col">
-                      <div className="p-6 border-b border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                        <h2 className="text-base font-serif text-white flex items-center gap-2">
-                          Console de Entradas & Vendas
-                        </h2>
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                          <div className="relative flex-1 sm:flex-initial">
-                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
-                            <input type="text" placeholder="Buscar ingresso/nome..." onChange={(e) => { if(e.target.value.length > 2) showToast("Buscando por: " + e.target.value, "info"); }} className="bg-white/5 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-xs w-full sm:w-64 focus:border-[#d4af37] outline-none" />
+                      <div className="p-6 border-b border-white/5 flex flex-col gap-3">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                          <h2 className="text-base font-serif text-white">
+                            Console de Entradas & Vendas
+                          </h2>
+                          {/* Filtro dropdown */}
+                          <div className="relative">
+                            <button
+                              onClick={() => setConsoleFilterOpen(p => !p)}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-[10px] uppercase tracking-widest font-bold transition ${consoleFilter !== 'todos' ? 'bg-[#d4af37]/10 border-[#d4af37]/30 text-[#d4af37]' : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'}`}
+                            >
+                              <Filter className="w-3.5 h-3.5" />
+                              {consoleFilter === 'todos' ? 'Filtrar' : consoleFilter === 'data' ? 'Data de Compra' : consoleFilter === 'comprador' ? 'Comprador' : consoleFilter === 'tipo' ? 'Tipo' : 'Status Acesso'}
+                            </button>
+                            {consoleFilterOpen && (
+                              <div className="absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl z-30 overflow-hidden">
+                                {(['todos', 'data', 'comprador', 'tipo', 'status'] as const).map(opt => (
+                                  <button
+                                    key={opt}
+                                    onClick={() => { setConsoleFilter(opt); setConsoleFilterOpen(false); }}
+                                    className={`w-full text-left px-4 py-3 text-[10px] uppercase tracking-widest font-bold transition hover:bg-white/5 flex items-center justify-between ${consoleFilter === opt ? 'text-[#d4af37]' : 'text-white/50'}`}
+                                  >
+                                    {opt === 'todos' ? 'Todos' : opt === 'data' ? 'Data de Compra' : opt === 'comprador' ? 'Comprador' : opt === 'tipo' ? 'Tipo' : 'Status de Acesso'}
+                                    {consoleFilter === opt && <Check className="w-3 h-3" />}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                          <button onClick={() => showToast("Abrindo os filtros da tabela...", "info")} className="p-2.5 flex items-center justify-center bg-white/5 border border-white/10 rounded-lg hover:bg-white/10">
-                            <Filter className="w-4 h-4 opacity-50" />
-                          </button>
                         </div>
+                        {/* Campo de busca */}
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
+                            <input
+                              type="text"
+                              placeholder="Buscar ingresso / nome / CPF… (Enter para buscar)"
+                              value={consoleSearchInput}
+                              onChange={(e) => setConsoleSearchInput(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { setConsoleSearch(consoleSearchInput); setConsoleDisplayCount(4); } }}
+                              className="bg-white/5 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-xs w-full focus:border-[#d4af37] outline-none"
+                            />
+                          </div>
+                          {/* Botão de busca — aparece sempre no mobile, fica oculto em sm+ */}
+                          <button
+                            onClick={() => { setConsoleSearch(consoleSearchInput); setConsoleDisplayCount(4); }}
+                            className="sm:hidden px-4 py-2 bg-[#d4af37] text-black text-[10px] font-black uppercase tracking-widest rounded-lg flex items-center gap-1.5"
+                          >
+                            <Search className="w-3.5 h-3.5" /> Buscar
+                          </button>
+                          {consoleSearch && (
+                            <button
+                              onClick={() => { setConsoleSearch(''); setConsoleSearchInput(''); setConsoleDisplayCount(4); }}
+                              className="hidden sm:flex items-center gap-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-[10px] text-white/40 hover:text-white transition"
+                            >
+                              <X className="w-3 h-3" /> Limpar
+                            </button>
+                          )}
+                        </div>
+                        {consoleSearch && (
+                          <p className="text-[10px] opacity-40 uppercase tracking-widest">
+                            {filteredBuyers.length} resultado{filteredBuyers.length !== 1 ? 's' : ''} para "{consoleSearch}"
+                          </p>
+                        )}
                       </div>
 
                       <div className="overflow-x-auto">
@@ -3496,22 +3695,28 @@ export default function App() {
                             <tr className="border-b border-white/5 bg-white/[0.02]">
                               <th className="px-6 py-4 text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold">Data Compra</th>
                               <th className="px-6 py-4 text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold">Comprador</th>
-                              <th className="px-6 py-4 text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold">Tipo</th>
+                              <th className="px-6 py-4 text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold">Tipo / Lote</th>
                               <th className="px-6 py-4 text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold">Status Acesso</th>
                               <th className="px-6 py-4 text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold">Ação</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-white/5">
-                            {buyers.slice(0, 4).map((buyer, idx) => (
+                            {visibleBuyers.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="px-6 py-10 text-center text-xs opacity-30 italic">
+                                  Nenhum resultado encontrado.
+                                </td>
+                              </tr>
+                            ) : visibleBuyers.map((buyer, idx) => (
                               <tr key={buyer.id} className="hover:bg-white/[0.03] transition relative group">
                                 <td className="px-6 py-4">
                                    <div className="text-[11px] font-mono text-white/50">
                                      {new Date(Date.now() - idx * 3600000).toLocaleDateString('pt-BR')}
                                    </div>
                                 </td>
-                                <td className="px-6 py-4 flex flex-col justify-center">
-                                  <span className="text-[13px] font-medium text-white line-clamp-1">{buyer.name}</span>
-                                  <span className="text-[10px] opacity-40 lowercase line-clamp-1">{buyer.email}</span>
+                                <td className="px-6 py-4">
+                                  <div className="text-[13px] font-medium text-white line-clamp-1">{buyer.name}</div>
+                                  <div className="text-[10px] opacity-40 lowercase line-clamp-1">{buyer.email}</div>
                                 </td>
                                 <td className="px-6 py-4">
                                   <span className="inline-block px-2 py-0.5 bg-white/5 rounded border border-white/10 text-[9px] uppercase tracking-widest font-bold">
@@ -3523,7 +3728,7 @@ export default function App() {
                                     <span className="text-[9px] uppercase tracking-widest font-bold text-green-500 flex items-center gap-1">
                                       <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div> Presente
                                     </span>
-                                  ) : idx === 3 ? (
+                                  ) : buyer.status === 'Cancelado' ? (
                                     <span className="text-[9px] uppercase tracking-widest font-bold text-yellow-500 flex items-center gap-1">
                                       <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></div> Cancelado
                                     </span>
@@ -3543,10 +3748,19 @@ export default function App() {
                           </tbody>
                         </table>
                       </div>
-                      <div className="p-4 border-t border-white/5 text-center bg-white/[0.01]">
-                        <button onClick={() => { showToast("Carregando mais operações...", "info"); setTimeout(() => showToast("Registros carregados com sucesso.", "success"), 1500); }} className="text-[10px] uppercase font-bold tracking-widest opacity-50 hover:opacity-100 transition">Carregar mais operações</button>
-                      </div>
+                      {hasMore && (
+                        <div className="p-4 border-t border-white/5 text-center bg-white/[0.01]">
+                          <button
+                            onClick={() => setConsoleDisplayCount(prev => prev + 4)}
+                            className="text-[10px] uppercase font-bold tracking-widest opacity-50 hover:opacity-100 transition flex items-center gap-2 mx-auto"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" /> Carregar mais operações ({filteredBuyers.length - consoleDisplayCount} restantes)
+                          </button>
+                        </div>
+                      )}
                     </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Direita: Sidebar Actions */}
@@ -3841,7 +4055,7 @@ export default function App() {
                 <div className="sticky top-0 z-40 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-white/10 pb-4 pt-4 mb-10 flex justify-end">
                   <div className="flex flex-wrap sm:flex-nowrap w-full sm:w-auto gap-2 sm:gap-3">
                     <button
-                      onClick={() => { setDashboardMode(events.find(e => e.id === formEvent.id) ? 'details' : 'list'); setFormEvent(null); }}
+                      onClick={() => { setDashboardMode(events.find(e => e.id === formEvent.id) ? 'details' : 'list'); setFormEvent(null); setReleaseValidationFields([]); }}
                       className="flex-1 sm:flex-none px-2 sm:px-5 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[9px] sm:text-[10px] uppercase font-bold tracking-widest hover:bg-white/10 transition text-center whitespace-nowrap"
                     >
                       Cancelar
@@ -3882,15 +4096,25 @@ export default function App() {
                         <h3 className="text-base md:text-lg font-serif text-white uppercase tracking-widest">Informações Básicas</h3>
                       </div>
 
+                      {releaseValidationFields.length > 0 && (
+                        <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-2xl">
+                          <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-2 flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4" /> Preencha os campos obrigatórios para liberar vendas:
+                          </p>
+                          <ul className="text-red-400/80 text-xs space-y-0.5 list-disc list-inside">
+                            {releaseValidationFields.map(f => <li key={f}>{f}</li>)}
+                          </ul>
+                        </div>
+                      )}
                       <div className="space-y-6">
                         <div>
                           <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Nome do Evento *</label>
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             value={formEvent.title || ''}
-                            onChange={(e) => setFormEvent({ ...formEvent, title: e.target.value })}
+                            onChange={(e) => { setFormEvent({ ...formEvent, title: e.target.value }); if(e.target.value.trim()) setReleaseValidationFields(prev => prev.filter(f => f !== 'Nome do Evento')); }}
                             placeholder="Ex: Réveillon 2025"
-                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all"
+                            className={`w-full bg-white/[0.03] border rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all ${releaseValidationFields.includes('Nome do Evento') ? 'border-red-500/60 bg-red-500/5' : 'border-white/10'}`}
                           />
                         </div>
 
@@ -3965,20 +4189,20 @@ export default function App() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
                             <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Data Início *</label>
-                            <input 
-                              type="date" 
+                            <input
+                              type="date"
                               value={formEvent.date || ''}
-                              onChange={(e) => setFormEvent({ ...formEvent, date: e.target.value })}
-                              className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all [color-scheme:dark]"
+                              onChange={(e) => { setFormEvent({ ...formEvent, date: e.target.value }); if(e.target.value) setReleaseValidationFields(prev => prev.filter(f => f !== 'Data')); }}
+                              className={`w-full bg-white/[0.03] border rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all [color-scheme:dark] ${releaseValidationFields.includes('Data') ? 'border-red-500/60 bg-red-500/5' : 'border-white/10'}`}
                             />
                           </div>
                           <div>
                             <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Hora Abertura *</label>
-                            <input 
-                              type="time" 
+                            <input
+                              type="time"
                               value={formEvent.time || ''}
-                              onChange={(e) => setFormEvent({ ...formEvent, time: e.target.value })}
-                              className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all [color-scheme:dark]"
+                              onChange={(e) => { setFormEvent({ ...formEvent, time: e.target.value }); if(e.target.value) setReleaseValidationFields(prev => prev.filter(f => f !== 'Horário')); }}
+                              className={`w-full bg-white/[0.03] border rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all [color-scheme:dark] ${releaseValidationFields.includes('Horário') ? 'border-red-500/60 bg-red-500/5' : 'border-white/10'}`}
                             />
                           </div>
                         </div>
@@ -4008,12 +4232,12 @@ export default function App() {
                           <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Localização * (Busca Google Maps)</label>
                           <div className="relative">
                             <MapPin className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 opacity-30 text-[#d4af37]" />
-                            <input 
-                              type="text" 
+                            <input
+                              type="text"
                               value={formEvent.location}
-                              onChange={(e) => setFormEvent({ ...formEvent, location: e.target.value })}
+                              onChange={(e) => { setFormEvent({ ...formEvent, location: e.target.value }); if(e.target.value.trim()) setReleaseValidationFields(prev => prev.filter(f => f !== 'Local')); }}
                               placeholder="Busque o local ou digite o endereço..."
-                              className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl pl-12 pr-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all"
+                              className={`w-full bg-white/[0.03] border rounded-xl md:rounded-2xl pl-12 pr-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all ${releaseValidationFields.includes('Local') ? 'border-red-500/60 bg-red-500/5' : 'border-white/10'}`}
                             />
                             {/* Fake visual autocomplete suggestion drop if started typing */}
                             {formEvent.location.length > 3 && !formEvent.location.includes(',') && (
@@ -4067,6 +4291,36 @@ export default function App() {
                           </button>
                         </div>
                       </div>
+
+                      {/* Indicador de capacidade */}
+                      {(() => {
+                        const cap = formEvent.capacity ?? 0;
+                        const totalQty = formEvent.batches.reduce((sum, b) => sum + b.sectors.reduce((s2, sec) => s2 + (sec.quantity ?? 0), 0), 0);
+                        if (cap <= 0) return null;
+                        const pct = Math.min((totalQty / cap) * 100, 100);
+                        const over = totalQty > cap;
+                        return (
+                          <div className={`mb-8 p-4 rounded-2xl border ${over ? 'border-red-500/40 bg-red-500/5' : 'border-white/10 bg-white/[0.02]'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[9px] uppercase font-bold tracking-widest opacity-50">Uso de Capacidade</span>
+                              <span className={`text-sm font-bold ${over ? 'text-red-400' : 'text-[#d4af37]'}`}>
+                                {totalQty.toLocaleString('pt-BR')} / {cap.toLocaleString('pt-BR')} ingressos
+                              </span>
+                            </div>
+                            <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${over ? 'bg-red-500' : 'bg-[#d4af37]'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            {over && (
+                              <p className="mt-2 text-[10px] text-red-400 font-medium">
+                                Total de ingressos excede a capacidade máxima em {(totalQty - cap).toLocaleString('pt-BR')} ingresso(s). Reduza as quantidades.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       <div className="space-y-8">
                         {formEvent.batches.map((batch, batchIndex) => (
@@ -4174,17 +4428,33 @@ export default function App() {
                                     </div>
 
                                     <div className="md:col-span-2">
-                                      <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">QTD Ingressos</label>
-                                      <input 
-                                        type="number" 
-                                        value={sector.quantity}
-                                        onChange={(e) => {
-                                          const newBatches = [...formEvent.batches];
-                                          newBatches[batchIndex].sectors[sectorIndex].quantity = Number(e.target.value);
-                                          setFormEvent({ ...formEvent, batches: newBatches });
-                                        }}
-                                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none"
-                                      />
+                                      {(() => {
+                                        const cap = formEvent.capacity ?? 0;
+                                        const totalOthers = formEvent.batches.reduce((sum, b, bi) =>
+                                          sum + b.sectors.reduce((s2, sec, si) =>
+                                            bi === batchIndex && si === sectorIndex ? s2 : s2 + (sec.quantity ?? 0), 0), 0);
+                                        const maxAllowed = cap > 0 ? cap - totalOthers : Infinity;
+                                        const isOver = cap > 0 && sector.quantity > maxAllowed;
+                                        return (
+                                          <>
+                                            <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">QTD Ingressos</label>
+                                            <input
+                                              type="number"
+                                              value={sector.quantity}
+                                              onChange={(e) => {
+                                                const newVal = Number(e.target.value);
+                                                const newBatches = [...formEvent.batches];
+                                                newBatches[batchIndex].sectors[sectorIndex].quantity = newVal;
+                                                setFormEvent({ ...formEvent, batches: newBatches });
+                                              }}
+                                              className={`w-full bg-white/5 border rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none ${isOver ? 'border-red-500' : 'border-white/10'}`}
+                                            />
+                                            {isOver && (
+                                              <p className="mt-1 text-[9px] text-red-400">Máx: {maxAllowed > 0 ? maxAllowed : 0}</p>
+                                            )}
+                                          </>
+                                        );
+                                      })()}
                                     </div>
                                     
                                     <div className="md:col-span-1 flex items-end">
@@ -4701,14 +4971,42 @@ export default function App() {
                 {actionTicket.type === 'view' ? (
                   <div className="space-y-4">
                      <div className="bg-white/[0.03] p-4 rounded-xl border border-white/5 space-y-3">
-                       <p className="text-[10px] uppercase opacity-40 font-bold tracking-widest">Informações do Ingresso</p>
-                       <p className="text-sm"><strong>Nome:</strong> {actionTicket.data?.name}</p>
-                       <p className="text-sm"><strong>Email:</strong> {actionTicket.data?.email}</p>
-                       <p className="text-sm"><strong>Tipo:</strong> {actionTicket.data?.type}</p>
-                       <p className="text-sm flex items-center gap-2"><strong>Status:</strong> {actionTicket.data?.checkedIn ? <span className="text-green-500 font-bold text-xs uppercase tracking-widest">Acessou o evento</span> : <span className="text-yellow-500 font-bold text-xs uppercase tracking-widest">Aguardando</span>}</p>
-                       <p className="text-xs opacity-50 mt-4 pt-4 border-t border-white/10 font-mono">ID Interno: {actionTicket.data?.id}</p>
+                       <p className="text-[10px] uppercase opacity-40 font-bold tracking-widest mb-4">Informações do Ingresso</p>
+                       <div className="grid grid-cols-2 gap-3">
+                         <div>
+                           <p className="text-[9px] uppercase opacity-40 tracking-widest mb-1">Nome</p>
+                           <p className="text-sm font-medium text-white">{actionTicket.data?.name}</p>
+                         </div>
+                         <div>
+                           <p className="text-[9px] uppercase opacity-40 tracking-widest mb-1">Celular</p>
+                           <p className="text-sm font-medium text-white flex items-center gap-1">
+                             <Smartphone className="w-3 h-3 opacity-40" />
+                             {actionTicket.data?.phone || <span className="opacity-40 italic">Não informado</span>}
+                           </p>
+                         </div>
+                         <div>
+                           <p className="text-[9px] uppercase opacity-40 tracking-widest mb-1">Email</p>
+                           <p className="text-sm font-medium text-white break-all">{actionTicket.data?.email}</p>
+                         </div>
+                         <div>
+                           <p className="text-[9px] uppercase opacity-40 tracking-widest mb-1">Lote / Tipo</p>
+                           <span className="inline-block px-2 py-0.5 bg-[#d4af37]/10 border border-[#d4af37]/20 rounded text-[10px] uppercase tracking-widest font-bold text-[#d4af37]">
+                             {actionTicket.data?.type}
+                           </span>
+                         </div>
+                       </div>
+                       <div className="pt-3 border-t border-white/10">
+                         <p className="text-[9px] uppercase opacity-40 tracking-widest mb-2">Status de Acesso</p>
+                         {actionTicket.data?.checkedIn
+                           ? <span className="text-green-500 font-bold text-xs uppercase tracking-widest flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>Acessou o evento</span>
+                           : actionTicket.data?.status === 'Cancelado'
+                           ? <span className="text-yellow-500 font-bold text-xs uppercase tracking-widest flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-yellow-500"></div>Cancelado</span>
+                           : <span className="opacity-40 font-bold text-xs uppercase tracking-widest flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-white/30"></div>Aguardando Check-in</span>
+                         }
+                       </div>
+                       <p className="text-[10px] opacity-30 font-mono pt-2 border-t border-white/5">ID: {actionTicket.data?.id}</p>
                      </div>
-                     <button 
+                     <button
                         onClick={() => setActionTicket(null)}
                         className="w-full py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-xs uppercase font-bold tracking-widest transition"
                      >
@@ -4989,9 +5287,15 @@ export default function App() {
               </button>
               
               <h3 className="text-xl font-serif mb-2 text-white">Disparo em Massa</h3>
-              <p className="text-[10px] uppercase tracking-[0.2em] opacity-50 mb-6">
+              <p className="text-[10px] uppercase tracking-[0.2em] opacity-50 mb-2">
                 Envie um aviso para todos os clientes deste evento.
               </p>
+              <div className="flex items-center gap-2 mb-6 p-3 bg-white/5 border border-white/10 rounded-xl">
+                <Users className="w-4 h-4 text-[#d4af37] opacity-70" />
+                <span className="text-[11px] text-white/60">
+                  <strong className="text-white">{buyers.length}</strong> destinatário{buyers.length !== 1 ? 's' : ''} receberão este aviso
+                </span>
+              </div>
 
               <div className="space-y-4 mb-6">
                  <div>

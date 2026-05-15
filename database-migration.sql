@@ -511,3 +511,47 @@ UNION ALL
 
 SELECT 'audit_logs', COUNT(*) FROM information_schema.tables
 WHERE table_schema = 'public' AND table_name = 'audit_logs';
+
+
+-- ====================================================================
+-- PARTE 8: COLUNA CAPACITY NA TABELA EVENTS (Item 14)
+-- ====================================================================
+
+ALTER TABLE public.events
+  ADD COLUMN IF NOT EXISTS capacity integer;
+
+-- ====================================================================
+-- PARTE 9: POLÍTICAS DE STORAGE PARA event-images (Item 13)
+-- Execute após criar o bucket 'event-images' no Supabase Storage
+-- ====================================================================
+
+-- Leitura pública (qualquer um pode ver as imagens)
+CREATE POLICY IF NOT EXISTS "Public read event-images"
+  ON storage.objects FOR SELECT
+  TO public
+  USING (bucket_id = 'event-images');
+
+-- Upload por usuários autenticados
+CREATE POLICY IF NOT EXISTS "Authenticated upload event-images"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (bucket_id = 'event-images');
+
+-- Atualização por usuários autenticados
+CREATE POLICY IF NOT EXISTS "Authenticated update event-images"
+  ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (bucket_id = 'event-images');
+
+-- Exclusão por usuários autenticados
+CREATE POLICY IF NOT EXISTS "Authenticated delete event-images"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING (bucket_id = 'event-images');
+
+-- Verificação final
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'events'
+  AND column_name = 'capacity';
