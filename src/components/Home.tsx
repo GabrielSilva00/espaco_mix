@@ -162,7 +162,7 @@ export function Home({ events, onEventClick }: HomeProps) {
             <select
               value={filterDate}
               onChange={(e) => setFilterDate(e.target.value)}
-              className="px-4 py-3 bg-[#1a1a1a] border border-white/5 rounded-xl text-xs text-white uppercase tracking-widest font-bold focus:outline-none focus:border-[#d4af37]/50 transition appearance-none cursor-pointer"
+              className="select-field text-xs uppercase tracking-widest font-bold"
             >
               <option value="all">Qualquer Data</option>
               <option value="weekend">Este Fim de Semana</option>

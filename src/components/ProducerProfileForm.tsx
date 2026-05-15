@@ -141,11 +141,10 @@ export const ProducerProfileForm = ({ onComplete }: { onComplete?: (data: any) =
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] uppercase tracking-[2px] opacity-70 mb-1 ml-1">Categoria Principal *</label>
-                <select 
+                <select
                   value={form.categoria}
                   onChange={e => setForm({...form, categoria: e.target.value})}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition appearance-none"
-                  style={{ colorScheme: 'dark' }}
+                  className="w-full select-field min-h-[48px]"
                 >
                   <option value="">Selecione...</option>
                   <option value="Festas Eletrônicas">Festas Eletrônicas</option>

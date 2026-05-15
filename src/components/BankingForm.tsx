@@ -193,11 +193,10 @@ export const BankingForm = ({ onComplete }: { onComplete?: (data: any) => void }
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-[10px] uppercase tracking-[2px] opacity-50 mb-1 ml-1">Banco</label>
-                  <select 
+                  <select
                     value={form.bankCode}
                     onChange={e => setForm({...form, bankCode: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition appearance-none"
-                    style={{ colorScheme: 'dark' }}
+                    className="w-full select-field min-h-[48px]"
                   >
                     <option value="">Selecione o banco...</option>
                     {bancos.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}
@@ -208,11 +207,10 @@ export const BankingForm = ({ onComplete }: { onComplete?: (data: any) => void }
                 
                 <div>
                   <label className="block text-[10px] uppercase tracking-[2px] opacity-50 mb-1 ml-1">Tipo de Conta</label>
-                  <select 
+                  <select
                     value={form.accountType}
                     onChange={e => setForm({...form, accountType: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition appearance-none"
-                    style={{ colorScheme: 'dark' }}
+                    className="w-full select-field min-h-[48px]"
                   >
                     <option value="corrente">Conta Corrente</option>
                     <option value="poupanca">Conta Poupança</option>

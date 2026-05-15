@@ -41,6 +41,7 @@ export interface Event {
   additional_info?: string;
   pos_locations?: string;
   category?: string;
+  capacity?: number;
   is_recurring?: boolean;
   custom_url?: string;
   refund_policy?: string;
@@ -53,6 +54,7 @@ export interface Event {
   table_layout?: any;
   created_by?: string;
   assigned_staff?: string[];
+  updated_at?: string;
   batches?: Batch[];
 }
 
@@ -103,6 +105,7 @@ export interface Reservation {
   pix_copy_paste?: string;
   checked_in?: boolean;
   created_at: string;
+  updated_at?: string;
   ticket_items?: TicketItem[];
 }
 
@@ -144,6 +147,8 @@ export interface ProducerApplication {
   experience?: string;
   status: 'pending' | 'approved' | 'rejected';
   rejection_reason?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
   created_at: string;
 }
 
@@ -470,6 +475,9 @@ export async function saveEvent(event: Event): Promise<Event> {
 
   if (evErr) throw evErr;
 
+  const currentBatchIds: string[] = [];
+  const currentSectorIds: string[] = [];
+
   if (batches && batches.length > 0) {
     for (const batch of batches) {
       const { sectors, id, name, startDate, endDate, sort_order } = batch as any;
@@ -489,6 +497,7 @@ export async function saveEvent(event: Event): Promise<Event> {
         .single();
 
       if (bErr) throw bErr;
+      currentBatchIds.push(savedBatch.id);
 
       if (sectors && sectors.length > 0) {
         // 3. Upsert dos setores (mapeia camelCase → snake_case)
@@ -512,8 +521,31 @@ export async function saveEvent(event: Event): Promise<Event> {
           .upsert(sectorsToUpsert);
 
         if (sErr) throw sErr;
+
+        sectors.forEach((s: any) => currentSectorIds.push(s.id));
       }
     }
+  }
+
+  // 4. Remover lotes e setores que foram excluídos na UI
+  if (currentSectorIds.length > 0) {
+    await supabase
+      .from('sectors')
+      .delete()
+      .eq('event_id', savedEvent.id)
+      .not('id', 'in', `(${currentSectorIds.join(',')})`);
+  } else {
+    await supabase.from('sectors').delete().eq('event_id', savedEvent.id);
+  }
+
+  if (currentBatchIds.length > 0) {
+    await supabase
+      .from('batches')
+      .delete()
+      .eq('event_id', savedEvent.id)
+      .not('id', 'in', `(${currentBatchIds.join(',')})`);
+  } else {
+    await supabase.from('batches').delete().eq('event_id', savedEvent.id);
   }
 
   return savedEvent as Event;

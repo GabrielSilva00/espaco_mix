@@ -162,6 +162,7 @@ interface SessionUser {
   role: UserRole;
   isApprovedEventCreator: boolean;
   producerProfile?: ProducerProfile;
+  avatarUrl?: string;
 }
 
 interface Batch {
@@ -235,6 +236,7 @@ interface Buyer {
   value: number;
   status: 'Pago' | 'Pendente' | 'Cancelado';
   checkedIn?: boolean;
+  purchaseDate?: string;
 }
 
 // Dados simulados
@@ -364,7 +366,7 @@ function mapAppEventToDb(evt: Event): any {
 }
 
 export default function App() {
-  const [siteConfig, setSiteConfig] = useState<{ venueMaxCapacity: number | null }>({ venueMaxCapacity: null });
+  const [siteConfig, setSiteConfig] = useState<{ venueMaxCapacity: number | null; platformName: string; platformLogo: string | null }>({ venueMaxCapacity: null, platformName: 'Espaço Mix', platformLogo: null });
   const [tables, setTables] = useState<TableDef[]>(mockTables);
   const [selectedTables, setSelectedTables] = useState<number[]>([]);
   const [singleTickets, setSingleTickets] = useState<number>(0);
@@ -430,11 +432,11 @@ export default function App() {
   const [staffAccounts, setStaffAccounts] = useState<StaffAccount[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [buyers, setBuyers] = useState<Buyer[]>([
-    { id: '1', name: 'Gabriel Silva', email: 'gab@email.com', cpf: '123.456.789-00', phone: '(11) 98765-4321', type: 'Mesa #12', value: 300, status: 'Pago', checkedIn: false },
-    { id: '2', name: 'Ana Oliveira', email: 'ana@email.com', cpf: '234.567.890-11', phone: '(11) 97654-3210', type: '2x Ingressos', value: 100, status: 'Pago', checkedIn: false },
-    { id: '3', name: 'Marcos Costa', email: 'marcos@email.com', cpf: '345.678.901-22', phone: '(11) 96543-2109', type: 'Mesa #05', value: 300, status: 'Pendente', checkedIn: false },
-    { id: '4', name: 'Juliana Lima', email: 'ju@email.com', cpf: '456.789.012-33', phone: '(11) 95432-1098', type: '1x Ingresso', value: 50, status: 'Cancelado', checkedIn: false },
-    { id: '5', name: 'Ricardo Dias', email: 'ric@email.com', cpf: '567.890.123-44', phone: '(11) 94321-0987', type: 'Mesa #18', value: 300, status: 'Pago', checkedIn: false },
+    { id: '1', name: 'Gabriel Silva', email: 'gab@email.com', cpf: '123.456.789-00', phone: '(11) 98765-4321', type: 'Mesa #12', value: 300, status: 'Pago', checkedIn: false, purchaseDate: '2026-05-15T22:30:00' },
+    { id: '2', name: 'Ana Oliveira', email: 'ana@email.com', cpf: '234.567.890-11', phone: '(11) 97654-3210', type: '2x Ingressos', value: 100, status: 'Pago', checkedIn: false, purchaseDate: '2026-05-15T18:00:00' },
+    { id: '3', name: 'Marcos Costa', email: 'marcos@email.com', cpf: '345.678.901-22', phone: '(11) 96543-2109', type: 'Mesa #05', value: 300, status: 'Pendente', checkedIn: false, purchaseDate: '2026-05-14T14:20:00' },
+    { id: '4', name: 'Juliana Lima', email: 'ju@email.com', cpf: '456.789.012-33', phone: '(11) 95432-1098', type: '1x Ingresso', value: 50, status: 'Cancelado', checkedIn: false, purchaseDate: '2026-05-13T09:45:00' },
+    { id: '5', name: 'Ricardo Dias', email: 'ric@email.com', cpf: '567.890.123-44', phone: '(11) 94321-0987', type: 'Mesa #18', value: 300, status: 'Pago', checkedIn: false, purchaseDate: '2026-05-12T16:10:00' },
   ]);
   const [selectedBuyerForDetails, setSelectedBuyerForDetails] = useState<Buyer | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -462,6 +464,7 @@ export default function App() {
   const [forgotPasswordData, setForgotPasswordData] = useState({ email: '', code: '', newPassword: '' });
   const [checkInInput, setCheckInInput] = useState('');
   const [checkInSearch, setCheckInSearch] = useState('');
+  const [checkInSearchInput, setCheckInSearchInput] = useState('');
   const [checkInFilter, setCheckInFilter] = useState<'all'|'pendentes'|'check-ins'>('pendentes');
   const [checkInResult, setCheckInResult] = useState<{ type: 'success' | 'error' | 'warning', message: string, data?: Buyer } | null>(null);
   const [checkinTab, setCheckinTab] = useState<'scanner' | 'list'>('scanner');
@@ -486,6 +489,8 @@ export default function App() {
   const [sessionConflict, setSessionConflict] = useState<string[]>([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAdminSidebarCollapsed, setIsAdminSidebarCollapsed] = useState(false);
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const userDropdownRef = useRef<HTMLDivElement | null>(null);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [isTableLayoutEditorOpen, setIsTableLayoutEditorOpen] = useState(false);
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
@@ -506,6 +511,16 @@ export default function App() {
     adminScrollRef.current?.scrollTo(0, 0);
   }, [currentView, dashboardMode]);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
+        setIsUserDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const downloadPDFList = () => {
     const win = window.open('', '_blank');
     if (!win) {
@@ -513,9 +528,9 @@ export default function App() {
       return;
     }
     const evt = events.find(e => e.id === selectedDashboardEvent);
-    const rows = buyers.map((b, i) => `
+    const rows = buyers.map((b) => `
       <tr>
-        <td>${new Date(Date.now() - i * 3600000).toLocaleDateString('pt-BR')}</td>
+        <td>${b.purchaseDate ? new Date(b.purchaseDate).toLocaleDateString('pt-BR') : '—'}</td>
         <td><div class="name">${b.name}</div><div class="sub">${b.email}</div></td>
         <td>${b.phone || '—'}</td>
         <td class="badge">${b.type}</td>
@@ -664,7 +679,7 @@ export default function App() {
   // Carrega configurações do sistema
   useEffect(() => {
     getSystemConfig()
-      .then(cfg => setSiteConfig({ venueMaxCapacity: cfg.venue_max_capacity ?? null }))
+      .then(cfg => setSiteConfig(prev => ({ ...prev, venueMaxCapacity: cfg.venue_max_capacity ?? null, platformName: cfg.site_name ?? prev.platformName })))
       .catch(console.error);
   }, []);
 
@@ -835,17 +850,45 @@ export default function App() {
       return;
     }
     setAdminError('');
+    const emailForSignup = registerForm.email;
+    const passwordForSignup = registerForm.password;
+    const nameForSignup = registerForm.name;
     try {
-      await signUp(registerForm.email, registerForm.password, registerForm.name, {
+      await signUp(emailForSignup, passwordForSignup, nameForSignup, {
         phone: registerForm.phone,
         cpf: registerForm.cpf,
         birth_date: registerForm.birthDate,
       } as any);
       setVerificationStep(false);
-      showToast('Cadastro concluído! Verifique seu e-mail e faça login.', 'success');
-      setAuthTab('login');
       setRegisterForm({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
       setVerificationCode(['', '', '', '']);
+      setAdminForm({ username: '', password: '' });
+      try {
+        await signIn(emailForSignup, passwordForSignup);
+        const profile: Profile | null = await getMyProfile();
+        if (profile) {
+          const r = profile.role as UserRole;
+          setUserRole(r);
+          setLoggedInUserId(profile.id);
+          setIsApprovedEventCreator(profile.is_approved_event_creator);
+          setSessionUser({
+            id: profile.id,
+            email: profile.email,
+            name: profile.name,
+            role: r,
+            isApprovedEventCreator: profile.is_approved_event_creator,
+            avatarUrl: profile.avatar_url,
+          });
+          showToast(`Bem-vindo(a), ${nameForSignup.split(' ')[0]}!`, 'success');
+          setCurrentView('home');
+        } else {
+          showToast('Cadastro concluído! Faça login para continuar.', 'success');
+          setAuthTab('login');
+        }
+      } catch {
+        showToast('Cadastro concluído! Faça login para continuar.', 'success');
+        setAuthTab('login');
+      }
     } catch (err: any) {
       setAdminError(err.message ?? 'Erro ao criar conta');
     }
@@ -874,6 +917,7 @@ export default function App() {
         name: profile.name,
         role: role,
         isApprovedEventCreator: profile.is_approved_event_creator,
+        avatarUrl: profile.avatar_url,
       });
 
       if (role === 'admin' || role === 'developer') {
@@ -930,13 +974,21 @@ export default function App() {
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !formEvent) return;
+
+    // Exibe preview local imediatamente enquanto faz upload
+    const localPreviewUrl = URL.createObjectURL(file);
+    setFormEvent(prev => prev ? { ...prev, img: localPreviewUrl } : prev);
+    setReleaseValidationFields(prev => prev.filter(f => f !== 'Imagem de Capa'));
+
     try {
       showToast('Fazendo upload da imagem...', 'info');
       const url = await uploadEventImage(file, formEvent.id);
-      setFormEvent({ ...formEvent, img: url });
+      URL.revokeObjectURL(localPreviewUrl);
+      setFormEvent(prev => prev ? { ...prev, img: url } : prev);
       showToast('Imagem atualizada com sucesso!', 'success');
     } catch (err: any) {
-      showToast('Erro no upload: ' + err.message, 'error');
+      const msg = err?.message || String(err);
+      showToast(`Erro no upload: ${msg}. A pré-visualização está ativa, mas salve também via URL.`, 'error');
     }
     e.target.value = '';
   };
@@ -1322,10 +1374,13 @@ export default function App() {
             {/* Header */}
             <div className={`h-20 flex items-center ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-6'} border-b border-[#ffffff0a]`}>
               <div className="flex items-center gap-3 overflow-hidden">
-                <div className="w-8 h-8 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0">
-                  <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-base">E</span>
+                <div className="w-8 h-8 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0 overflow-hidden">
+                  {siteConfig.platformLogo
+                    ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-contain -rotate-45 scale-[1.4]" />
+                    : <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-base">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
+                  }
                 </div>
-                {!isAdminSidebarCollapsed && <span className="text-lg font-display tracking-widest text-[#d4af37] uppercase whitespace-nowrap animate-in fade-in">Espaço Mix</span>}
+                {!isAdminSidebarCollapsed && <span className="text-lg font-display tracking-widest text-[#d4af37] uppercase whitespace-nowrap animate-in fade-in">{siteConfig.platformName}</span>}
               </div>
               <button 
                 onClick={() => setIsAdminSidebarCollapsed(!isAdminSidebarCollapsed)} 
@@ -1379,41 +1434,22 @@ export default function App() {
               <div>
                 {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] items-center font-bold tracking-[0.2em] uppercase text-white/30 mb-3">Operação</h4>}
                 <div className="space-y-1">
-                  {selectedDashboardEvent && (
-                    <button 
-                      onClick={() => { setCurrentView('dashboard'); setDashboardMode('check-in'); setIsMobileMenuOpen(false); }}
-                      className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group ${currentView === 'dashboard' && dashboardMode === 'check-in' ? 'bg-[#d4af37]/10 text-[#d4af37]' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
-                      title={isAdminSidebarCollapsed ? "Controle de Acesso / Check-in" : ""}
-                    >
-                      <ScanLine className={`w-5 h-5 shrink-0 ${currentView === 'dashboard' && dashboardMode === 'check-in' ? 'text-[#d4af37]' : 'text-white/40 group-hover:text-white'}`} />
-                      {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Controle de Portaria</span>}
-                    </button>
-                  )}
                   <button 
                     onClick={() => { setCurrentView('dashboard'); setDashboardMode('staff'); setIsMobileMenuOpen(false); }}
                     className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group ${currentView === 'dashboard' && dashboardMode === 'staff' ? 'bg-[#d4af37]/10 text-[#d4af37]' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
                     title={isAdminSidebarCollapsed ? "Equipe e Colaboradores" : ""}
                   >
                     <Users className={`w-5 h-5 shrink-0 ${currentView === 'dashboard' && dashboardMode === 'staff' ? 'text-[#d4af37]' : 'text-white/40 group-hover:text-white'}`} />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Equipe (Staff)</span>}
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Equipe</span>}
                   </button>
                   {userRole === 'admin' && (
-                    <button 
-                      onClick={() => { setCurrentView('dashboard'); setDashboardMode('approval-queue'); setIsMobileMenuOpen(false); }}
-                      className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group ${currentView === 'dashboard' && dashboardMode === 'approval-queue' ? 'bg-[#d4af37]/10 text-[#d4af37]' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                    <button
+                      onClick={() => showToast('Em Desenvolvimento', 'info')}
+                      className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
                       title={isAdminSidebarCollapsed ? "Aprovações KYC" : ""}
                     >
-                      <ShieldCheck className={`w-5 h-5 shrink-0 ${currentView === 'dashboard' && dashboardMode === 'approval-queue' ? 'text-[#d4af37]' : 'text-white/40 group-hover:text-white'}`} />
-                      {!isAdminSidebarCollapsed && (
-                        <span className="text-sm font-medium whitespace-nowrap flex items-center gap-2">
-                          Aprovações KYC
-                          {pendingApprovalsCount > 0 && (
-                            <span className="px-2 py-0.5 rounded-full bg-[#d4af37] text-black text-[10px] font-black">
-                              {pendingApprovalsCount}
-                            </span>
-                          )}
-                        </span>
-                      )}
+                      <ShieldCheck className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
+                      {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Aprovações KYC</span>}
                     </button>
                   )}
                 </div>
@@ -1559,47 +1595,64 @@ export default function App() {
             )}
           </div>
           <div className="hidden md:flex items-center gap-4">
-            <button
-              onClick={() => {
-                if (isAtLeast('admin')) {
-                  setCurrentView('dashboard');
-                  handleCreateEvent();
-                } else if (userRole === 'client' && isApprovedEventCreator) {
-                  setCurrentView('dashboard');
-                  handleCreateEvent();
-                } else if (userRole === 'client' && !isApprovedEventCreator) {
-                  if ((sessionUser?.producerProfile as Record<string, unknown>)?.status === 'pending') {
-                    showToast('Seu cadastro de produtor está em análise. Aguarde a aprovação.', 'info');
-                  } else {
-                    setCurrentView('dashboard');
-                    setDashboardMode('producer-onboarding');
-                  }
-                } else {
-                  setAuthIntent('create_event');
-                  setAuthTab('register');
-                  setCurrentView('admin-login');
-                }
-              }}
-              className="text-[11px] font-bold tracking-[0.1em] uppercase text-[#d4af37] border border-[#d4af37]/30 px-4 py-2 rounded-lg hover:bg-[#d4af37]/10 transition-colors"
-            >
-              Criar Evento
-            </button>
             {role ? (
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col items-end">
-                  <p className="text-[8px] uppercase tracking-[2px] opacity-30 font-bold leading-none mb-1">{userRole === 'admin' ? 'Administrador' : userRole === 'developer' ? 'Desenvolvedor' : isStaff ? 'Colaborador' : 'Perfil'}</p>
-                  <p className="text-[10px] font-bold text-white/80">{userRole === 'developer' ? 'Admin / Dev' : userRole === 'admin' ? 'Admin Central' : isStaff ? staffAccounts.find(s => s.id === loggedInUserId)?.name || 'Equipe' : users.find(u => u.id === loggedInUserId)?.name || 'Sua Conta'}</p>
+              userRole === 'client' ? (
+                <div className="relative" ref={userDropdownRef}>
+                  <button
+                    onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                    className="flex flex-col items-center gap-0.5 cursor-pointer hover:opacity-80 transition"
+                  >
+                    {sessionUser?.avatarUrl ? (
+                      <img src={sessionUser.avatarUrl} alt="Perfil" className="w-9 h-9 rounded-full object-cover border border-[#d4af37]/30" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 flex items-center justify-center">
+                        <User className="w-4 h-4 text-[#d4af37]" />
+                      </div>
+                    )}
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-white/60">
+                      {sessionUser?.name?.split(' ')[0] || 'Conta'}
+                    </span>
+                  </button>
+                  {isUserDropdownOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                      <button
+                        onClick={() => { setCurrentView('profile'); setIsUserDropdownOpen(false); }}
+                        className="w-full px-4 py-3 text-left text-[10px] uppercase tracking-widest text-white/60 hover:bg-white/5 hover:text-white transition-colors border-b border-white/5 flex items-center gap-2"
+                      >
+                        <User className="w-3 h-3" /> Meu Perfil
+                      </button>
+                      <button
+                        onClick={() => { setCurrentView('reservations'); setIsUserDropdownOpen(false); }}
+                        className="w-full px-4 py-3 text-left text-[10px] uppercase tracking-widest text-white/60 hover:bg-white/5 hover:text-white transition-colors border-b border-white/5 flex items-center gap-2"
+                      >
+                        <Ticket className="w-3 h-3" /> Meus Ingressos
+                      </button>
+                      <button
+                        onClick={() => { handleLogout(); setIsUserDropdownOpen(false); }}
+                        className="w-full px-4 py-3 text-left text-[10px] uppercase tracking-widest text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors flex items-center gap-2"
+                      >
+                        <LogOut className="w-3 h-3" /> Sair da Conta
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <button 
-                  onClick={handleLogout}
-                  className="p-2 border border-red-500/20 text-red-500 rounded-lg hover:bg-red-500 transition duration-300 hover:text-white"
-                  title="Sair"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <div className="flex flex-col items-end">
+                    <p className="text-[8px] uppercase tracking-[2px] opacity-30 font-bold leading-none mb-1">{userRole === 'admin' ? 'Administrador' : userRole === 'developer' ? 'Desenvolvedor' : isStaff ? 'Colaborador' : 'Perfil'}</p>
+                    <p className="text-[10px] font-bold text-white/80">{userRole === 'developer' ? 'Admin / Dev' : userRole === 'admin' ? 'Admin Central' : isStaff ? staffAccounts.find(s => s.id === loggedInUserId)?.name || 'Equipe' : users.find(u => u.id === loggedInUserId)?.name || 'Sua Conta'}</p>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="p-2 border border-red-500/20 text-red-500 rounded-lg hover:bg-red-500 transition duration-300 hover:text-white"
+                    title="Sair"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              )
             ) : (
-              <button 
+              <button
                 onClick={() => {
                   setAuthIntent('buy');
                   setAuthTab('login');
@@ -1637,32 +1690,6 @@ export default function App() {
                     className={`py-4 px-6 text-left text-xs tracking-widest uppercase transition-colors border-b border-white/5 ${currentView === 'home' ? 'text-[#d4af37] font-bold' : 'text-white/60 hover:text-[#d4af37]'}`}
                   >Início</button>
                 )}
-                {!isPreviewingEvent && (
-                  <button
-                    onClick={() => {
-                      setIsMobileMenuOpen(false);
-                      if (isAtLeast('admin')) {
-                        setCurrentView('dashboard');
-                        handleCreateEvent();
-                      } else if (userRole === 'client' && isApprovedEventCreator) {
-                        setCurrentView('dashboard');
-                        handleCreateEvent();
-                      } else if (userRole === 'client' && !isApprovedEventCreator) {
-                        if ((sessionUser?.producerProfile as Record<string, unknown>)?.status === 'pending') {
-                          showToast('Seu cadastro de produtor está em análise. Aguarde a aprovação.', 'info');
-                        } else {
-                          setCurrentView('dashboard');
-                          setDashboardMode('producer-onboarding');
-                        }
-                      } else {
-                        setAuthIntent('create_event');
-                        setAuthTab('register');
-                        setCurrentView('admin-login');
-                      }
-                    }}
-                    className="py-4 px-6 text-left text-xs tracking-widest uppercase transition-colors border-b border-white/5 text-[#d4af37] font-bold"
-                  >Criar Evento</button>
-                )}
                 {role && (
                   <button 
                     onClick={() => { setCurrentView('reservations'); setIsMobileMenuOpen(false); }}
@@ -1680,11 +1707,11 @@ export default function App() {
                   <>
                     {userRole === 'admin' && (
                       <>
-                        <button 
-                          onClick={() => { setCurrentView('dashboard'); setDashboardMode('approval-queue'); setIsMobileMenuOpen(false); }}
-                          className={`py-4 px-6 text-left text-xs tracking-widest uppercase transition-colors border-b border-white/5 ${currentView === 'dashboard' && dashboardMode === 'approval-queue' ? 'text-[#d4af37] font-bold' : 'text-white/60 hover:text-[#d4af37]'}`}
+                        <button
+                          onClick={() => showToast('Em Desenvolvimento', 'info')}
+                          className="py-4 px-6 text-left text-xs tracking-widest uppercase transition-colors border-b border-white/5 text-white/30 cursor-not-allowed opacity-60"
                         >
-                          Aprovações KYC {pendingApprovalsCount > 0 ? `(${pendingApprovalsCount})` : ''}
+                          Aprovações KYC
                         </button>
                         <button 
                           onClick={() => { setCurrentView('dashboard'); setDashboardMode('staff'); setIsMobileMenuOpen(false); }}
@@ -1701,22 +1728,57 @@ export default function App() {
 
                 <div className="p-6">
                   {role ? (
-                    <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
-                      <div className="flex flex-col">
-                        <p className="text-[9px] uppercase tracking-[2px] opacity-40 font-bold leading-none mb-1">
-                          {userRole === 'admin' ? 'Administrador' : userRole === 'developer' ? 'Desenvolvedor' : isStaff ? 'Colaborador' : 'Perfil'}
-                        </p>
-                        <p className="text-xs font-bold text-white">{userRole === 'developer' ? 'Admin / Dev' : userRole === 'admin' ? 'Admin Central' : isStaff ? staffAccounts.find(s => s.id === loggedInUserId)?.name || 'Equipe' : users.find(u => u.id === loggedInUserId)?.name || 'Sua Conta'}</p>
+                    userRole === 'client' ? (
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                        <div className="flex items-center gap-3 mb-4">
+                          {sessionUser?.avatarUrl ? (
+                            <img src={sessionUser.avatarUrl} alt="Perfil" className="w-10 h-10 rounded-full object-cover border border-[#d4af37]/30" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 flex items-center justify-center">
+                              <User className="w-5 h-5 text-[#d4af37]" />
+                            </div>
+                          )}
+                          <p className="text-sm font-bold text-white">{sessionUser?.name?.split(' ')[0] || 'Conta'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <button
+                            onClick={() => { setCurrentView('profile'); setIsMobileMenuOpen(false); }}
+                            className="w-full py-2.5 px-3 text-left text-[10px] uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors flex items-center gap-2"
+                          >
+                            <User className="w-3 h-3" /> Meu Perfil
+                          </button>
+                          <button
+                            onClick={() => { setCurrentView('reservations'); setIsMobileMenuOpen(false); }}
+                            className="w-full py-2.5 px-3 text-left text-[10px] uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors flex items-center gap-2"
+                          >
+                            <Ticket className="w-3 h-3" /> Meus Ingressos
+                          </button>
+                          <button
+                            onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
+                            className="w-full py-2.5 px-3 text-left text-[10px] uppercase tracking-widest text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors flex items-center gap-2"
+                          >
+                            <LogOut className="w-3 h-3" /> Sair da Conta
+                          </button>
+                        </div>
                       </div>
-                      <button 
-                        onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
-                        className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition duration-300"
-                      >
-                        <LogOut className="w-5 h-5" />
-                      </button>
-                    </div>
+                    ) : (
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <p className="text-[9px] uppercase tracking-[2px] opacity-40 font-bold leading-none mb-1">
+                            {userRole === 'admin' ? 'Administrador' : userRole === 'developer' ? 'Desenvolvedor' : isStaff ? 'Colaborador' : 'Perfil'}
+                          </p>
+                          <p className="text-xs font-bold text-white">{userRole === 'developer' ? 'Admin / Dev' : userRole === 'admin' ? 'Admin Central' : isStaff ? staffAccounts.find(s => s.id === loggedInUserId)?.name || 'Equipe' : users.find(u => u.id === loggedInUserId)?.name || 'Sua Conta'}</p>
+                        </div>
+                        <button
+                          onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
+                          className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition duration-300"
+                        >
+                          <LogOut className="w-5 h-5" />
+                        </button>
+                      </div>
+                    )
                   ) : (
-                    <button 
+                    <button
                       onClick={() => { setCurrentView('admin-login'); setIsMobileMenuOpen(false); }}
                       className="w-full py-4 text-xs font-bold tracking-[0.1em] uppercase text-[#0a0a0a] bg-[#d4af37] rounded-xl shadow-[0_0_20px_rgba(212,175,55,0.15)] hover:brightness-110 active:scale-95 transition-all"
                     >
@@ -3041,7 +3103,7 @@ export default function App() {
                               value={adminForm.username}
                               onChange={(e) => setAdminForm({...adminForm, username: e.target.value})}
                               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
-                              placeholder="ex: admin"
+                              placeholder="seu@email.com"
                             />
                           </div>
                           <div>
@@ -3329,27 +3391,24 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shrink-0"></div>
-                        <h1 className="text-lg md:text-3xl font-serif text-[#d4af37] leading-tight">
-                          {dashboardMode === 'staff' ? 'Equipe de Colaboradores' : (events.find(e => e.id === selectedDashboardEvent)?.title || 'Evento')}
-                        </h1>
-                      </div>
-                      <p className="text-[9px] md:text-xs uppercase tracking-widest opacity-40 font-medium">
-                        {dashboardMode === 'staff' ? (
-                          'Gestão global de acessos e equipe de campo'
-                        ) : (
-                          <>
-                            <span className="text-[#d4af37]/60 font-bold">ID: #DRK-2026-00{selectedDashboardEvent}</span>
-                            <span className="mx-2 opacity-20">•</span>
-                            <span>Local: {events.find(e => e.id === selectedDashboardEvent)?.location}</span>
-                          </>
-                        )}
-                      </p>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shrink-0"></div>
+                      <h1 className="text-lg md:text-3xl font-serif text-[#d4af37] leading-tight">
+                        {dashboardMode === 'staff' ? 'Equipe de Colaboradores' : (events.find(e => e.id === selectedDashboardEvent)?.title || 'Evento')}
+                      </h1>
                     </div>
-
+                    <p className="text-[9px] md:text-xs uppercase tracking-widest opacity-40 font-medium">
+                      {dashboardMode === 'staff' ? (
+                        'Gestão global de acessos e equipe de campo'
+                      ) : (
+                        <>
+                          <span className="text-[#d4af37]/60 font-bold">ID: #DRK-2026-00{selectedDashboardEvent}</span>
+                          <span className="mx-2 opacity-20">•</span>
+                          <span>Local: {events.find(e => e.id === selectedDashboardEvent)?.location}</span>
+                        </>
+                      )}
+                    </p>
                   </div>
                 </div>
 
@@ -3367,10 +3426,16 @@ export default function App() {
                     if (!evt) return null;
                     const statusColor = evt.status === 'Vendas liberadas' ? 'bg-green-500/20 text-green-400 border-green-500/30' : evt.status === 'Em breve' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-white/10 text-white/50 border-white/10';
                     return (
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold tracking-widest border ${statusColor}`}>
                           {evt.status}
                         </span>
+                        <button
+                          onClick={() => setDashboardMode('check-in')}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/70 text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition"
+                        >
+                          <ScanLine className="w-3.5 h-3.5" /> Controle de Portaria
+                        </button>
                         <button
                           onClick={() => handleEditEvent(evt)}
                           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] text-[10px] font-bold uppercase tracking-widest hover:bg-[#d4af37]/20 transition"
@@ -3609,6 +3674,11 @@ export default function App() {
                           return b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q) || (b.cpf || '').includes(q);
                         })
                         .sort((a, b) => {
+                          if (consoleFilter === 'data') {
+                            const da = a.purchaseDate ? new Date(a.purchaseDate).getTime() : 0;
+                            const db = b.purchaseDate ? new Date(b.purchaseDate).getTime() : 0;
+                            return db - da;
+                          }
                           if (consoleFilter === 'comprador') return a.name.localeCompare(b.name);
                           if (consoleFilter === 'tipo') return a.type.localeCompare(b.type);
                           if (consoleFilter === 'status') {
@@ -3707,11 +3777,18 @@ export default function App() {
                                   Nenhum resultado encontrado.
                                 </td>
                               </tr>
-                            ) : visibleBuyers.map((buyer, idx) => (
+                            ) : visibleBuyers.map((buyer) => (
                               <tr key={buyer.id} className="hover:bg-white/[0.03] transition relative group">
                                 <td className="px-6 py-4">
                                    <div className="text-[11px] font-mono text-white/50">
-                                     {new Date(Date.now() - idx * 3600000).toLocaleDateString('pt-BR')}
+                                     {buyer.purchaseDate
+                                       ? new Date(buyer.purchaseDate).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                       : '—'}
+                                   </div>
+                                   <div className="text-[9px] font-mono text-white/25 mt-0.5">
+                                     {buyer.purchaseDate
+                                       ? new Date(buyer.purchaseDate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                       : ''}
                                    </div>
                                 </td>
                                 <td className="px-6 py-4">
@@ -3908,6 +3985,7 @@ export default function App() {
                             onScan={(detectedCodes) => { if(detectedCodes?.[0]?.rawValue) handleCheckIn(detectedCodes[0].rawValue); }}
                             formats={['qr_code']}
                             allowMultiple={false}
+                            constraints={{ facingMode: { ideal: 'environment' } }}
                             onError={(err) => { console.warn('[Scanner]', err); }}
                           />
                           
@@ -3969,15 +4047,24 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6">
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                        <div className="w-full sm:max-w-xs relative">
-                          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-50 text-white" />
-                          <input 
-                             type="text" 
-                             placeholder="Buscar por nome ou CPF..." 
-                             value={checkInSearch}
-                             onChange={(e) => setCheckInSearch(e.target.value)}
-                             className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-xs focus:border-[#d4af37] outline-none text-white"
-                          />
+                        <div className="flex gap-2 w-full sm:max-w-xs">
+                          <div className="relative flex-1">
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-50 text-white" />
+                            <input
+                               type="text"
+                               placeholder="Buscar por nome ou CPF..."
+                               value={checkInSearchInput}
+                               onChange={(e) => setCheckInSearchInput(e.target.value)}
+                               onKeyDown={(e) => e.key === 'Enter' && setCheckInSearch(checkInSearchInput)}
+                               className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-xs focus:border-[#d4af37] outline-none text-white"
+                            />
+                          </div>
+                          <button
+                            onClick={() => setCheckInSearch(checkInSearchInput)}
+                            className="sm:hidden px-4 py-3 bg-[#d4af37] text-black text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 active:scale-95 transition-all"
+                          >
+                            Buscar
+                          </button>
                         </div>
                         <div className="flex justify-center bg-white/5 rounded-xl p-1 w-full sm:w-auto overflow-x-auto custom-scrollbar">
                            <button onClick={() => setCheckInFilter('all')} className={`px-4 py-2 text-[9px] uppercase font-bold tracking-widest rounded-lg whitespace-nowrap ${checkInFilter === 'all' ? 'bg-white/10 text-white' : 'text-white/40'}`}>Todos</button>
@@ -3997,10 +4084,12 @@ export default function App() {
                                    {b.checkedIn ? <Check className="w-5 h-5" /> : <User className="w-5 h-5" />}
                                 </div>
                                 <div className="flex flex-col">
-                                  <p className={`text-sm font-bold leading-tight ${b.checkedIn ? 'text-green-100' : 'text-white'}`}>{b.name}</p>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className={`text-sm font-bold leading-tight ${b.checkedIn ? 'text-green-100' : 'text-white'}`}>{b.name}</p>
+                                    <span className="text-[10px] font-mono opacity-50">{b.cpf}</span>
+                                  </div>
                                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                                     <span className="text-[8px] px-1.5 py-0.5 bg-white/5 rounded text-white/40 uppercase tracking-widest font-bold">{b.type}</span>
-                                    <span className="text-[8px] opacity-40">{b.cpf}</span>
                                   </div>
                                 </div>
                               </div>
@@ -4121,10 +4210,10 @@ export default function App() {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                           <div>
                             <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Categoria</label>
-                            <select 
+                            <select
                               value={formEvent.category || ''}
                               onChange={(e) => setFormEvent({ ...formEvent, category: e.target.value })}
-                              className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all appearance-none text-white [&>option]:bg-[#0d0d0d]"
+                              className="w-full select-field md:rounded-2xl"
                             >
                               <option value="">Selecione uma categoria...</option>
                               <option value="Festa">Festa / Balada</option>
@@ -4136,10 +4225,10 @@ export default function App() {
                           </div>
                           <div>
                             <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Classificação Indicativa</label>
-                            <select 
+                            <select
                               value={formEvent.ageRating || ''}
                               onChange={(e) => setFormEvent({ ...formEvent, ageRating: e.target.value })}
-                              className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all appearance-none text-white [&>option]:bg-[#0d0d0d]"
+                              className="w-full select-field md:rounded-2xl"
                             >
                               <option value="">Selecione...</option>
                               <option value="Livre">Livre</option>
@@ -4265,7 +4354,7 @@ export default function App() {
                     </div>
 
                     {/* Section 4: Configuração de Lotes */}
-                    <div id="lotes" className="bg-[#0d0d0d] border border-white/10 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-10 shadow-2xl">
+                    <div id="lotes" className={`bg-[#0d0d0d] border rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-10 shadow-2xl ${releaseValidationFields.includes('Pelo menos 1 Lote de Ingressos') ? 'border-red-500/40' : 'border-white/10'}`}>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-8 md:mb-10">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-[#d4af37]/10 flex items-center justify-center text-[#d4af37]">
@@ -4370,14 +4459,16 @@ export default function App() {
                                     {formEvent.priceType === 'unique' ? (
                                       <div className="md:col-span-2">
                                         <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">+ Preço (R$)</label>
-                                        <input 
-                                          type="number" 
-                                          value={sector.price}
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={sector.price === 0 ? '' : sector.price}
                                           onChange={(e) => {
                                             const newBatches = [...formEvent.batches];
-                                            newBatches[batchIndex].sectors[sectorIndex].price = Number(e.target.value);
+                                            newBatches[batchIndex].sectors[sectorIndex].price = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
                                             setFormEvent({ ...formEvent, batches: newBatches });
                                           }}
+                                          placeholder="0,00"
                                           className="w-full bg-[#d4af37]/10 text-[#d4af37] font-bold border border-[#d4af37]/30 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none"
                                         />
                                       </div>
@@ -4434,19 +4525,22 @@ export default function App() {
                                           sum + b.sectors.reduce((s2, sec, si) =>
                                             bi === batchIndex && si === sectorIndex ? s2 : s2 + (sec.quantity ?? 0), 0), 0);
                                         const maxAllowed = cap > 0 ? cap - totalOthers : Infinity;
-                                        const isOver = cap > 0 && sector.quantity > maxAllowed;
+                                        const isOver = cap > 0 && (sector.quantity ?? 0) > maxAllowed;
                                         return (
                                           <>
                                             <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">QTD Ingressos</label>
                                             <input
                                               type="number"
-                                              value={sector.quantity}
+                                              min="0"
+                                              value={sector.quantity === 0 ? '' : sector.quantity}
                                               onChange={(e) => {
-                                                const newVal = Number(e.target.value);
+                                                const raw = e.target.value;
+                                                const newVal = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
                                                 const newBatches = [...formEvent.batches];
                                                 newBatches[batchIndex].sectors[sectorIndex].quantity = newVal;
                                                 setFormEvent({ ...formEvent, batches: newBatches });
                                               }}
+                                              placeholder="0"
                                               className={`w-full bg-white/5 border rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none ${isOver ? 'border-red-500' : 'border-white/10'}`}
                                             />
                                             {isOver && (
@@ -4479,14 +4573,14 @@ export default function App() {
                                 </div>
                               ))}
 
-                              <button 
+                              <button
                                 onClick={() => {
                                   const newBatches = [...formEvent.batches];
                                   newBatches[batchIndex].sectors.push({
                                     id: Math.random().toString(36).substring(7),
-                                    name: 'Novo Setor',
-                                    quantity: 100,
-                                    price: 50,
+                                    name: '',
+                                    quantity: 0,
+                                    price: 0,
                                     limitPerUser: 4
                                   });
                                   setFormEvent({ ...formEvent, batches: newBatches });
@@ -4499,16 +4593,17 @@ export default function App() {
                           </div>
                         ))}
 
-                        <button 
+                        <button
                           onClick={() => {
                             const newBatch: Batch = {
                               id: Math.random().toString(36).substring(7),
                               name: `Lote ${formEvent.batches.length + 1}`,
                               startDate: new Date().toISOString().split('T')[0],
                               endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                              sectors: [{ id: 's1', name: 'Pista', quantity: 100, price: 50, limitPerUser: 4 }]
+                              sectors: [{ id: Math.random().toString(36).substring(7), name: '', quantity: 0, price: 0, limitPerUser: 4 }]
                             };
                             setFormEvent({ ...formEvent, batches: [...formEvent.batches, newBatch] });
+                            setReleaseValidationFields(prev => prev.filter(f => f !== 'Pelo menos 1 Lote de Ingressos'));
                           }}
                           className="w-full py-6 border-2 border-dashed border-[#d4af37]/30 hover:border-[#d4af37]/50 bg-[#d4af37]/5 hover:bg-[#d4af37]/10 rounded-2xl flex flex-col items-center justify-center gap-2 transition group"
                         >
@@ -4540,7 +4635,7 @@ export default function App() {
                         />
                         <div
                           onClick={() => imageFileInputRef.current?.click()}
-                          className="aspect-[4/5] rounded-2xl border-2 border-dashed border-white/20 bg-white/2 flex flex-col items-center justify-center relative overflow-hidden group cursor-pointer hover:border-[#d4af37]/50 hover:bg-[#d4af37]/5 transition-colors"
+                          className={`aspect-[4/5] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group cursor-pointer transition-colors ${releaseValidationFields.includes('Imagem de Capa') ? 'border-red-500/60 bg-red-500/5 hover:border-red-500/80' : 'border-white/20 bg-white/2 hover:border-[#d4af37]/50 hover:bg-[#d4af37]/5'}`}
                         >
                             {formEvent.img ? (
                               <>
@@ -4551,7 +4646,7 @@ export default function App() {
                               </>
                             ) : (
                               <div className="text-center p-6">
-                                <UploadCloud className="w-8 h-8 text-white/30 mx-auto mb-3 group-hover:text-[#d4af37] transition-colors" />
+                                <UploadCloud className={`w-8 h-8 mx-auto mb-3 transition-colors ${releaseValidationFields.includes('Imagem de Capa') ? 'text-red-400/60 group-hover:text-red-400' : 'text-white/30 group-hover:text-[#d4af37]'}`} />
                                 <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest leading-relaxed">Clique para escolher a imagem</p>
                                 <p className="text-[8px] text-[#d4af37]/80 mt-2 uppercase tracking-widest border border-[#d4af37]/30 px-2 py-0.5 rounded-full inline-block">1080x1350px recomendado</p>
                               </div>
@@ -4559,12 +4654,15 @@ export default function App() {
                         </div>
                         <div>
                           <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">... ou insira URL Direta</label>
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             value={formEvent.img}
-                            onChange={(e) => setFormEvent({ ...formEvent, img: e.target.value })}
+                            onChange={(e) => {
+                              setFormEvent({ ...formEvent, img: e.target.value });
+                              if (e.target.value.trim()) setReleaseValidationFields(prev => prev.filter(f => f !== 'Imagem de Capa'));
+                            }}
                             placeholder="https://suaimagem.com/foto.jpg"
-                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-xs focus:border-[#d4af37] outline-none"
+                            className={`w-full bg-white/[0.03] border rounded-xl px-4 py-3 text-xs focus:border-[#d4af37] outline-none ${releaseValidationFields.includes('Imagem de Capa') ? 'border-red-500/60' : 'border-white/10'}`}
                           />
                         </div>
                       </div>
@@ -4854,6 +4952,7 @@ export default function App() {
               <AdminSettings
                 userRole={userRole}
                 onNavigateToProfile={() => setCurrentView('profile')}
+                onSettingsSaved={(name, logo) => setSiteConfig(prev => ({ ...prev, platformName: name, platformLogo: logo }))}
               />
             ) : null}
             </>
@@ -5604,7 +5703,7 @@ export default function App() {
                                   <input type="text" placeholder="Validade (MM/AA)" className="w-1/2 bg-[#111] border border-white/10 p-3 md:p-4 rounded-xl text-[11px] md:text-sm focus:outline-none focus:border-[#d4af37] transition font-mono" />
                                   <input type="text" placeholder="CVV" className="w-1/2 bg-[#111] border border-white/10 p-3 md:p-4 rounded-xl text-[11px] md:text-sm focus:outline-none focus:border-[#d4af37] transition font-mono" />
                                </div>
-                               <select className="w-full bg-[#111] border border-white/10 p-3 md:p-4 rounded-xl text-[11px] md:text-sm focus:outline-none focus:border-[#d4af37] transition text-white/80 appearance-none">
+                               <select className="w-full select-field text-[11px] md:text-sm">
                                   <option value="1">1x de R$ {grandTotal.toFixed(2)} sem juros</option>
                                   <option value="2">2x de R$ {(grandTotal / 2).toFixed(2)} sem juros</option>
                                   <option value="3">3x de R$ {(grandTotal / 3).toFixed(2)} sem juros</option>
@@ -5772,7 +5871,6 @@ export default function App() {
                             return;
                           }
                           setAdminError('');
-                          // Simulando verificacao de API e confirmacao
                           setTimeout(() => {
                             const newUser = {
                               id: Math.random().toString(36).substr(2, 9),
@@ -5784,11 +5882,22 @@ export default function App() {
                               password: registerForm.password
                             };
                             setUsers([...users, newUser]);
+                            setUserRole('client');
+                            setSessionUser({
+                              id: newUser.id,
+                              email: newUser.email,
+                              name: newUser.name || 'Conta',
+                              role: 'client',
+                              isApprovedEventCreator: false,
+                            });
+                            setLoggedInUserId(newUser.id);
+                            setGuestData({ name: newUser.name || 'Usuário', email: newUser.email, cpf: newUser.cpf || '000.000.000-00' });
                             setVerificationStep(false);
-                            setAuthTab('login');
-                            showToast(`Cadastro concluído! Faça login para prosseguir.`, 'success');
                             setRegisterForm({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
                             setVerificationCode(['', '', '', '']);
+                            setAdminForm({ username: '', password: '' });
+                            showToast(`Bem-vindo(a), ${newUser.name.split(' ')[0]}!`, 'success');
+                            setCheckoutStep('payment-method');
                           }, 500);
                         }}
                         className="w-full bg-[#d4af37] text-black py-4 rounded-xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 shadow-[0_0_20px_rgba(212,175,55,0.2)] transition"
@@ -5913,7 +6022,7 @@ export default function App() {
                               value={adminForm.username}
                               onChange={(e) => setAdminForm({...adminForm, username: e.target.value})}
                               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
-                              placeholder="ex: admin"
+                              placeholder="seu@email.com"
                             />
                           </div>
                           <div>

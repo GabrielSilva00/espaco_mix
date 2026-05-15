@@ -105,3 +105,39 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+@layer components {
+  .select-field {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    padding: 0.75rem 2.5rem 0.75rem 1rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: white;
+    appearance: none;
+    cursor: pointer;
+    color-scheme: dark;
+    outline: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='1.5' stroke='%23ffffff50'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 16px;
+  }
+
+  .select-field:hover {
+    background-color: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+
+  .select-field:focus {
+    border-color: #d4af37;
+    background-color: rgba(212, 175, 55, 0.04);
+  }
+
+  .select-field option {
+    background-color: #111111;
+    color: white;
+  }
+}

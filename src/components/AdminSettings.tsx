@@ -8,10 +8,12 @@ import { UserRole, usePermissions } from '../hooks/usePermissions';
 
 export function AdminSettings({
   userRole,
-  onNavigateToProfile
+  onNavigateToProfile,
+  onSettingsSaved,
 }: {
   userRole: UserRole;
   onNavigateToProfile?: () => void;
+  onSettingsSaved?: (platformName: string, platformLogo: string | null) => void;
 }) {
   const { can } = usePermissions(userRole);
   const [isSaved, setIsSaved] = useState(false);
@@ -194,6 +196,7 @@ export function AdminSettings({
       });
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
+      onSettingsSaved?.(settings.platformName, logoPreview);
     } catch (err) {
       console.error('[AdminSettings] Erro ao salvar:', err);
     }
@@ -300,11 +303,15 @@ export function AdminSettings({
                 <label className="flex items-center gap-2 text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">
                   URL Principal
                   <span title="URL do domínio principal que abriga seu e-commerce"><Info className="w-3 h-3 cursor-help mb-0.5" /></span>
+                  {userRole !== 'developer' && (
+                    <span title="Somente DEV pode alterar este campo" className="opacity-60 cursor-help"><Shield className="w-3 h-3 inline-block text-[#d4af37]/60" /></span>
+                  )}
                 </label>
                 <input
                   type="url" name="mainUrl" value={settings.mainUrl} onChange={handleChange} required pattern="https://.*"
                   placeholder="https://exemplo.com.br"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition font-mono invalid:border-red-500/50"
+                  disabled={userRole !== 'developer'}
+                  className={`w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition font-mono invalid:border-red-500/50 ${userRole !== 'developer' ? 'opacity-40 cursor-not-allowed select-none' : ''}`}
                 />
               </div>
               <div>
@@ -370,7 +377,7 @@ export function AdminSettings({
                     Modo de Recebimento
                     <span title="Split Automático envia o valor direto para o organizador. Retenção mantém na plataforma até liberação manual."><Info className="w-3 h-3 cursor-help" /></span>
                   </label>
-                  <select name="paymentMode" value={settings.paymentMode} onChange={handleChange} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition">
+                  <select name="paymentMode" value={settings.paymentMode} onChange={handleChange} className="w-full select-field">
                     <option value="split">Split Automático (Recomendado)</option>
                     <option value="retained">Retenção pela Plataforma</option>
                   </select>
@@ -379,7 +386,7 @@ export function AdminSettings({
                 <div className="grid grid-cols-2 gap-4">
                    <div>
                     <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Gateway</label>
-                    <select name="paymentGateway" value={settings.paymentGateway} onChange={handleChange} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition">
+                    <select name="paymentGateway" value={settings.paymentGateway} onChange={handleChange} className="w-full select-field">
                       <option value="mercadopago">Mercado Pago</option>
                       <option value="pagarme">Pagar.me</option>
                       <option value="stripe">Stripe</option>
@@ -393,7 +400,7 @@ export function AdminSettings({
 
                 <div>
                    <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Quem Paga a Taxa do Gateway?</label>
-                   <select name="feePayer" value={settings.feePayer} onChange={handleChange} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition">
+                   <select name="feePayer" value={settings.feePayer} onChange={handleChange} className="w-full select-field">
                      <option value="buyer">Comprador (Add ao valor do ingresso)</option>
                      <option value="organizer">Organizador (Descontado no split)</option>
                    </select>
@@ -406,7 +413,7 @@ export function AdminSettings({
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Tipo de Taxa</label>
-                    <select name="feeType" value={settings.feeType} onChange={handleChange} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition">
+                    <select name="feeType" value={settings.feeType} onChange={handleChange} className="w-full select-field">
                       <option value="percentage">Percentual (%)</option>
                       <option value="fixed">Valor Fixo (R$)</option>
                     </select>
@@ -470,7 +477,7 @@ export function AdminSettings({
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-6 h-max">
                  <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-[0.2em]">Status Padrão da Criação do Evento</label>
-                 <select name="defaultEventStatus" value={settings.defaultEventStatus} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition">
+                 <select name="defaultEventStatus" value={settings.defaultEventStatus} onChange={handleChange} className="w-full select-field">
                     <option value="draft">Rascunho (Requer publicação manual)</option>
                     <option value="published">Publicado Imediatamente</option>
                  </select>
@@ -577,7 +584,7 @@ export function AdminSettings({
                 <div className="space-y-6">
                    <div>
                       <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Política de Reembolso</label>
-                      <select name="refundType" value={settings.refundType} onChange={handleChange} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition">
+                      <select name="refundType" value={settings.refundType} onChange={handleChange} className="w-full select-field">
                          <option value="total">Integral (Boleto/PIX/Cartão)</option>
                          <option value="partial">Parcial (Dedução de taxa)</option>
                          <option value="no-fee">Valor Nominal (Sem devolução da taxa Espaço Mix)</option>

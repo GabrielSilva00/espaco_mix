@@ -19,3 +19,11 @@
 
 5. Instalar dontenv
    npm install dotenv
+
+
+GITS
+1. git pull:  Puxar projeto atualizado
+2. git init:  Inicializa um novo repositório Git em uma pasta local.
+3. git clone <url>: Clona um repositório remoto para a sua máquina.
+4. git config --global user.name "Seu Nome": Define o nome de usuário global.
+5. git config --global user.email "seu@email.com": Define o e-mail global.
