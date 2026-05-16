@@ -61,7 +61,10 @@ export function Home({ events, onEventClick }: HomeProps) {
   const displayedEvents = filteredEvents.slice(0, visibleCount);
 
   // Embla setup
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true }, [Autoplay({ delay: 5000, stopOnInteraction: false })]);
+  const [emblaRef, emblaApi] = useEmblaCarousel(
+    { loop: true, duration: 40 },
+    [Autoplay({ delay: 4500, stopOnInteraction: false, stopOnMouseEnter: true })]
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const onSelect = useCallback(() => {
@@ -98,7 +101,7 @@ export function Home({ events, onEventClick }: HomeProps) {
                       <span className="inline-block px-3 py-1 bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#d4af37] text-[10px] uppercase font-bold tracking-[0.2em] rounded-full mb-4">
                         Destaque
                       </span>
-                      <h2 className="text-4xl md:text-6xl font-serif text-[#d4af37] mb-3 leading-tight tracking-wide drop-shadow-xl" style={{ textShadow: '0 4px 24px rgba(0,0,0,0.9)' }}>
+                      <h2 className="text-4xl md:text-6xl font-elastic text-[#d4af37] mb-3 leading-tight tracking-wide drop-shadow-xl normal-case" style={{ textShadow: '0 4px 24px rgba(0,0,0,0.9)' }}>
                         {event.title}
                       </h2>
                       <div className="flex flex-wrap gap-4 text-xs md:text-sm text-white/80 uppercase tracking-widest font-bold mb-6">
@@ -229,7 +232,7 @@ export function Home({ events, onEventClick }: HomeProps) {
 
                     {/* Conteúdo */}
                     <div className="p-3 flex flex-col gap-1.5">
-                      <h4 className="text-sm font-serif text-[#d4af37] line-clamp-1">{event.title}</h4>
+                      <h4 className="text-sm font-elastic text-[#d4af37] line-clamp-1 normal-case">{event.title}</h4>
                       <div className="flex items-center gap-1 text-[11px] text-white/50 max-w-full">
                         <MapPin className="w-3 h-3 shrink-0" />
                         <span className="truncate">{event.location}</span>

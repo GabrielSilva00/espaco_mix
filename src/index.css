@@ -12,6 +12,7 @@
 @theme {
   --font-sans: "Rajdhani", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Cinzel Decorative", "Elastic Stretch", ui-serif, Georgia, serif;
+  --font-elastic: "Elastic Stretch", "Cinzel Decorative", ui-serif, Georgia, serif;
 
   @keyframes marquee {
     from { transform: translateX(0); }
@@ -26,6 +27,11 @@
 }
 
 @layer base {
+  body {
+    @apply text-[11px] font-bold tracking-[0.1em] uppercase;
+    color: #d4af37;
+  }
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;

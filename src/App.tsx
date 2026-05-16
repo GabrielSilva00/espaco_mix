@@ -78,10 +78,12 @@ import {
   LifeBuoy,
   AlertTriangle,
   Expand,
-  Edit2
+  Edit2,
+  Code2
 } from 'lucide-react';
 
 import { AdminSettings } from './components/AdminSettings';
+import { DeveloperPanel } from './components/DeveloperPanel';
 import { Home } from './components/Home';
 import { GoogleIcon } from './components/GoogleIcon';
 import { ProducerOnboardingFlow } from './components/ProducerOnboardingFlow';
@@ -425,7 +427,7 @@ export default function App() {
   const scannerRetryRef = useRef(0);
   const { can, role, isAtLeast } = usePermissions(userRole, { isApprovedEventCreator });
   const [loggedInUserId, setLoggedInUserId] = useState<string | null>(null);
-  const [dashboardMode, setDashboardMode] = useState<'list' | 'details' | 'staff' | 'check-in' | 'edit' | 'settings' | 'approval-queue' | 'producer-onboarding' | 'producer-dashboard'>('list');
+  const [dashboardMode, setDashboardMode] = useState<'list' | 'details' | 'staff' | 'check-in' | 'edit' | 'settings' | 'approval-queue' | 'producer-onboarding' | 'producer-dashboard' | 'developer-panel'>('list');
   const [authIntent, setAuthIntent] = useState<'buy' | 'create_event'>('buy');
   const [selectedDashboardEvent, setSelectedDashboardEvent] = useState<number | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
@@ -878,11 +880,25 @@ export default function App() {
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminError('');
-    try {
-      const email = adminForm.username.includes('@')
-        ? adminForm.username
-        : `${adminForm.username}@espacomix.internal`;
 
+    const email = adminForm.username.includes('@')
+      ? adminForm.username
+      : `${adminForm.username}@espacomix.internal`;
+
+    // Bypass dev: credenciais definidas em VITE_DEV_EMAIL / VITE_DEV_PASSWORD
+    const DEV_EMAIL = import.meta.env.VITE_DEV_EMAIL as string | undefined;
+    const DEV_PASSWORD = import.meta.env.VITE_DEV_PASSWORD as string | undefined;
+    if (DEV_EMAIL && DEV_PASSWORD && email === DEV_EMAIL && adminForm.password === DEV_PASSWORD) {
+      setUserRole('developer');
+      setIsApprovedEventCreator(true);
+      setLoggedInUserId('dev');
+      setSessionUser({ id: 'dev', email: DEV_EMAIL, name: 'Admin / Dev', role: 'developer', isApprovedEventCreator: true });
+      setCurrentView('dashboard');
+      setDashboardMode('list');
+      return;
+    }
+
+    try {
       await signIn(email, adminForm.password);
       const profile: Profile | null = await getMyProfile();
 
@@ -1173,15 +1189,29 @@ export default function App() {
   const activeBatch = activeEvent?.batches?.[0];
   const previewSectors = activeBatch?.sectors || [];
   
-  const derivedTables = Array.from({ length: activeEvent?.tableConfig?.totalTables || 20 }).map((_, i) => {
-    const existing = tables.find(t => t.id === i + 1);
-    return {
-      id: i + 1,
-      capacity: activeEvent?.tableConfig?.seatsPerTable ?? existing?.capacity ?? 4,
-      status: existing?.status || 'available',
-      price: existing?.price || 300
-    } as TableDef;
-  });
+  const layoutTableElements = (activeEvent?.tableLayout || []).filter(
+    el => el.type === 'round-table' || el.type === 'rect-table'
+  );
+
+  const derivedTables = layoutTableElements.length > 0
+    ? layoutTableElements.map((el, i) => {
+        const existing = tables.find(t => t.id === i + 1);
+        return {
+          id: i + 1,
+          capacity: el.capacity ?? activeEvent?.tableConfig?.seatsPerTable ?? 4,
+          status: existing?.status || 'available',
+          price: existing?.price || 300,
+        } as TableDef;
+      })
+    : Array.from({ length: activeEvent?.tableConfig?.totalTables || 20 }).map((_, i) => {
+        const existing = tables.find(t => t.id === i + 1);
+        return {
+          id: i + 1,
+          capacity: activeEvent?.tableConfig?.seatsPerTable ?? existing?.capacity ?? 4,
+          status: existing?.status || 'available',
+          price: existing?.price || 300,
+        } as TableDef;
+      });
 
   const selectedTablesData = derivedTables.filter(t => selectedTables.includes(t.id));
   const tablesTotal = selectedTablesData.reduce((acc, curr) => acc + curr.price, 0);
@@ -1351,7 +1381,7 @@ export default function App() {
     }
   };
 
-  const isAdminLayout = userRole === 'admin' && !isPreviewingEvent;
+  const isAdminLayout = (userRole === 'admin' || userRole === 'developer') && !isPreviewingEvent;
 
   return (
     <div className={`min-h-screen bg-[#0a0a0a] text-[#e5e5e5] font-sans selection:bg-[#d4af37]/30 ${isAdminLayout ? 'flex' : ''}`}>
@@ -1444,7 +1474,7 @@ export default function App() {
                     <Users className={`w-5 h-5 shrink-0 ${currentView === 'dashboard' && dashboardMode === 'staff' ? 'text-[#d4af37]' : 'text-white/40 group-hover:text-white'}`} />
                     {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Equipe</span>}
                   </button>
-                  {userRole === 'admin' && (
+                  {isAtLeast('admin') && (
                     <button
                       onClick={() => showToast('Em Desenvolvimento', 'info')}
                       className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
@@ -1492,6 +1522,22 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Section: Desenvolvedor */}
+              {userRole === 'developer' && (
+                <div>
+                  {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] items-center font-bold tracking-[0.2em] uppercase text-[#d4af37]/40 mb-3">Desenvolvedor</h4>}
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => { setCurrentView('dashboard'); setDashboardMode('developer-panel'); setIsMobileMenuOpen(false); }}
+                      className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group ${currentView === 'dashboard' && dashboardMode === 'developer-panel' ? 'bg-[#d4af37]/10 text-[#d4af37]' : 'text-[#d4af37]/50 hover:bg-[#d4af37]/5 hover:text-[#d4af37]'}`}
+                      title={isAdminSidebarCollapsed ? "Painel do Desenvolvedor" : ""}
+                    >
+                      <Code2 className={`w-5 h-5 shrink-0 ${currentView === 'dashboard' && dashboardMode === 'developer-panel' ? 'text-[#d4af37]' : 'text-[#d4af37]/30 group-hover:text-[#d4af37]'}`} />
+                      {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dev Panel</span>}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Config & Profile Footer */}
@@ -1579,7 +1625,7 @@ export default function App() {
                  >
                    Início
                  </button>
-                {userRole === 'admin' && (
+                {isAtLeast('admin') && (
                   <>
                     <button onClick={() => { setCurrentView('dashboard'); setDashboardMode('approval-queue'); }} className={`hover:text-[#d4af37] transition-colors ${currentView === 'dashboard' && dashboardMode === 'approval-queue' ? 'text-[#d4af37] opacity-100 font-bold' : ''}`}>
                       Aprovações
@@ -1713,7 +1759,7 @@ export default function App() {
                 
                 {(isStaff || isApprovedEventCreator || isAtLeast('admin')) && !isPreviewingEvent && (
                   <>
-                    {userRole === 'admin' && (
+                    {isAtLeast('admin') && (
                       <>
                         <button
                           onClick={() => showToast('Em Desenvolvimento', 'info')}
@@ -2037,14 +2083,70 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Stage Decor */}
+              {/* Mapa do Evento */}
+              {activeEvent?.tableLayout && activeEvent.tableLayout.some(el => el.type === 'round-table' || el.type === 'rect-table') ? (
+                <div className="relative w-full max-w-3xl mx-auto bg-[#0d0d0d] rounded-2xl border border-[#ffffff0a] overflow-hidden">
+                  <svg viewBox="0 0 800 600" className="w-full" style={{ display: 'block' }}>
+                    {/* Decorative non-table elements */}
+                    {activeEvent.tableLayout
+                      .filter(el => el.type !== 'round-table' && el.type !== 'rect-table')
+                      .map(el => (
+                        <g key={el.id}>
+                          <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="8" fill={el.color} opacity="0.85" />
+                          <text x={el.x + el.width / 2} y={el.y + el.height / 2 + 5} textAnchor="middle" fill="rgba(255,255,255,0.6)" fontSize="13" fontFamily="serif">{el.label}</text>
+                        </g>
+                      ))}
+
+                    {/* Clickable table elements */}
+                    {activeEvent.tableLayout
+                      .filter(el => el.type === 'round-table' || el.type === 'rect-table')
+                      .map((el, i) => {
+                        const tableNum = i + 1;
+                        const tableData = derivedTables.find(t => t.id === tableNum);
+                        const status = tableData ? getTableStatus(tableNum, tableData.status) : 'available';
+                        const isReserved = status === 'reserved';
+                        const isSelected = status === 'selected';
+                        const cx = el.x + el.width / 2;
+                        const cy = el.y + el.height / 2;
+                        const fill = isReserved ? '#111' : isSelected ? '#d4af37' : '#1a2332';
+                        const stroke = isReserved ? '#333' : isSelected ? '#f5c842' : '#d4af3780';
+                        const textFill = isReserved ? '#555' : isSelected ? '#0a0a0a' : 'white';
+                        const subTextFill = isReserved ? '#444' : isSelected ? '#0a0a0a99' : '#d4af37';
+                        return (
+                          <g
+                            key={el.id}
+                            onClick={() => { if (!isReserved && tableData) toggleTableSelection(tableNum, tableData.status); }}
+                            style={{ cursor: isReserved ? 'not-allowed' : 'pointer' }}
+                            opacity={isReserved ? 0.5 : 1}
+                          >
+                            <title>Mesa {String(tableNum).padStart(2, '0')} • {tableData?.capacity ?? el.capacity ?? 4} pessoas • R$ {(tableData?.price ?? 300).toFixed(2)}{isReserved ? ' • Reservada' : isSelected ? ' • Selecionada' : ' • Livre'}</title>
+                            {el.type === 'round-table' ? (
+                              <circle cx={cx} cy={cy} r={el.width / 2} fill={fill} stroke={stroke} strokeWidth="2.5" />
+                            ) : (
+                              <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="10" fill={fill} stroke={stroke} strokeWidth="2.5" />
+                            )}
+                            <text x={cx} y={cy - 5} textAnchor="middle" dominantBaseline="middle" fill={textFill} fontSize="15" fontFamily="serif" fontWeight="bold">
+                              {String(tableNum).padStart(2, '0')}
+                            </text>
+                            <text x={cx} y={cy + 13} textAnchor="middle" dominantBaseline="middle" fill={subTextFill} fontSize="11">
+                              {tableData?.capacity ?? el.capacity ?? 4}p
+                            </text>
+                            {isReserved && (
+                              <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="middle" fontSize="16" fill="#555">🔒</text>
+                            )}
+                          </g>
+                        );
+                      })}
+                  </svg>
+                </div>
+              ) : (
               <div className="relative w-full max-w-3xl mx-auto bg-[#0d0d0d] rounded-2xl border border-[#ffffff0a] flex flex-col text-center">
                 <div className="w-full flex-1 flex flex-col items-center justify-center pt-8 pb-6 px-1 md:px-4 min-h-[350px]">
                   <div className="w-[120px] md:w-[200px] h-4 bg-[#d4af37] rounded-b-lg opacity-20 text-[8px] flex items-center justify-center tracking-[1em] uppercase absolute top-0 text-[#0a0a0a] font-bold">
                     Palco
                   </div>
 
-              {/* Grid de Mesas */}
+              {/* Grid de Mesas (fallback) */}
               {(() => {
                 const gridCols = activeEvent?.tableConfig?.gridCols || 5;
                 const totalTables = derivedTables.length;
@@ -2171,6 +2273,7 @@ export default function App() {
               })()}
                 </div>
               </div>
+              )}
               </div>
               </div>
               </section>
@@ -3307,7 +3410,7 @@ export default function App() {
               <ProducerOnboardingFlow />
             ) : dashboardMode === 'producer-dashboard' ? (
               <ProducerDashboard />
-            ) : dashboardMode === 'approval-queue' && userRole === 'admin' ? (
+            ) : dashboardMode === 'approval-queue' && isAtLeast('admin') ? (
               <ApprovalQueue onToast={showToast} />
             ) : dashboardMode === 'list' ? (
               isStaff ? (
@@ -3330,7 +3433,7 @@ export default function App() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
                     {events
-                      .filter(evt => userRole === 'admin' || evt.assignedStaffIds.includes(loggedInUserId || ''))
+                      .filter(evt => isAtLeast('admin') || evt.assignedStaffIds.includes(loggedInUserId || ''))
                       .map((evt) => (
                       <motion.div 
                           key={evt.id}
@@ -3339,7 +3442,7 @@ export default function App() {
                           onClick={() => {
                             setSelectedDashboardEvent(evt.id);
                             setDashboardMode('list');
-                            setTimeout(() => setDashboardMode(userRole === 'admin' ? 'details' : 'check-in'), 0);
+                            setTimeout(() => setDashboardMode(isAtLeast('admin') ? 'details' : 'check-in'), 0);
                             window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
                             adminScrollRef.current?.scrollTo(0, 0);
                           }}
@@ -3366,15 +3469,15 @@ export default function App() {
                                 <Users className="w-3 h-3 text-[#d4af37]" />
                                 <span className="text-xs font-bold font-serif">148 vendidos</span>
                               </div>
-                              <span className="text-[9px] md:text-[10px] uppercase font-bold text-[#d4af37] flex items-center gap-1">Acessar {userRole === 'admin' ? 'Painel' : 'Check-in'} <ChevronRight className="w-3 h-3" /></span>
+                              <span className="text-[9px] md:text-[10px] uppercase font-bold text-[#d4af37] flex items-center gap-1">Acessar {isAtLeast('admin') ? 'Painel' : 'Check-in'} <ChevronRight className="w-3 h-3" /></span>
                           </div>
                         </div>
                       </motion.div>
                     ))}
                     
                       {/* Create New Event Card */}
-                      {userRole === 'admin' && (
-                        <div 
+                      {isAtLeast('admin') && (
+                        <div
                           onClick={handleCreateEvent}
                           className="bg-[#0d0d0d] border border-white/10 border-dashed rounded-2xl md:rounded-3xl flex flex-col items-center justify-center p-8 md:p-12 text-center group cursor-pointer hover:bg-white/5 transition min-h-[250px]"
                         >
@@ -3393,8 +3496,8 @@ export default function App() {
                 {/* Optimized Header for Mobile & Desktop */}
                 <div className="flex flex-col gap-6 mb-8 md:mb-12 px-4 sm:px-0">
                   <div className="flex items-center justify-between">
-                    {userRole === 'admin' && (
-                      <button 
+                    {isAtLeast('admin') && (
+                      <button
                         onClick={() => setDashboardMode('list')}
                         className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#d4af37] hover:text-white transition-colors"
                       >
@@ -4791,15 +4894,79 @@ export default function App() {
                           
                           <div className="pt-4 mt-4 border-t border-white/5">
                             <h4 className="text-[10px] uppercase font-bold text-[#d4af37] mb-4">Preview do Mapa</h4>
-                            <div className="bg-white/2 rounded-xl border border-white/5 p-4 min-h-[120px] flex items-center justify-center flex-wrap gap-2">
-                               {Array.from({length: formEvent.tableConfig.totalTables}).map((_, i) => (
-                                 <div key={i} className="w-6 h-6 rounded-full border border-white/20 bg-white/5 flex items-center justify-center text-[8px] opacity-70">
-                                   {i+1}
-                                 </div>
-                               ))}
-                            </div>
+                            {formEvent.tableLayout && formEvent.tableLayout.length > 0 ? (
+                              <div className="relative bg-[#0a0a0a] rounded-xl border border-white/10 overflow-hidden">
+                                <svg viewBox="0 0 800 600" className="w-full" style={{ display: 'block', maxHeight: '200px' }}>
+                                  <defs>
+                                    <pattern id="miniGrid" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+                                      <circle cx="1" cy="1" r="1" fill="rgba(255,255,255,0.06)" />
+                                    </pattern>
+                                  </defs>
+                                  <rect width="800" height="600" fill="url(#miniGrid)" />
+                                  {(() => {
+                                    let tableNum = 0;
+                                    return formEvent.tableLayout.map(el => {
+                                      const isTable = el.type === 'round-table' || el.type === 'rect-table';
+                                      if (isTable) tableNum++;
+                                      const num = isTable ? tableNum : 0;
+                                      const cx = el.x + el.width / 2;
+                                      const cy = el.y + el.height / 2;
+                                      if (el.type === 'round-table') {
+                                        return (
+                                          <g key={el.id}>
+                                            <circle cx={cx} cy={cy} r={el.width / 2} fill="#1e1e1e" stroke="#d4af37" strokeWidth="2" />
+                                            <text x={cx} y={cy + 4} textAnchor="middle" fill="white" fontSize="14" fontFamily="serif" opacity="0.9">{num}</text>
+                                          </g>
+                                        );
+                                      }
+                                      return (
+                                        <g key={el.id}>
+                                          <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="6"
+                                            fill={isTable ? '#1e1e1e' : el.color}
+                                            stroke={isTable ? '#d4af37' : 'rgba(255,255,255,0.2)'}
+                                            strokeWidth="2"
+                                          />
+                                          <text x={cx} y={cy + 4} textAnchor="middle" fill={isTable ? 'white' : 'rgba(255,255,255,0.6)'} fontSize="12" opacity="0.9">{isTable ? num : el.label}</text>
+                                        </g>
+                                      );
+                                    });
+                                  })()}
+                                </svg>
+                              </div>
+                            ) : (
+                              <div className="bg-white/2 rounded-xl border border-white/5 p-4 min-h-[120px] flex items-center justify-center flex-wrap gap-2">
+                                {Array.from({length: formEvent.tableConfig.totalTables}).map((_, i) => (
+                                  <div key={i} className="w-6 h-6 rounded-full border border-white/20 bg-white/5 flex items-center justify-center text-[8px] opacity-70">
+                                    {i+1}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                             <button
-                              onClick={() => setIsTableLayoutEditorOpen(true)}
+                              onClick={() => {
+                                if (!formEvent) return;
+                                const total = formEvent.tableConfig?.totalTables || 0;
+                                const currentLayout = formEvent.tableLayout || [];
+                                const hasTableElements = currentLayout.some(
+                                  el => el.type === 'round-table' || el.type === 'rect-table'
+                                );
+                                if (!hasTableElements && total > 0) {
+                                  const cols = Math.ceil(Math.sqrt(total));
+                                  const defaultLayout = Array.from({ length: total }).map((_, i) => ({
+                                    id: `layout-${Math.random().toString(36).slice(2, 10)}`,
+                                    type: 'round-table' as const,
+                                    x: 40 + (i % cols) * 120,
+                                    y: 40 + Math.floor(i / cols) * 120,
+                                    width: 80,
+                                    height: 80,
+                                    label: `Mesa ${String(i + 1).padStart(2, '0')}`,
+                                    color: '#2a2a2a',
+                                    capacity: formEvent.tableConfig?.seatsPerTable ?? 4,
+                                  }));
+                                  setFormEvent({ ...formEvent, tableLayout: defaultLayout });
+                                }
+                                setIsTableLayoutEditorOpen(true);
+                              }}
                               className="w-full mt-3 py-2.5 border border-[#d4af37]/30 bg-[#d4af37]/5 rounded-lg text-[9px] uppercase font-bold tracking-widest text-[#d4af37] hover:bg-[#d4af37]/10 transition"
                             >
                               Abrir Editor Visual (Drag & Drop)
@@ -4980,6 +5147,8 @@ export default function App() {
                 onNavigateToProfile={() => setCurrentView('profile')}
                 onSettingsSaved={(name, logo) => setSiteConfig(prev => ({ ...prev, platformName: name, platformLogo: logo }))}
               />
+            ) : dashboardMode === 'developer-panel' && userRole === 'developer' ? (
+              <DeveloperPanel />
             ) : null}
             </>
           )}
@@ -5053,6 +5222,8 @@ export default function App() {
             <div className="flex-1 p-4 md:p-6 overflow-auto">
               <TableLayoutEditor
                 initialLayout={formEvent.tableLayout || []}
+                requiredTables={formEvent.tableConfig?.totalTables}
+
                 onSave={(layout) => {
                   setFormEvent({ ...formEvent, tableLayout: layout });
                   setIsTableLayoutEditorOpen(false);

@@ -17,6 +17,7 @@ export interface TableLayoutElement {
 interface TableLayoutEditorProps {
   initialLayout: TableLayoutElement[];
   onSave: (layout: TableLayoutElement[]) => void;
+  requiredTables?: number;
 }
 
 const CANVAS_WIDTH = 800;
@@ -41,7 +42,7 @@ const PALETTE: Array<{
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({ initialLayout, onSave }) => {
+export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({ initialLayout, onSave, requiredTables }) => {
   const [elements, setElements] = useState<TableLayoutElement[]>(initialLayout);
   const [selectedId, setSelectedId] = useState<string | null>(initialLayout[0]?.id || null);
   const [zoom, setZoom] = useState(1);
@@ -53,6 +54,9 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({ initialLay
     () => elements.find((el) => el.id === selectedId) || null,
     [elements, selectedId]
   );
+
+  const tableCount = elements.filter(el => el.type === 'round-table' || el.type === 'rect-table').length;
+  const tableCountMismatch = requiredTables !== undefined && tableCount !== requiredTables;
 
   const createElement = (type: LayoutElementType, x: number, y: number) => {
     const base = PALETTE.find((item) => item.type === type);
@@ -140,7 +144,14 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({ initialLay
 
       <section className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 overflow-auto">
         <div className="flex items-center justify-between mb-3">
-          <h4 className="text-[11px] uppercase tracking-widest font-bold text-white/70">Canvas</h4>
+          <div className="flex items-center gap-3">
+            <h4 className="text-[11px] uppercase tracking-widest font-bold text-white/70">Canvas</h4>
+            {requiredTables !== undefined && (
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest ${tableCountMismatch ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                Mesas: {tableCount}/{requiredTables}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setZoom((prev) => clamp(Number((prev - 0.25).toFixed(2)), 0.5, 2))}
@@ -255,9 +266,17 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({ initialLay
         )}
 
         <div className="pt-6 mt-6 border-t border-white/10 space-y-2">
+          {tableCountMismatch && (
+            <p className="text-[10px] text-red-400 text-center leading-relaxed">
+              {tableCount < requiredTables!
+                ? `Adicione mais ${requiredTables! - tableCount} mesa(s) ao layout`
+                : `Remova ${tableCount - requiredTables!} mesa(s) — o evento tem ${requiredTables} mesas`}
+            </p>
+          )}
           <button
             onClick={() => onSave(elements)}
-            className="w-full py-2.5 bg-[#d4af37] text-black rounded-lg text-xs uppercase tracking-widest font-black hover:brightness-110"
+            disabled={tableCountMismatch}
+            className="w-full py-2.5 bg-[#d4af37] text-black rounded-lg text-xs uppercase tracking-widest font-black hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Salvar Layout
           </button>
