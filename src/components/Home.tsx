@@ -201,8 +201,8 @@ export function Home({ events, onEventClick }: HomeProps) {
                     className="group bg-[#1e1e1e] border border-white/5 rounded-2xl overflow-hidden cursor-pointer flex flex-col hover:border-[#d4af37]/30 transition-colors"
                     onClick={() => onEventClick(event)}
                   >
-                    {/* Imagem (proporção 3:4) */}
-                    <div className="relative w-full aspect-[4/5] overflow-hidden bg-black">
+                    {/* Imagem (proporção 16:9 compacta) */}
+                    <div className="relative w-full aspect-[16/9] overflow-hidden bg-black">
                       <img
                         src={event.img || "https://picsum.photos/seed/card/800/1000"}
                         alt={event.title}
@@ -210,41 +210,38 @@ export function Home({ events, onEventClick }: HomeProps) {
                         loading="lazy"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-[#1e1e1e] via-transparent to-transparent opacity-80" />
-                      
+
                       {/* Badge ESGOTADO */}
                       {isSoldOut && (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
-                           <span className="px-4 py-2 bg-red-600 text-white font-bold text-xs uppercase tracking-[0.2em] transform -rotate-12 border border-red-400/50 shadow-2xl">Esgotado</span>
+                           <span className="px-3 py-1.5 bg-red-600 text-white font-bold text-xs uppercase tracking-[0.2em] transform -rotate-12 border border-red-400/50 shadow-2xl">Esgotado</span>
                         </div>
                       )}
 
                       {/* Info Overlay Top */}
-                      <div className="absolute top-4 left-4 right-4 flex justify-between items-start">
-                        <div className="bg-black/80 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 text-center">
-                          <span className="block text-[#d4af37] text-[10px] font-bold uppercase tracking-widest">{new Date(event.date).toLocaleDateString('pt-BR', { month: 'short' })}</span>
-                          <span className="block text-white text-lg font-bold leading-none mt-1">{new Date(event.date).getDate()}</span>
+                      <div className="absolute top-2 left-2 right-2 flex justify-between items-start">
+                        <div className="bg-black/80 backdrop-blur-md px-2 py-1.5 rounded-lg border border-white/10 text-center">
+                          <span className="block text-[#d4af37] text-[9px] font-bold uppercase tracking-widest">{new Date(event.date).toLocaleDateString('pt-BR', { month: 'short' })}</span>
+                          <span className="block text-white text-sm font-bold leading-none mt-0.5">{new Date(event.date).getDate()}</span>
                         </div>
                       </div>
                     </div>
 
                     {/* Conteúdo */}
-                    <div className="p-5 flex-1 flex flex-col justify-between">
-                      <div>
-                        <h4 className="text-lg font-serif text-[#d4af37] mb-2 line-clamp-2">{event.title}</h4>
-                        <div className="flex items-center gap-1.5 text-xs text-white/50 mb-4 max-w-full">
-                          <MapPin className="w-3.5 h-3.5 shrink-0" />
-                          <span className="truncate">{event.location}</span>
-                        </div>
+                    <div className="p-3 flex flex-col gap-1.5">
+                      <h4 className="text-sm font-serif text-[#d4af37] line-clamp-1">{event.title}</h4>
+                      <div className="flex items-center gap-1 text-[11px] text-white/50 max-w-full">
+                        <MapPin className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{event.location}</span>
                       </div>
-                      
-                      <div className="flex items-end justify-between mt-4 pb-2 border-b border-white/5">
+                      <div className="flex items-center justify-between pt-1.5 border-t border-white/5">
                         <div className="flex flex-col">
-                          <span className="text-[9px] uppercase tracking-widest text-white/40 mb-1">A partir de</span>
-                          <span className="text-sm font-bold text-white">
+                          <span className="text-[9px] uppercase tracking-widest text-white/40">A partir de</span>
+                          <span className="text-xs font-bold text-white">
                             {minPrice === 0 ? <span className="text-green-400">Gratuito</span> : `R$ ${minPrice.toFixed(2).replace('.', ',')}`}
                           </span>
                         </div>
-                        <div className="w-8 h-8 rounded-full bg-[#111] group-hover:bg-[#d4af37] group-hover:text-black text-white/40 border border-white/10 flex items-center justify-center transition-colors">
+                        <div className="w-7 h-7 rounded-full bg-[#111] group-hover:bg-[#d4af37] group-hover:text-black text-white/40 border border-white/10 flex items-center justify-center transition-colors">
                           <ArrowRight className="w-3 h-3" />
                         </div>
                       </div>

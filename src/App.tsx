@@ -422,6 +422,7 @@ export default function App() {
   const [isStaff, setIsStaff] = useState(false);
   const adminScrollRef = useRef<HTMLDivElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const scannerRetryRef = useRef(0);
   const { can, role, isAtLeast } = usePermissions(userRole, { isApprovedEventCreator });
   const [loggedInUserId, setLoggedInUserId] = useState<string | null>(null);
   const [dashboardMode, setDashboardMode] = useState<'list' | 'details' | 'staff' | 'check-in' | 'edit' | 'settings' | 'approval-queue' | 'producer-onboarding' | 'producer-dashboard'>('list');
@@ -469,6 +470,9 @@ export default function App() {
   const [checkInResult, setCheckInResult] = useState<{ type: 'success' | 'error' | 'warning', message: string, data?: Buyer } | null>(null);
   const [checkinTab, setCheckinTab] = useState<'scanner' | 'list'>('scanner');
   const [checkInHistory, setCheckInHistory] = useState<{id: string, name: string, type: string, time: Date}[]>([]);
+  const [scannerKey, setScannerKey] = useState(0);
+  const [scannerConstraints, setScannerConstraints] = useState<MediaTrackConstraints>({ facingMode: { ideal: 'environment' } });
+  const [scannerError, setScannerError] = useState<string | null>(null);
   const [newStaff, setNewStaff] = useState({ name: '', username: '', password: '' });
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [expandedRes, setExpandedRes] = useState<string | null>(null);
@@ -863,32 +867,9 @@ export default function App() {
       setRegisterForm({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
       setVerificationCode(['', '', '', '']);
       setAdminForm({ username: '', password: '' });
-      try {
-        await signIn(emailForSignup, passwordForSignup);
-        const profile: Profile | null = await getMyProfile();
-        if (profile) {
-          const r = profile.role as UserRole;
-          setUserRole(r);
-          setLoggedInUserId(profile.id);
-          setIsApprovedEventCreator(profile.is_approved_event_creator);
-          setSessionUser({
-            id: profile.id,
-            email: profile.email,
-            name: profile.name,
-            role: r,
-            isApprovedEventCreator: profile.is_approved_event_creator,
-            avatarUrl: profile.avatar_url,
-          });
-          showToast(`Bem-vindo(a), ${nameForSignup.split(' ')[0]}!`, 'success');
-          setCurrentView('home');
-        } else {
-          showToast('Cadastro concluído! Faça login para continuar.', 'success');
-          setAuthTab('login');
-        }
-      } catch {
-        showToast('Cadastro concluído! Faça login para continuar.', 'success');
-        setAuthTab('login');
-      }
+      setRegisterStep(1);
+      showToast('Cadastro concluído! Faça login para continuar.', 'success');
+      setAuthTab('login');
     } catch (err: any) {
       setAdminError(err.message ?? 'Erro ao criar conta');
     }
@@ -1144,6 +1125,27 @@ export default function App() {
      setBuyers(prev => prev.map(b => b.id === id ? { ...b, checkedIn: false } : b));
      setCheckInHistory(prev => prev.filter(h => h.id !== id));
      showToast("Check-in desfeito com sucesso.", "info");
+  };
+
+  const handleScannerError = (err: unknown) => {
+    const error = err as Error;
+    console.warn('[Scanner]', error);
+
+    if (error?.name === 'OverconstrainedError' || error?.name === 'ConstraintNotSatisfiedError') {
+      scannerRetryRef.current += 1;
+      if (scannerRetryRef.current === 1) {
+        setScannerConstraints({});
+        setScannerKey(k => k + 1);
+      } else {
+        setScannerError('Câmera não disponível. Use a busca manual abaixo.');
+      }
+    } else if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
+      setScannerError('Permissão de câmera negada. Permita o acesso à câmera ou use a busca manual.');
+    } else if (error?.name === 'NotFoundError' || error?.name === 'DevicesNotFoundError') {
+      setScannerError('Câmera não encontrada neste dispositivo.');
+    } else {
+      setScannerError('Erro ao acessar a câmera. Use a busca manual abaixo.');
+    }
   };
 
   const toggleTableSelection = (tableId: number, status: 'available' | 'reserved') => {
@@ -1437,7 +1439,7 @@ export default function App() {
                   <button 
                     onClick={() => { setCurrentView('dashboard'); setDashboardMode('staff'); setIsMobileMenuOpen(false); }}
                     className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group ${currentView === 'dashboard' && dashboardMode === 'staff' ? 'bg-[#d4af37]/10 text-[#d4af37]' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
-                    title={isAdminSidebarCollapsed ? "Equipe e Colaboradores" : ""}
+                    title={isAdminSidebarCollapsed ? "Equipe" : ""}
                   >
                     <Users className={`w-5 h-5 shrink-0 ${currentView === 'dashboard' && dashboardMode === 'staff' ? 'text-[#d4af37]' : 'text-white/40 group-hover:text-white'}`} />
                     {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Equipe</span>}
@@ -1540,10 +1542,13 @@ export default function App() {
           {/* Admin Mobile Header */}
           <div className="md:hidden fixed top-0 w-full h-16 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-[#ffffff0a] z-30 flex items-center justify-between px-4">
             <div className="flex items-center gap-3">
-              <div className="w-6 h-6 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0">
-                <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-xs">E</span>
+              <div className="w-6 h-6 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0 overflow-hidden">
+                {siteConfig.platformLogo
+                  ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-contain -rotate-45 scale-[1.4]" />
+                  : <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-xs">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
+                }
               </div>
-              <span className="text-sm font-serif tracking-widest text-[#d4af37] uppercase">Espaço Mix Admin</span>
+              <span className="text-sm font-serif tracking-widest text-[#d4af37] uppercase">{siteConfig.platformName} Admin</span>
             </div>
             <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-white/70 hover:text-white transition">
               <Menu className="w-6 h-6" />
@@ -1555,10 +1560,13 @@ export default function App() {
         <nav className="fixed top-0 w-full z-50 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-[#ffffff0a]">
         <div className="max-w-7xl mx-auto px-4 md:px-10 h-16 md:h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-6 h-6 md:w-8 md:h-8 bg-[#d4af37] rotate-45 flex items-center justify-center">
-              <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-xs md:text-base">E</span>
+            <div className="w-6 h-6 md:w-8 md:h-8 bg-[#d4af37] rotate-45 flex items-center justify-center overflow-hidden">
+              {siteConfig.platformLogo
+                ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-contain -rotate-45 scale-[1.4]" />
+                : <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-xs md:text-base">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
+              }
             </div>
-            <span className="text-base md:text-lg font-serif tracking-widest text-[#d4af37] uppercase">Espaço Mix</span>
+            <span className="text-base md:text-lg font-serif tracking-widest text-[#d4af37] uppercase">{siteConfig.platformName}</span>
           </div>
 
           {/* Desktop Menu */}
@@ -1716,7 +1724,7 @@ export default function App() {
                         <button 
                           onClick={() => { setCurrentView('dashboard'); setDashboardMode('staff'); setIsMobileMenuOpen(false); }}
                           className={`py-4 px-6 text-left text-xs tracking-widest uppercase transition-colors border-b border-white/5 ${currentView === 'dashboard' && dashboardMode === 'staff' ? 'text-[#d4af37] font-bold' : 'text-white/60 hover:text-[#d4af37]'}`}
-                        >Gerenciar Equipe</button>
+                        >Equipe</button>
                         <button 
                           onClick={() => { setCurrentView('dashboard'); setDashboardMode('settings'); setIsMobileMenuOpen(false); }}
                           className={`py-4 px-6 text-left text-xs tracking-widest uppercase transition-colors border-b border-white/5 ${currentView === 'dashboard' && dashboardMode === 'settings' ? 'text-[#d4af37] font-bold' : 'text-white/60 hover:text-[#d4af37]'}`}
@@ -3098,8 +3106,10 @@ export default function App() {
                         <>
                           <div>
                             <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">E-mail / Usuário</label>
-                            <input 
-                              type="text" 
+                            <input
+                              type="text"
+                              name="username"
+                              autoComplete="username"
                               value={adminForm.username}
                               onChange={(e) => setAdminForm({...adminForm, username: e.target.value})}
                               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
@@ -3108,8 +3118,10 @@ export default function App() {
                           </div>
                           <div>
                             <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">Senha</label>
-                            <input 
-                              type="password" 
+                            <input
+                              type="password"
+                              name="password"
+                              autoComplete="current-password"
                               value={adminForm.password}
                               onChange={(e) => setAdminForm({...adminForm, password: e.target.value})}
                               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
@@ -3980,14 +3992,28 @@ export default function App() {
                   <div className="space-y-4">
                     {/* Scanner Area */}
                     <div className="bg-[#0d0d0d] border border-white/10 rounded-3xl overflow-hidden relative shadow-xl">
-                       <div className="relative aspect-[4/5] sm:aspect-video w-full bg-black flex items-center justify-center">
-                          <Scanner
-                            onScan={(detectedCodes) => { if(detectedCodes?.[0]?.rawValue) handleCheckIn(detectedCodes[0].rawValue); }}
-                            formats={['qr_code']}
-                            allowMultiple={false}
-                            constraints={{ facingMode: { ideal: 'environment' } }}
-                            onError={(err) => { console.warn('[Scanner]', err); }}
-                          />
+                       <div className="relative aspect-video w-full bg-black flex items-center justify-center">
+                          {scannerError ? (
+                            <div className="flex flex-col items-center justify-center gap-4 p-6 text-center h-full w-full">
+                              <AlertCircle className="w-10 h-10 text-amber-400" />
+                              <p className="text-sm text-white/70 max-w-xs">{scannerError}</p>
+                              <button
+                                onClick={() => { setScannerError(null); setScannerConstraints({ facingMode: { ideal: 'environment' } }); scannerRetryRef.current = 0; setScannerKey(k => k + 1); }}
+                                className="px-4 py-2 bg-white/10 border border-white/20 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-white/20 transition text-white"
+                              >
+                                Tentar Novamente
+                              </button>
+                            </div>
+                          ) : (
+                            <Scanner
+                              key={scannerKey}
+                              onScan={(detectedCodes) => { if(detectedCodes?.[0]?.rawValue) handleCheckIn(detectedCodes[0].rawValue); }}
+                              formats={['qr_code']}
+                              allowMultiple={false}
+                              constraints={scannerConstraints}
+                              onError={handleScannerError}
+                            />
+                          )}
                           
                           {/* Full Screen Overlay for Results */}
                           <AnimatePresence>
@@ -4086,7 +4112,7 @@ export default function App() {
                                 <div className="flex flex-col">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <p className={`text-sm font-bold leading-tight ${b.checkedIn ? 'text-green-100' : 'text-white'}`}>{b.name}</p>
-                                    <span className="text-[10px] font-mono opacity-50">{b.cpf}</span>
+                                    {b.cpf && <span className="text-[10px] font-mono text-[#d4af37]/60 bg-[#d4af37]/5 px-1.5 py-0.5 rounded">{b.cpf}</span>}
                                   </div>
                                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                                     <span className="text-[8px] px-1.5 py-0.5 bg-white/5 rounded text-white/40 uppercase tracking-widest font-bold">{b.type}</span>
@@ -4413,8 +4439,8 @@ export default function App() {
 
                       <div className="space-y-8">
                         {formEvent.batches.map((batch, batchIndex) => (
-                          <div key={batch.id} className="p-5 md:p-8 rounded-2xl bg-white/[0.02] border border-white/5 relative group">
-                            <div className="flex justify-between items-center mb-6">
+                          <div key={batch.id} className="p-6 md:p-8 rounded-2xl bg-white/[0.02] border border-white/8 relative group">
+                            <div className="flex justify-between items-center mb-7">
                               <input
                                 type="text"
                                 value={batch.name}
@@ -4437,10 +4463,10 @@ export default function App() {
                               </button>
                             </div>
 
-                            <div className="space-y-6">
+                            <div className="space-y-4">
                               {batch.sectors.map((sector, sectorIndex) => (
-                                <div key={sector.id} className="p-5 rounded-xl bg-black/40 border border-white/5">
-                                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                                <div key={sector.id} className="p-5 md:p-6 rounded-xl bg-black/40 border border-white/8">
+                                  <div className="grid grid-cols-1 md:grid-cols-12 gap-x-6 gap-y-4">
                                     <div className="md:col-span-4">
                                       <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">Nome do Setor / Ingresso</label>
                                       <input 
@@ -4564,10 +4590,10 @@ export default function App() {
                                       </button>
                                     </div>
                                   </div>
-                                  <div className="mt-4 pt-4 border-t border-white/5 flex flex-wrap items-center justify-center sm:justify-start gap-4">
-                                     <label className="flex items-center gap-2 cursor-pointer">
-                                       <input type="checkbox" className="accent-[#d4af37]" defaultChecked={true} />
-                                       <span className="text-[10px] uppercase font-bold opacity-60">Absorver taxa Serviço (10%)</span>
+                                  <div className="mt-5 pt-4 border-t border-white/8 flex flex-wrap items-center justify-center sm:justify-start gap-4">
+                                     <label className="flex items-center gap-2.5 cursor-pointer">
+                                       <input type="checkbox" className="accent-[#d4af37] w-4 h-4" defaultChecked={true} />
+                                       <span className="text-[11px] uppercase font-bold opacity-70 tracking-widest">Absorver taxa Serviço (10%)</span>
                                      </label>
                                   </div>
                                 </div>
@@ -6017,8 +6043,10 @@ export default function App() {
                         <>
                           <div>
                             <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">E-mail / Usuário</label>
-                            <input 
-                              type="text" 
+                            <input
+                              type="text"
+                              name="username"
+                              autoComplete="username"
                               value={adminForm.username}
                               onChange={(e) => setAdminForm({...adminForm, username: e.target.value})}
                               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
@@ -6027,8 +6055,10 @@ export default function App() {
                           </div>
                           <div>
                             <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">Senha</label>
-                            <input 
-                              type="password" 
+                            <input
+                              type="password"
+                              name="password"
+                              autoComplete="current-password"
                               value={adminForm.password}
                               onChange={(e) => setAdminForm({...adminForm, password: e.target.value})}
                               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"

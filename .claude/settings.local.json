@@ -19,7 +19,8 @@
       "Bash(git checkout *)",
       "Bash(dir \"C:\\\\Users\\\\PC\\\\Desktop\\\\Proj\\\\espaco_mix\\\\node_modules\" /b)",
       "Bash(Get-ChildItem *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(Select-Object Name, Mode)"
     ]
   }
 }
