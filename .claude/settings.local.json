@@ -20,7 +20,16 @@
       "Bash(dir \"C:\\\\Users\\\\PC\\\\Desktop\\\\Proj\\\\espaco_mix\\\\node_modules\" /b)",
       "Bash(Get-ChildItem *)",
       "Bash(node -e ' *)",
-      "Bash(Select-Object Name, Mode)"
+      "Bash(Select-Object Name, Mode)",
+      "Bash(Select-Object -First 100)",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Gabriel\\\\Portifolio\\\\espaco_mix\\\\src\\\\modules\\\\dashboard\")",
+      "Bash(Out-Null)",
+      "Bash(Write-Output \"done\")",
+      "Bash(New-Item -ItemType File -Path \"C:\\\\Gabriel\\\\Portifolio\\\\espaco_mix\\\\src\\\\modules\\\\auth\\\\AuthView.tsx\" -Force)",
+      "Bash(Write-Output \"created\")",
+      "Bash(python3 *)",
+      "Bash(python write_app.py)",
+      "Bash(del write_app.py)"
     ]
   }
 }
