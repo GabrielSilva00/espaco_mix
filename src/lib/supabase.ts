@@ -201,6 +201,14 @@ export interface SystemConfig {
   support_email?: string;
   support_phone?: string;
   main_url?: string;
+  // Dados da organização
+  person_type?: 'pf' | 'pj';
+  company_name?: string;
+  trade_name?: string;
+  address?: string;
+  document?: string;
+  contact_email?: string;
+  contact_phone?: string;
 }
 
 export interface BankingDetails {

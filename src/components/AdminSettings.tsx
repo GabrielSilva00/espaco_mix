@@ -1,18 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import {
   Settings, Image as ImageIcon, Save, Check, Filter,
-  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, User
+  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw
 } from 'lucide-react';
 import { getSystemConfig, updateSystemConfig } from '../lib/supabase';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 
 export function AdminSettings({
   userRole,
-  onNavigateToProfile,
   onSettingsSaved,
 }: {
   userRole: UserRole;
-  onNavigateToProfile?: () => void;
   onSettingsSaved?: (platformName: string, platformLogo: string | null) => void;
 }) {
   const { can } = usePermissions(userRole);
@@ -25,6 +23,15 @@ export function AdminSettings({
     supportEmail: 'contato@eventix.com.br',
     supportPhone: '+55 11 99999-9999',
     mainUrl: 'https://eventix.com.br',
+
+    // Organização
+    personType: 'pf' as 'pf' | 'pj',
+    companyName: '',
+    tradeName: '',
+    address: '',
+    document: '',
+    contactEmail: '',
+    contactPhone: '',
 
     // Payment
     paymentMode: 'split',
@@ -128,6 +135,13 @@ export function AdminSettings({
           enableReports:        c.enable_reports         ?? prev.enableReports,
           allowExport:          c.allow_export           ?? prev.allowExport,
           showSensitiveData:    c.show_sensitive_data    ?? prev.showSensitiveData,
+          personType:           (c.person_type as 'pf' | 'pj') ?? prev.personType,
+          companyName:          c.company_name           ?? prev.companyName,
+          tradeName:            c.trade_name             ?? prev.tradeName,
+          address:              c.address                ?? prev.address,
+          document:             c.document               ?? prev.document,
+          contactEmail:         c.contact_email          ?? prev.contactEmail,
+          contactPhone:         c.contact_phone          ?? prev.contactPhone,
         }));
       })
       .catch((err) => console.error('[AdminSettings] Erro ao carregar config:', err));
@@ -193,6 +207,14 @@ export function AdminSettings({
         enable_reports:           settings.enableReports,
         allow_export:             settings.allowExport,
         show_sensitive_data:      settings.showSensitiveData,
+        // Organização
+        person_type:              settings.personType,
+        company_name:             settings.companyName || undefined,
+        trade_name:               settings.tradeName || undefined,
+        address:                  settings.address || undefined,
+        document:                 settings.document || undefined,
+        contact_email:            settings.contactEmail || undefined,
+        contact_phone:            settings.contactPhone || undefined,
       });
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
@@ -270,13 +292,6 @@ export function AdminSettings({
             {isSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
             <span className="text-[10px] sm:text-xs uppercase tracking-widest font-bold">{isSaved ? 'Salvo' : 'Salvar Alterações'}</span>
           </button>
-          <button
-            onClick={onNavigateToProfile}
-            className="flex items-center gap-2 px-4 py-2 border border-white/10 hover:border-[#d4af37]/40 text-white/70 hover:text-[#d4af37] rounded-xl transition duration-300"
-          >
-            <User className="w-4 h-4" />
-            <span className="text-[10px] sm:text-xs uppercase tracking-widest font-bold">Ver meu Perfil</span>
-          </button>
         </div>
       </div>
 
@@ -330,6 +345,109 @@ export function AdminSettings({
                 />
               </div>
             </div>
+
+            {/* Dados da Organização */}
+            <div className="mt-8 border-t border-white/5 pt-8 space-y-6">
+              <h4 className="text-[11px] uppercase tracking-widest font-bold opacity-60">Dados da Organização / Responsável</h4>
+
+              {/* Tipo de Pessoa */}
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Tipo de Pessoa *</label>
+                <select
+                  name="personType"
+                  value={settings.personType}
+                  onChange={(e) => setSettings(prev => ({ ...prev, personType: e.target.value as 'pf' | 'pj', document: '' }))}
+                  className="w-full select-field"
+                >
+                  <option value="pf">Pessoa Física</option>
+                  <option value="pj">Pessoa Jurídica</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {settings.personType === 'pj' && (
+                  <div>
+                    <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Razão Social *</label>
+                    <input
+                      type="text" name="companyName" value={settings.companyName} onChange={handleChange} required
+                      placeholder="Razão Social da empresa"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition"
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Nome Fantasia *</label>
+                  <input
+                    type="text" name="tradeName" value={settings.tradeName} onChange={handleChange} required
+                    placeholder="Nome comercial / fantasia"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">
+                    {settings.personType === 'pj' ? 'CNPJ *' : 'CPF *'}
+                  </label>
+                  <input
+                    type="text" name="document" value={settings.document} onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      let formatted = raw;
+                      if (settings.personType === 'pj') {
+                        if (raw.length <= 2) formatted = raw;
+                        else if (raw.length <= 5) formatted = raw.slice(0,2) + '.' + raw.slice(2);
+                        else if (raw.length <= 8) formatted = raw.slice(0,2) + '.' + raw.slice(2,5) + '.' + raw.slice(5);
+                        else if (raw.length <= 12) formatted = raw.slice(0,2) + '.' + raw.slice(2,5) + '.' + raw.slice(5,8) + '/' + raw.slice(8);
+                        else formatted = raw.slice(0,2) + '.' + raw.slice(2,5) + '.' + raw.slice(5,8) + '/' + raw.slice(8,12) + '-' + raw.slice(12,14);
+                      } else {
+                        if (raw.length <= 3) formatted = raw;
+                        else if (raw.length <= 6) formatted = raw.slice(0,3) + '.' + raw.slice(3);
+                        else if (raw.length <= 9) formatted = raw.slice(0,3) + '.' + raw.slice(3,6) + '.' + raw.slice(6);
+                        else formatted = raw.slice(0,3) + '.' + raw.slice(3,6) + '.' + raw.slice(6,9) + '-' + raw.slice(9,11);
+                      }
+                      setSettings(prev => ({ ...prev, document: formatted }));
+                    }}
+                    placeholder={settings.personType === 'pj' ? 'XX.XXX.XXX/XXXX-XX' : 'XXX.XXX.XXX-XX'}
+                    maxLength={settings.personType === 'pj' ? 18 : 14}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">E-mail de Contato *</label>
+                  <input
+                    type="email" name="contactEmail" value={settings.contactEmail} onChange={handleChange} required
+                    placeholder="contato@suaempresa.com.br"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Telefone / Contato *</label>
+                  <input
+                    type="tel" name="contactPhone" value={settings.contactPhone} onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      let formatted = raw;
+                      if (raw.length <= 2) formatted = raw.length ? '(' + raw : '';
+                      else if (raw.length <= 7) formatted = '(' + raw.slice(0,2) + ') ' + raw.slice(2);
+                      else formatted = '(' + raw.slice(0,2) + ') ' + raw.slice(2,7) + '-' + raw.slice(7,11);
+                      setSettings(prev => ({ ...prev, contactPhone: formatted }));
+                    }}
+                    placeholder="(XX) XXXXX-XXXX"
+                    maxLength={15}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Endereço */}
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Endereço Completo *</label>
+                <input
+                  type="text" name="address" value={settings.address} onChange={handleChange} required
+                  placeholder="Rua, número, bairro, cidade, estado, CEP"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition"
+                />
+                <p className="text-[9px] opacity-30 mt-1.5">Este endereço será sugerido como localização padrão ao criar novos eventos.</p>
+              </div>
+            </div>
+
             <div className="mt-8 border-t border-white/5 pt-8">
               <label className="block text-[10px] uppercase opacity-40 mb-4 font-bold tracking-[0.2em]">Logo da Plataforma</label>
               <div className="flex items-center gap-6">

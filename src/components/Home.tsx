@@ -27,10 +27,11 @@ interface Event {
 
 interface HomeProps {
   events: Event[];
+  loading?: boolean;
   onEventClick: (event: Event) => void;
 }
 
-export function Home({ events, onEventClick }: HomeProps) {
+export function Home({ events, loading, onEventClick }: HomeProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState('all');
   const [visibleCount, setVisibleCount] = useState(12);
@@ -77,6 +78,15 @@ export function Home({ events, onEventClick }: HomeProps) {
     emblaApi.on('select', onSelect);
     onSelect();
   }, [emblaApi, onSelect]);
+
+  if (loading) {
+    return (
+      <div className="w-full min-h-screen bg-[#111111] text-white flex flex-col items-center justify-center gap-4">
+        <div className="w-10 h-10 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" />
+        <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">Carregando eventos...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full min-h-screen bg-[#111111] text-white overflow-hidden pb-24">

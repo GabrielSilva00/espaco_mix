@@ -29,7 +29,8 @@
       "Bash(Write-Output \"created\")",
       "Bash(python3 *)",
       "Bash(python write_app.py)",
-      "Bash(del write_app.py)"
+      "Bash(del write_app.py)",
+      "Bash(dir C:\\\\Gabriel\\\\Portifolio\\\\espaco_mix /b /a)"
     ]
   }
 }

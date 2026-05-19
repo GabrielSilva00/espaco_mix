@@ -39,7 +39,7 @@ export function AdminSidebar() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed md:relative top-0 left-0 h-screen bg-[#0d0d0d] border-r border-[#ffffff0a] z-50 flex flex-col transition-all duration-300 ${isAdminSidebarCollapsed ? 'w-[80px] md:w-[80px]' : 'w-[280px]'} ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+        className={`fixed md:relative top-0 left-0 h-screen bg-[#0d0d0d] border-r border-[#ffffff0a] z-50 flex flex-col transition-[width,transform] duration-200 ease-in-out ${isAdminSidebarCollapsed ? 'w-[80px] md:w-[80px]' : 'w-[280px]'} ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
         {/* Header */}
         <div className={`h-20 flex items-center ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-6'} border-b border-[#ffffff0a]`}>
@@ -67,7 +67,7 @@ export function AdminSidebar() {
         <div className={`flex-1 overflow-y-auto custom-scrollbar ${isAdminSidebarCollapsed ? 'py-6 px-3' : 'py-6 px-4'} space-y-8`}>
           <div className="mb-4">
             <button
-              onClick={() => setCurrentView('booking')}
+              onClick={() => setCurrentView('home')}
               className={`w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group border border-[#d4af37]/30 text-[#d4af37] bg-[#d4af37]/5 hover:bg-[#d4af37]/10`}
               title={isAdminSidebarCollapsed ? 'Visualizar Site' : ''}
             >

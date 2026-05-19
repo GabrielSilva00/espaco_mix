@@ -35,6 +35,7 @@ export function DashboardView() {
     selectedDashboardEvent, setSelectedDashboardEvent,
     adminScrollRef, imageFileInputRef,
     showDefaultCredentialsWarning,
+    loadingEvents,
     handleCreateEvent, handleEditEvent, handleSaveEvent, handleUpdateEventStatus,
     handleCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff,
     showToast,
@@ -88,7 +89,12 @@ export function DashboardView() {
             ) : dashboardMode === 'approval-queue' && isAtLeast('admin') ? (
               <ApprovalQueue onToast={showToast} />
             ) : dashboardMode === 'list' ? (
-              isStaff ? (
+              loadingEvents ? (
+                <div className="flex flex-col items-center justify-center py-32 gap-4">
+                  <div className="w-10 h-10 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" />
+                  <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">Carregando eventos...</p>
+                </div>
+              ) : isStaff ? (
                 // Staff shouldn't see the list via manual URL if they have no assigned event
                 <div className="flex flex-col items-center justify-center py-20 text-center px-4 sm:px-0">
                   <ShieldAlert className="w-16 h-16 text-[#d4af37] opacity-20 mb-6" />
@@ -133,7 +139,7 @@ export function DashboardView() {
                           <h3 className="text-lg font-serif text-white mb-4 group-hover:text-[#d4af37] transition-colors">{evt.title}</h3>
                           <div className="space-y-2 mb-6 md:mb-8">
                             <div className="flex items-center gap-2 text-[9px] md:text-[10px] opacity-40 uppercase tracking-widest">
-                              <Calendar className="w-3 h-3" /> {evt.date}
+                              <Calendar className="w-3 h-3" /> {new Date(evt.date + 'T00:00:00').toLocaleDateString('pt-BR')}
                             </div>
                             <div className="flex items-center gap-2 text-[9px] md:text-[10px] opacity-40 uppercase tracking-widest">
                               <MapPin className="w-3 h-3" /> {evt.location}
@@ -207,18 +213,24 @@ export function DashboardView() {
                 {/* Cabeçalho do Detalhe */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-white/5 pb-6">
                   <div>
-                    <h2 className="text-2xl font-serif text-white flex items-center gap-2">
+                    <h2 className="text-2xl font-serif text-white">
                       {events.find(e => e.id === selectedDashboardEvent)?.title || 'Evento'}
                     </h2>
                   </div>
                   {(() => {
                     const evt = events.find(e => e.id === selectedDashboardEvent);
                     if (!evt) return null;
-                    const statusColor = evt.status === 'Vendas liberadas' ? 'bg-green-500/20 text-green-400 border-green-500/30' : evt.status === 'Em breve' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-white/10 text-white/50 border-white/10';
+                    const today = new Date().toISOString().split('T')[0];
+                    const isEventPast = evt.date < today;
+                    const statusColor = isEventPast || evt.status === 'Finalizado'
+                      ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                      : evt.status === 'Vendas liberadas' ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                      : evt.status === 'Em breve' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                      : 'bg-white/10 text-white/50 border-white/10';
                     return (
                       <div className="flex items-center gap-3 flex-wrap">
                         <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold tracking-widest border ${statusColor}`}>
-                          {evt.status}
+                          {isEventPast ? 'Finalizado' : evt.status}
                         </span>
                         <button
                           onClick={() => setDashboardMode('check-in')}
@@ -241,34 +253,47 @@ export function DashboardView() {
                 {(() => {
                   const evt = events.find(e => e.id === selectedDashboardEvent);
                   if (!evt) return null;
+                  const today = new Date().toISOString().split('T')[0];
+                  const isEventPast = evt.date < today;
                   return (
                     <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-5">
                       <p className="text-[10px] uppercase tracking-widest opacity-40 mb-4 font-bold text-center">Status do Evento</p>
-                      <div className="flex flex-wrap justify-center gap-3">
-                        <button
-                          onClick={() => handleUpdateEventStatus(evt.id, 'Rascunho')}
-                          className={`px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Rascunho' ? 'bg-white/20 text-white border-white/30' : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white'}`}
-                        >
-                          Rascunho
-                        </button>
-                        <button
-                          onClick={() => handleUpdateEventStatus(evt.id, 'Em breve')}
-                          className={`px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Em breve' ? 'bg-blue-500/30 text-blue-300 border-blue-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-blue-500/10 hover:text-blue-300'}`}
-                        >
-                          Em breve
-                        </button>
-                        <button
-                          onClick={() => handleUpdateEventStatus(evt.id, 'Vendas liberadas')}
-                          className={`px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Vendas liberadas' ? 'bg-green-500/30 text-green-300 border-green-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-green-500/10 hover:text-green-300'}`}
-                        >
-                          Vendas liberadas
-                        </button>
-                      </div>
-                      <p className="text-[9px] opacity-30 mt-3">
-                        {evt.status === 'Rascunho' && 'Rascunho: evento oculto para o público.'}
-                        {evt.status === 'Em breve' && 'Em breve: visível ao público, sem opção de compra.'}
-                        {evt.status === 'Vendas liberadas' && 'Vendas liberadas: público pode comprar ingressos e reservar mesas.'}
-                      </p>
+                      {isEventPast ? (
+                        <div className="flex items-center justify-center gap-2 py-2">
+                          <span className="px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest border bg-red-500/20 text-red-400 border-red-500/30">
+                            Finalizado
+                          </span>
+                          <p className="text-[9px] opacity-40 ml-2">Evento já realizado — status bloqueado.</p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap justify-center gap-3">
+                            <button
+                              onClick={() => handleUpdateEventStatus(evt.id, 'Rascunho')}
+                              className={`px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Rascunho' ? 'bg-white/20 text-white border-white/30' : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white'}`}
+                            >
+                              Rascunho
+                            </button>
+                            <button
+                              onClick={() => handleUpdateEventStatus(evt.id, 'Em breve')}
+                              className={`px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Em breve' ? 'bg-blue-500/30 text-blue-300 border-blue-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-blue-500/10 hover:text-blue-300'}`}
+                            >
+                              Em breve
+                            </button>
+                            <button
+                              onClick={() => handleUpdateEventStatus(evt.id, 'Vendas liberadas')}
+                              className={`px-8 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition border ${evt.status === 'Vendas liberadas' ? 'bg-green-500/30 text-green-300 border-green-500/40' : 'bg-white/5 text-white/50 border-white/10 hover:bg-green-500/10 hover:text-green-300'}`}
+                            >
+                              Vendas liberadas
+                            </button>
+                          </div>
+                          <p className="text-[9px] opacity-30 mt-3">
+                            {evt.status === 'Rascunho' && 'Rascunho: evento oculto para o público.'}
+                            {evt.status === 'Em breve' && 'Em breve: visível ao público, sem opção de compra.'}
+                            {evt.status === 'Vendas liberadas' && 'Vendas liberadas: público pode comprar ingressos e reservar mesas.'}
+                          </p>
+                        </>
+                      )}
                     </div>
                   );
                 })()}
@@ -1819,7 +1844,6 @@ export function DashboardView() {
             ) : dashboardMode === 'settings' && isAtLeast('admin') ? (
               <AdminSettings
                 userRole={userRole}
-                onNavigateToProfile={() => setCurrentView('profile')}
                 onSettingsSaved={(name, logo) => setSiteConfig(prev => ({ ...prev, platformName: name, platformLogo: logo }))}
               />
             ) : dashboardMode === 'developer-panel' && userRole === 'developer' ? (

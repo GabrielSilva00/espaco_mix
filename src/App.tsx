@@ -23,7 +23,7 @@ export function App() {
   const {
     isAdminLayout, currentView, isPreviewingEvent,
     setCurrentView, setDashboardMode, setIsPreviewingEvent,
-    adminScrollRef, events, selectedDashboardEvent, setFormEvent,
+    adminScrollRef, events, loadingEvents, selectedDashboardEvent, setFormEvent,
     isTableLayoutEditorOpen, setIsTableLayoutEditorOpen, formEvent, showToast,
     actionTicket, setActionTicket, actionError, setActionError,
     reservations, setReservations,
@@ -47,6 +47,7 @@ export function App() {
           {currentView === 'home' && (
             <Home
               events={events}
+              loading={loadingEvents}
               onEventClick={event => {
                 setFormEvent({ ...event });
                 setCurrentView('booking');

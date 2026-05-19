@@ -106,12 +106,6 @@ export function Navbar() {
                 {isUserDropdownOpen && (
                   <div className="absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
                     <button
-                      onClick={() => { setCurrentView('profile'); setIsUserDropdownOpen(false); }}
-                      className="w-full px-4 py-3 text-left text-[10px] uppercase tracking-widest text-white/60 hover:bg-white/5 hover:text-white transition-colors border-b border-white/5 flex items-center gap-2"
-                    >
-                      <User className="w-3 h-3" /> Meu Perfil
-                    </button>
-                    <button
                       onClick={() => { setCurrentView('reservations'); setIsUserDropdownOpen(false); }}
                       className="w-full px-4 py-3 text-left text-[10px] uppercase tracking-widest text-white/60 hover:bg-white/5 hover:text-white transition-colors border-b border-white/5 flex items-center gap-2"
                     >
