@@ -13,8 +13,10 @@ export function AdminSidebar() {
     isMobileMenuOpen, setIsMobileMenuOpen, currentView, dashboardMode,
     setCurrentView, setDashboardMode, userRole, isAtLeast, isStaff,
     staffAccounts, loggedInUserId, users, formEvent, handleCreateEvent,
-    handleLogout, showToast, pendingApprovalsCount,
+    handleLogout, showToast, pendingApprovalsCount, developerConfig,
   } = useApp();
+
+  const modules = developerConfig.adminModules;
 
   const navClass = (active: boolean) =>
     `nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group ${
@@ -111,7 +113,7 @@ export function AdminSidebar() {
                 <Users className={iconClass(currentView === 'dashboard' && dashboardMode === 'staff')} />
                 {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Equipe</span>}
               </button>
-              {isAtLeast('admin') && (
+              {isAtLeast('admin') && modules.approvals_kyc && (
                 <button
                   onClick={() => showToast('Em Desenvolvimento', 'info')}
                   className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
@@ -124,27 +126,50 @@ export function AdminSidebar() {
             </div>
           </div>
 
-          {/* Gestão */}
-          <div>
-            {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 mb-3">Gestão</h4>}
-            <div className="space-y-1">
-              {[
-                { icon: BarChart3, label: 'Relatórios Financeiros' },
-                { icon: LinkIcon, label: 'Integrações' },
-                { icon: Bell, label: 'Notificações' },
-                { icon: AlertCircle, label: 'Suporte ao Produtor' },
-              ].map(({ icon: Icon, label }) => (
-                <button
-                  key={label}
-                  className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
-                  title={isAdminSidebarCollapsed ? label : ''}
-                >
-                  <Icon className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
-                  {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">{label}</span>}
-                </button>
-              ))}
+          {/* Gestão — itens visíveis somente quando habilitados pelo DEV */}
+          {(modules.reports || modules.integrations || modules.notifications || modules.support) && (
+            <div>
+              {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 mb-3">Gestão</h4>}
+              <div className="space-y-1">
+                {modules.reports && (
+                  <button
+                    className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
+                    title={isAdminSidebarCollapsed ? 'Relatórios Financeiros' : ''}
+                  >
+                    <BarChart3 className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Relatórios Financeiros</span>}
+                  </button>
+                )}
+                {modules.integrations && (
+                  <button
+                    className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
+                    title={isAdminSidebarCollapsed ? 'Integrações' : ''}
+                  >
+                    <LinkIcon className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Integrações</span>}
+                  </button>
+                )}
+                {modules.notifications && (
+                  <button
+                    className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
+                    title={isAdminSidebarCollapsed ? 'Notificações' : ''}
+                  >
+                    <Bell className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Notificações</span>}
+                  </button>
+                )}
+                {modules.support && (
+                  <button
+                    className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
+                    title={isAdminSidebarCollapsed ? 'Suporte ao Produtor' : ''}
+                  >
+                    <AlertCircle className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Suporte ao Produtor</span>}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Desenvolvedor */}
           {userRole === 'developer' && (

@@ -1,4 +1,4 @@
-import type { DeveloperConfig } from '../types/developer';
+import type { DeveloperConfig, AdminModules } from '../types/developer';
 
 const CONFIG_KEY = 'eventix_developer_config';
 
@@ -27,6 +27,13 @@ export const defaultDeveloperConfig: DeveloperConfig = {
     devUrl: 'http://localhost:5173',
     prodUrl: 'https://eventix.com',
   },
+  adminModules: {
+    approvals_kyc: false,
+    reports: false,
+    integrations: false,
+    notifications: false,
+    support: false,
+  } satisfies AdminModules,
 };
 
 export function loadDeveloperConfig(): DeveloperConfig {
@@ -40,6 +47,7 @@ export function loadDeveloperConfig(): DeveloperConfig {
       theme: { ...defaultDeveloperConfig.theme, ...parsed.theme },
       payment: { ...defaultDeveloperConfig.payment, ...parsed.payment },
       envUrls: { ...defaultDeveloperConfig.envUrls, ...parsed.envUrls },
+      adminModules: { ...defaultDeveloperConfig.adminModules, ...parsed.adminModules },
     };
   } catch {
     return structuredClone(defaultDeveloperConfig);

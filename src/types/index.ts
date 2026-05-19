@@ -87,6 +87,7 @@ export interface Batch {
   startDate: string;
   endDate: string;
   sectors: Sector[];
+  is_active?: boolean;
 }
 
 export interface Sector {

@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import {
   Code2, ToggleLeft, ToggleRight, Settings, Palette,
   CreditCard, Globe, RotateCcw, Save, AlertTriangle, Check,
-  ChevronDown, ChevronUp, Server
+  ChevronDown, ChevronUp, Server, ShieldCheck
 } from 'lucide-react';
 import {
   loadDeveloperConfig,
   saveDeveloperConfig,
   resetDeveloperConfig,
 } from '../services/developerConfig';
-import type { DeveloperConfig, FeatureFlags } from '../types/developer';
+import type { DeveloperConfig, FeatureFlags, AdminModules } from '../types/developer';
+import { useApp } from '../context/AppContext';
 
 interface SectionProps {
   title: string;
@@ -87,6 +88,7 @@ function InputRow({ label, value, onChange, type = 'text', placeholder }: InputR
 }
 
 export function DeveloperPanel() {
+  const { setDeveloperConfig } = useApp();
   const [config, setConfig] = useState<DeveloperConfig>(loadDeveloperConfig);
   const [saved, setSaved] = useState(false);
 
@@ -97,13 +99,16 @@ export function DeveloperPanel() {
 
   const handleSave = () => {
     saveDeveloperConfig(config);
+    setDeveloperConfig(config);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
 
   const handleReset = () => {
     if (!confirm('Resetar todas as configurações para o padrão?')) return;
-    setConfig(resetDeveloperConfig());
+    const reset = resetDeveloperConfig();
+    setConfig(reset);
+    setDeveloperConfig(reset);
     setSaved(false);
   };
 
@@ -113,6 +118,14 @@ export function DeveloperPanel() {
     enableBetaFeatures: { label: 'Features Beta', description: 'Funcionalidades em fase de teste' },
     enableV2Features: { label: 'Features v2', description: 'Próxima geração de funcionalidades' },
     maintenanceMode: { label: 'Modo Manutenção', description: 'Exibe aviso de manutenção para usuários', danger: true },
+  };
+
+  const moduleLabels: Record<keyof AdminModules, { label: string; description: string }> = {
+    approvals_kyc: { label: 'Aprovações KYC', description: 'Permite ao admin visualizar e aprovar produtores' },
+    reports: { label: 'Relatórios Financeiros', description: 'Seção de relatórios e exportações no menu lateral' },
+    integrations: { label: 'Integrações', description: 'Configurações de integrações externas' },
+    notifications: { label: 'Notificações', description: 'Módulo de notificações e alertas' },
+    support: { label: 'Suporte ao Produtor', description: 'Canal de suporte interno para produtores' },
   };
 
   return (
@@ -161,6 +174,22 @@ export function DeveloperPanel() {
               value={config.featureFlags[key]}
               onChange={v => update('featureFlags', { [key]: v })}
               danger={featureLabels[key].danger}
+            />
+          ))}
+        </Section>
+
+        {/* Admin Modules */}
+        <Section title="Módulos do Admin" icon={<ShieldCheck className="w-4 h-4" />}>
+          <p className="text-[10px] text-white/30 normal-case tracking-normal font-normal mb-2">
+            Controla quais módulos ficam visíveis no menu lateral para administradores. Por padrão todos estão desabilitados.
+          </p>
+          {(Object.keys(moduleLabels) as (keyof AdminModules)[]).map(key => (
+            <ToggleRow
+              key={key}
+              label={moduleLabels[key].label}
+              description={moduleLabels[key].description}
+              value={config.adminModules[key]}
+              onChange={v => update('adminModules', { [key]: v })}
             />
           ))}
         </Section>

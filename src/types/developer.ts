@@ -6,6 +6,14 @@ export interface FeatureFlags {
   maintenanceMode: boolean;
 }
 
+export interface AdminModules {
+  approvals_kyc: boolean;
+  reports: boolean;
+  integrations: boolean;
+  notifications: boolean;
+  support: boolean;
+}
+
 export interface SiteSettings {
   platformName: string;
   supportEmail: string;
@@ -33,4 +41,5 @@ export interface DeveloperConfig {
   theme: ThemeSettings;
   payment: PaymentConfig;
   envUrls: EnvUrls;
+  adminModules: AdminModules;
 }

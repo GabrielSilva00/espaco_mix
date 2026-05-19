@@ -19,6 +19,8 @@ import type {
   TableDef, TableStatus, TicketItem, Sector, GuestData, PixData,
   CurrentView, DashboardMode, CheckoutStep, PaymentMethod, Toast, ToastType,
 } from '../types';
+import { loadDeveloperConfig, saveDeveloperConfig } from '../services/developerConfig';
+import type { DeveloperConfig } from '../types/developer';
 import Lenis from 'lenis';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -222,6 +224,10 @@ interface AppContextValue {
   consoleFilterOpen: boolean;
   setConsoleFilterOpen: React.Dispatch<React.SetStateAction<boolean>>;
 
+  // Developer config
+  developerConfig: DeveloperConfig;
+  setDeveloperConfig: React.Dispatch<React.SetStateAction<DeveloperConfig>>;
+
   // Toast
   actionToast: Toast | null;
   showToast: (message: string, type?: ToastType) => void;
@@ -401,6 +407,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [consoleFilter, setConsoleFilter] = useState<'todos' | 'data' | 'comprador' | 'tipo' | 'status'>('todos');
   const [consoleFilterOpen, setConsoleFilterOpen] = useState(false);
 
+  // Developer config
+  const [developerConfig, setDeveloperConfig] = useState<DeveloperConfig>(loadDeveloperConfig);
+
   // Toast
   const [actionToast, setActionToast] = useState<Toast | null>(null);
 
@@ -418,7 +427,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? (events.find(e => e.id === Number(selectedDashboardEvent)) || events.find(e => e.status === 'Vendas liberadas') || events.find(e => e.status === 'Ativo') || events.find(e => e.status === 'Em breve') || events[0])
         : (events.find(e => e.id === Number(selectedDashboardEvent)) || events.find(e => e.status === 'Vendas liberadas') || events.find(e => e.status === 'Ativo') || events[0]));
 
-  const activeBatch = activeEvent?.batches?.[0];
+  const activeBatch = activeEvent?.batches?.find(b => b.is_active !== false) ?? activeEvent?.batches?.[0];
   const previewSectors = activeBatch?.sectors || [];
 
   const layoutTableElements = (activeEvent?.tableLayout || []).filter(
@@ -1059,6 +1068,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     consoleSearch, setConsoleSearch,
     consoleFilter, setConsoleFilter,
     consoleFilterOpen, setConsoleFilterOpen,
+    developerConfig, setDeveloperConfig,
     actionToast, showToast,
     adminScrollRef, imageFileInputRef,
     isAdminLayout,

@@ -118,10 +118,22 @@ export function BookingView() {
                   </div>
 
                   <div className="bg-[#111] border border-white/5 rounded-3xl p-6">
+                    {/* Lotes fechados — exibidos como referência histórica */}
+                    {activeEvent.batches.filter(b => b.is_active === false).map(batch => (
+                      <div key={batch.id} className="mb-3 flex items-center gap-3 bg-[#0d0d0d] p-4 rounded-xl border border-white/5 opacity-50">
+                        <div className="flex-1">
+                          <h3 className="text-white/50 font-bold text-base">{batch.name}</h3>
+                        </div>
+                        <span className="text-[9px] uppercase tracking-widest bg-white/10 text-white/40 px-2.5 py-1 rounded-full border border-white/10 whitespace-nowrap">Fechado</span>
+                      </div>
+                    ))}
+                    {/* Lote ativo */}
                     <div className="mb-6 flex justify-between items-center bg-[#1a1a1a] p-4 rounded-xl border border-white/10">
                       <div>
-                        <h3 className="text-[#d4af37] font-bold text-lg">{activeEvent.batches[0].name}</h3>
-                        <p className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Lote Atual - Inscrições Abertas</p>
+                        <h3 className="text-[#d4af37] font-bold text-lg">
+                          {(activeEvent.batches.find(b => b.is_active !== false) ?? activeEvent.batches[0])?.name}
+                        </h3>
+                        <p className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Lote Atual — Inscrições Abertas</p>
                       </div>
                     </div>
 

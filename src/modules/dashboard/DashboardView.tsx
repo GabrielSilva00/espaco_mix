@@ -1242,25 +1242,32 @@ export function DashboardView() {
 
                       <div className="space-y-8">
                         {formEvent.batches.map((batch, batchIndex) => (
-                          <div key={batch.id} className="p-6 md:p-8 rounded-2xl bg-white/[0.02] border border-white/8 relative group">
+                          <div key={batch.id} className={`p-6 md:p-8 rounded-2xl border relative group ${batch.is_active === false ? 'bg-white/[0.01] border-white/5 opacity-60' : 'bg-white/[0.02] border-white/8'}`}>
                             <div className="flex justify-between items-center mb-7">
-                              <input
-                                type="text"
-                                value={batch.name}
-                                onChange={(e) => {
-                                  const newBatches = [...formEvent.batches];
-                                  newBatches[batchIndex].name = e.target.value;
-                                  setFormEvent({ ...formEvent, batches: newBatches });
-                                }}
-                                className="bg-transparent border-b border-white/20 text-white font-bold text-lg focus:border-[#d4af37] outline-none transition-all pb-1 min-w-[200px]"
-                                placeholder="Nome do Lote"
-                              />
-                              <button 
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <input
+                                  type="text"
+                                  value={batch.name}
+                                  onChange={(e) => {
+                                    const newBatches = [...formEvent.batches];
+                                    newBatches[batchIndex].name = e.target.value;
+                                    setFormEvent({ ...formEvent, batches: newBatches });
+                                  }}
+                                  className="bg-transparent border-b border-white/20 text-white font-bold text-lg focus:border-[#d4af37] outline-none transition-all pb-1 min-w-[160px]"
+                                  placeholder="Nome do Lote"
+                                />
+                                {batch.is_active === false ? (
+                                  <span className="text-[9px] uppercase tracking-widest bg-white/10 text-white/40 px-2.5 py-1 rounded-full border border-white/10 whitespace-nowrap">Fechado</span>
+                                ) : (
+                                  <span className="text-[9px] uppercase tracking-widest bg-[#d4af37]/10 text-[#d4af37] px-2.5 py-1 rounded-full border border-[#d4af37]/20 whitespace-nowrap">Ativo</span>
+                                )}
+                              </div>
+                              <button
                                 onClick={() => {
                                   setFormEvent({ ...formEvent, batches: formEvent.batches.filter((_, i) => i !== batchIndex) });
                                   showToast('Lote removido.', 'info');
                                 }}
-                                className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 opacity-50 hover:opacity-100 transition-opacity"
+                                className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 opacity-50 hover:opacity-100 transition-opacity ml-3 shrink-0"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1393,12 +1400,6 @@ export function DashboardView() {
                                       </button>
                                     </div>
                                   </div>
-                                  <div className="mt-5 pt-4 border-t border-white/8 flex flex-wrap items-center justify-center sm:justify-start gap-4">
-                                     <label className="flex items-center gap-2.5 cursor-pointer">
-                                       <input type="checkbox" className="accent-[#d4af37] w-4 h-4" defaultChecked={true} />
-                                       <span className="text-[11px] uppercase font-bold opacity-70 tracking-widest">Absorver taxa Serviço (10%)</span>
-                                     </label>
-                                  </div>
                                 </div>
                               ))}
 
@@ -1406,7 +1407,7 @@ export function DashboardView() {
                                 onClick={() => {
                                   const newBatches = [...formEvent.batches];
                                   newBatches[batchIndex].sectors.push({
-                                    id: Math.random().toString(36).substring(7),
+                                    id: crypto.randomUUID(),
                                     name: '',
                                     quantity: 0,
                                     price: 0,
@@ -1425,13 +1426,15 @@ export function DashboardView() {
                         <button
                           onClick={() => {
                             const newBatch: Batch = {
-                              id: Math.random().toString(36).substring(7),
+                              id: crypto.randomUUID(),
                               name: `Lote ${formEvent.batches.length + 1}`,
                               startDate: new Date().toISOString().split('T')[0],
                               endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                              sectors: [{ id: Math.random().toString(36).substring(7), name: '', quantity: 0, price: 0, limitPerUser: 4 }]
+                              sectors: [{ id: crypto.randomUUID(), name: '', quantity: 0, price: 0, limitPerUser: 4 }],
+                              is_active: true,
                             };
-                            setFormEvent({ ...formEvent, batches: [...formEvent.batches, newBatch] });
+                            const updatedBatches = formEvent.batches.map(b => ({ ...b, is_active: false }));
+                            setFormEvent({ ...formEvent, batches: [...updatedBatches, newBatch] });
                             setReleaseValidationFields(prev => prev.filter(f => f !== 'Pelo menos 1 Lote de Ingressos'));
                           }}
                           className="w-full py-6 border-2 border-dashed border-[#d4af37]/30 hover:border-[#d4af37]/50 bg-[#d4af37]/5 hover:bg-[#d4af37]/10 rounded-2xl flex flex-col items-center justify-center gap-2 transition group"

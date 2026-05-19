@@ -65,6 +65,7 @@ export interface Batch {
   start_date: string;
   end_date: string;
   sort_order?: number;
+  is_active?: boolean;
   sectors?: Sector[];
 }
 
@@ -488,7 +489,7 @@ export async function saveEvent(event: Event): Promise<Event> {
 
   if (batches && batches.length > 0) {
     for (const batch of batches) {
-      const { sectors, id, name, startDate, endDate, sort_order } = batch as any;
+      const { sectors, id, name, startDate, endDate, sort_order, is_active } = batch as any;
 
       // 2. Upsert do lote (mapeia camelCase → snake_case)
       const { data: savedBatch, error: bErr } = await supabase
@@ -499,6 +500,7 @@ export async function saveEvent(event: Event): Promise<Event> {
           start_date: startDate ?? batch.start_date,
           end_date: endDate ?? batch.end_date,
           sort_order,
+          is_active: is_active ?? true,
           event_id: savedEvent.id,
         })
         .select()
