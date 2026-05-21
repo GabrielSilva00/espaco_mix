@@ -431,17 +431,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const previewSectors = activeBatch?.sectors || [];
 
   const layoutTableElements = (activeEvent?.tableLayout || []).filter(
-    el => el.type === 'round-table' || el.type === 'rect-table'
+    el => el.type === 'round-table' || el.type === 'rect-table' || el.type === 'bistro-table'
   );
 
   const derivedTables: TableDef[] = layoutTableElements.length > 0
     ? layoutTableElements.map((el, i) => {
         const existing = tables.find(t => t.id === i + 1);
+        const defaultPrice = el.type === 'bistro-table'
+          ? (activeEvent?.tableConfig?.bistroPrice ?? 200)
+          : (activeEvent?.tableConfig?.tablePrice ?? 300);
         return {
           id: i + 1,
           capacity: el.capacity ?? activeEvent?.tableConfig?.seatsPerTable ?? 4,
           status: existing?.status || 'available',
-          price: existing?.price || 300,
+          price: el.price ?? existing?.price ?? defaultPrice,
         };
       })
     : Array.from({ length: activeEvent?.tableConfig?.totalTables || 20 }).map((_, i) => {
@@ -450,7 +453,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: i + 1,
           capacity: activeEvent?.tableConfig?.seatsPerTable ?? existing?.capacity ?? 4,
           status: existing?.status || 'available',
-          price: existing?.price || 300,
+          price: existing?.price ?? activeEvent?.tableConfig?.tablePrice ?? 300,
         };
       });
 

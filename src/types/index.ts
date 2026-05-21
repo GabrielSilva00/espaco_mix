@@ -1,4 +1,4 @@
-export type LayoutElementType = 'round-table' | 'rect-table' | 'stage' | 'dance-floor' | 'bar' | 'entry-exit' | 'restroom';
+export type LayoutElementType = 'round-table' | 'rect-table' | 'bistro-table' | 'stage' | 'dance-floor' | 'bar' | 'entry-exit' | 'restroom';
 
 export interface TableLayoutElement {
   id: string;
@@ -10,6 +10,7 @@ export interface TableLayoutElement {
   label: string;
   color: string;
   capacity?: number;
+  price?: number;
 }
 
 export type TableStatus = 'available' | 'reserved' | 'selected';
@@ -108,6 +109,9 @@ export interface TableConfig {
   seatsPerTable: number;
   gridRows: number;
   gridCols: number;
+  tablePrice?: number;
+  bistroPrice?: number;
+  globalIconSize?: number;
 }
 
 export interface Event {

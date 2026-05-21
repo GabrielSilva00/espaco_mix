@@ -1586,15 +1586,42 @@ export function DashboardView() {
                             </div>
                             <div>
                               <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Lugares/Mesa</label>
-                              <input 
-                                type="number" 
+                              <input
+                                type="number"
                                 value={formEvent.tableConfig.seatsPerTable}
                                 onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, seatsPerTable: Number(e.target.value) } })}
                                 className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37]"
                               />
                             </div>
                           </div>
-                          
+
+                          <div className="grid grid-cols-2 gap-4 mt-4">
+                            <div>
+                              <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Valor por Mesa (R$)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step={10}
+                                placeholder="Ex: 300"
+                                value={formEvent.tableConfig.tablePrice ?? ''}
+                                onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, tablePrice: e.target.value !== '' ? Number(e.target.value) : undefined } })}
+                                className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] placeholder:opacity-30"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Valor por Bistrô (R$)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step={10}
+                                placeholder="Ex: 200"
+                                value={formEvent.tableConfig.bistroPrice ?? ''}
+                                onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, bistroPrice: e.target.value !== '' ? Number(e.target.value) : undefined } })}
+                                className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] placeholder:opacity-30"
+                              />
+                            </div>
+                          </div>
+
                           <div className="pt-4 mt-4 border-t border-white/5">
                             <h4 className="text-[10px] uppercase font-bold text-[#d4af37] mb-4">Preview do Mapa</h4>
                             {formEvent.tableLayout && formEvent.tableLayout.length > 0 ? (

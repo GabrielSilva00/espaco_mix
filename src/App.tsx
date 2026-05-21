@@ -118,8 +118,15 @@ export function App() {
               <TableLayoutEditor
                 initialLayout={formEvent.tableLayout || []}
                 requiredTables={formEvent.tableConfig?.totalTables}
-                onSave={(layout) => {
-                  setFormEvent({ ...formEvent, tableLayout: layout });
+                initialIconSize={formEvent.tableConfig?.globalIconSize}
+                onSave={(layout, iconSize) => {
+                  setFormEvent({
+                    ...formEvent,
+                    tableLayout: layout,
+                    tableConfig: formEvent.tableConfig
+                      ? { ...formEvent.tableConfig, globalIconSize: iconSize }
+                      : undefined,
+                  });
                   setIsTableLayoutEditorOpen(false);
                   showToast('Layout salvo com sucesso.', 'success');
                 }}
