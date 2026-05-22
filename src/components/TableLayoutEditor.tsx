@@ -12,13 +12,16 @@ interface TableLayoutEditorProps {
 }
 
 const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 600;
+const CANVAS_HEIGHT = 1100;
 const GRID_STEP = 20;
-const STAGE_HEIGHT = 60;
+// y=220 matches stage bottom in SVG reference (rect y=70, height=150 → bottom at y=220)
+const STAGE_HEIGHT = 220;
 const MESA_SIZE = 64;
 const BISTRO_SIZE = 54;
 const ENTRY_W = 120;
 const ENTRY_H = 48;
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 2.0;
 
 type PaletteType = 'rect-table' | 'bistro-table' | 'entry-exit';
 
@@ -39,6 +42,26 @@ function nextBistroLabel(elements: TableLayoutElement[]): string {
     .map(el => { const m = el.label.match(/\d+/); return m ? parseInt(m[0]) : 0; })
     .filter(n => n > 0);
   return `B${nums.length > 0 ? Math.max(...nums) + 1 : 1}`;
+}
+
+// After removing a mesa, renumber remaining mesas sequentially (01, 02, …)
+function reorderMesaLabels(elements: TableLayoutElement[]): TableLayoutElement[] {
+  let mesaIndex = 0;
+  return elements.map(el => {
+    if (el.type !== 'rect-table' && el.type !== 'round-table') return el;
+    mesaIndex++;
+    return { ...el, label: String(mesaIndex).padStart(2, '0') };
+  });
+}
+
+// After removing a bistrô, renumber remaining bistrôs sequentially (B1, B2, …)
+function reorderBistroLabels(elements: TableLayoutElement[]): TableLayoutElement[] {
+  let bistroIndex = 0;
+  return elements.map(el => {
+    if (el.type !== 'bistro-table') return el;
+    bistroIndex++;
+    return { ...el, label: `B${bistroIndex}` };
+  });
 }
 
 function MesaIconSVG({ label, selected }: { label: string; selected?: boolean }) {
@@ -307,10 +330,10 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setZoom(p => clamp(Number((p - 0.25).toFixed(2)), 0.5, 2))}
+            <button onClick={() => setZoom(p => clamp(Number((p - 0.1).toFixed(2)), ZOOM_MIN, ZOOM_MAX))}
               className="w-8 h-8 border border-white/10 rounded-lg hover:border-white/30 text-white text-lg flex items-center justify-center">−</button>
             <span className="text-xs opacity-50 min-w-[48px] text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(p => clamp(Number((p + 0.25).toFixed(2)), 0.5, 2))}
+            <button onClick={() => setZoom(p => clamp(Number((p + 0.1).toFixed(2)), ZOOM_MIN, ZOOM_MAX))}
               className="w-8 h-8 border border-white/10 rounded-lg hover:border-white/30 text-white text-lg flex items-center justify-center">+</button>
           </div>
         </div>
@@ -336,23 +359,27 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
               cursor: draggingId ? 'grabbing' : 'default',
             }}
           >
-            {/* Fixed Stage — not draggable, always at top */}
+            {/* Fixed Stage — fiel ao SVG original, não arrastável */}
             <div
               style={{
                 position: 'absolute', left: 0, top: 0,
                 width: CANVAS_WIDTH, height: STAGE_HEIGHT,
-                background: 'linear-gradient(180deg, #1e1e1e 0%, #171717 100%)',
-                borderBottom: '2px solid rgba(201,168,76,0.35)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
                 pointerEvents: 'none', zIndex: 10,
               }}
             >
-              <span style={{
-                color: '#C9A84C', fontSize: 13, letterSpacing: '0.4em',
-                fontWeight: 700, textTransform: 'uppercase', opacity: 0.75,
-              }}>
-                PALCO
-              </span>
+              <svg width={CANVAS_WIDTH} height={STAGE_HEIGHT} viewBox={`0 0 ${CANVAS_WIDTH} ${STAGE_HEIGHT}`}>
+                {/* Área acima do palco */}
+                <text x={CANVAS_WIDTH / 2} y="50" textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="11" letterSpacing="3">ÁREA DE CARGA E DESCARGA</text>
+                {/* Rect principal do palco */}
+                <rect x="50" y="70" width="650" height="150" fill="#1a1a1a" stroke="#C9A84C" strokeWidth="2" />
+                {/* Label PALCO */}
+                <text x="375" y="160" textAnchor="middle" fill="#C9A84C" fontSize="30" fontWeight="bold" letterSpacing="8" opacity="0.85">PALCO</text>
+                {/* Módulo de degraus — canto inferior esquerdo do palco */}
+                <rect x="50" y="160" width="75" height="60" fill="#151515" stroke="#C9A84C" strokeWidth="1.5" opacity="0.8" />
+                <line x1="50" y1="175" x2="125" y2="175" stroke="#C9A84C" strokeWidth="1.2" opacity="0.5" />
+                <line x1="50" y1="190" x2="125" y2="190" stroke="#C9A84C" strokeWidth="1.2" opacity="0.5" />
+                <line x1="50" y1="205" x2="125" y2="205" stroke="#C9A84C" strokeWidth="1.2" opacity="0.5" />
+              </svg>
             </div>
 
             {/* Draggable Elements */}
@@ -450,7 +477,19 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
             </div>
 
             <button
-              onClick={() => { setElements(prev => prev.filter(el => el.id !== selectedElement.id)); setSelectedId(null); }}
+              onClick={() => {
+                const removedType = selectedElement.type;
+                setElements(prev => {
+                  let next = prev.filter(el => el.id !== selectedElement.id);
+                  if (removedType === 'rect-table' || removedType === 'round-table') {
+                    next = reorderMesaLabels(next);
+                  } else if (removedType === 'bistro-table') {
+                    next = reorderBistroLabels(next);
+                  }
+                  return next;
+                });
+                setSelectedId(null);
+              }}
               className="w-full py-2 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 text-xs uppercase tracking-widest font-bold transition"
             >
               Remover Elemento

@@ -22,6 +22,7 @@ import { AdminSettings } from '../../components/AdminSettings';
 import { DeveloperPanel } from '../../components/DeveloperPanel';
 import { TableLayoutEditor } from '../../components/TableLayoutEditor';
 import { downloadPDFList } from '../../shared/utils/pdf';
+import { generateDefaultLayout, getLayoutViewBox } from '../../shared/utils/defaultLayout';
 
 export function DashboardView() {
   const {
@@ -1557,10 +1558,13 @@ export function DashboardView() {
                          <button 
                             onClick={() => {
                               if (!formEvent.hasTables && !formEvent.tableConfig) {
+                                const defaultTables = 30;
+                                const defaultBistros = 10;
                                 setFormEvent({
                                   ...formEvent,
                                   hasTables: true,
-                                  tableConfig: { totalTables: 10, seatsPerTable: 4, gridRows: 2, gridCols: 5, totalBistros: 0 }
+                                  tableConfig: { totalTables: defaultTables, seatsPerTable: 4, gridRows: 8, gridCols: 5, totalBistros: defaultBistros },
+                                  tableLayout: generateDefaultLayout(defaultTables, defaultBistros, 4),
                                 });
                               } else {
                                 setFormEvent({ ...formEvent, hasTables: !formEvent.hasTables });
@@ -1643,92 +1647,79 @@ export function DashboardView() {
                           <div className="pt-4 mt-2 border-t border-white/5">
                             <p className="text-[10px] uppercase font-bold text-[#C9A84C] mb-3 tracking-widest">Preview do Mapa</p>
                             {(() => {
-                              const savedLayout = formEvent.tableLayout || [];
-                              const hasElements = savedLayout.some(el =>
-                                el.type === 'rect-table' || el.type === 'round-table' || el.type === 'bistro-table' || el.type === 'entry-exit'
-                              );
-                              // Generate auto layout for preview when no saved layout
                               const totalT = formEvent.tableConfig.totalTables;
                               const totalB = formEvent.tableConfig.totalBistros ?? 0;
-                              const previewElements = hasElements ? savedLayout : (() => {
-                                const els: typeof savedLayout = [];
-                                const cols = Math.min(5, Math.max(1, totalT));
-                                const cellW = Math.min(130, Math.floor(720 / cols));
-                                for (let i = 0; i < totalT; i++) {
-                                  const col = i % cols;
-                                  const row = Math.floor(i / cols);
-                                  els.push({
-                                    id: `prev-m-${i}`, type: 'rect-table',
-                                    x: 40 + col * cellW, y: 75 + row * 95,
-                                    width: 64, height: 64,
-                                    label: String(i + 1).padStart(2, '0'),
-                                    color: '#C9A84C',
-                                    capacity: formEvent.tableConfig?.seatsPerTable ?? 4,
-                                  });
-                                }
-                                for (let i = 0; i < totalB; i++) {
-                                  els.push({
-                                    id: `prev-b-${i}`, type: 'bistro-table',
-                                    x: 730, y: 75 + i * 85,
-                                    width: 54, height: 54,
-                                    label: `B${i + 1}`,
-                                    color: '#8B4513',
-                                    capacity: 2,
-                                  });
-                                }
-                                return els;
-                              })();
+                              const savedLayout = formEvent.tableLayout || [];
+                              const hasElements = savedLayout.some(el =>
+                                el.type === 'rect-table' || el.type === 'round-table' || el.type === 'bistro-table'
+                              );
+                              const previewElements = hasElements
+                                ? savedLayout
+                                : generateDefaultLayout(totalT, totalB, formEvent.tableConfig?.seatsPerTable ?? 4);
+                              const viewBox = getLayoutViewBox(previewElements);
+                              const [,, vbW, vbH] = viewBox.split(' ').map(Number);
 
                               return (
-                                <div className="bg-[#1a1a1a] rounded-xl border border-white/10 overflow-hidden">
-                                  <svg viewBox="0 0 800 600" className="w-full" style={{ display: 'block', maxHeight: '220px' }}>
-                                    <defs>
-                                      <pattern id="dashGrid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
-                                        <circle cx="1" cy="1" r="0.8" fill="rgba(255,255,255,0.04)" />
-                                      </pattern>
-                                    </defs>
-                                    <rect width="800" height="600" fill="#1a1a1a" />
-                                    <rect width="800" height="600" fill="url(#dashGrid)" />
-                                    {/* Stage */}
-                                    <rect x="0" y="0" width="800" height="55" fill="#1e1e1e" />
-                                    <rect x="0" y="53" width="800" height="2" fill="#C9A84C" opacity="0.35" />
-                                    <text x="400" y="33" textAnchor="middle" fill="#C9A84C" fontSize="13" fontWeight="bold" letterSpacing="5" opacity="0.7">PALCO</text>
-                                    {/* Elements */}
-                                    {previewElements.map(el => {
-                                      const cx = el.x + el.width / 2;
-                                      const cy = el.y + el.height / 2;
-                                      const isMesa = el.type === 'rect-table' || el.type === 'round-table';
-                                      const isBistro = el.type === 'bistro-table';
-                                      if (isMesa) {
-                                        const half = 17;
-                                        const cs = 7; const gap = 3;
+                                <div
+                                  className="bg-[#111111] rounded-xl border border-[#2a2a2a] overflow-hidden"
+                                  style={{ padding: 16 }}
+                                >
+                                  <div className="w-full overflow-x-auto overflow-y-auto" style={{ maxHeight: 360 }}>
+                                    <svg
+                                      viewBox={viewBox}
+                                      style={{ display: 'block', width: '100%', height: 'auto', minHeight: 200 }}
+                                    >
+                                      <defs>
+                                        <pattern id="previewGrid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                                          <circle cx="1" cy="1" r="0.8" fill="rgba(255,255,255,0.04)" />
+                                        </pattern>
+                                      </defs>
+                                      <rect width={vbW} height={vbH} fill="#111111" />
+                                      <rect width={vbW} height={vbH} fill="url(#previewGrid)" />
+                                      {/* Palco — fiel ao SVG original */}
+                                      <text x={vbW / 2} y="50" textAnchor="middle" fill="rgba(255,255,255,0.15)" fontSize="10" letterSpacing="3">ÁREA DE CARGA E DESCARGA</text>
+                                      <rect x="50" y="70" width="650" height="150" fill="#1a1a1a" stroke="#C9A84C" strokeWidth="2" />
+                                      <text x="375" y="157" textAnchor="middle" fill="#C9A84C" fontSize="26" fontWeight="bold" letterSpacing="8" opacity="0.85">PALCO</text>
+                                      <rect x="50" y="160" width="75" height="60" fill="#151515" stroke="#C9A84C" strokeWidth="1.5" opacity="0.75" />
+                                      <line x1="50" y1="175" x2="125" y2="175" stroke="#C9A84C" strokeWidth="1.2" opacity="0.45" />
+                                      <line x1="50" y1="190" x2="125" y2="190" stroke="#C9A84C" strokeWidth="1.2" opacity="0.45" />
+                                      <line x1="50" y1="205" x2="125" y2="205" stroke="#C9A84C" strokeWidth="1.2" opacity="0.45" />
+                                      {/* Elementos */}
+                                      {previewElements.map(el => {
+                                        const cx = el.x + el.width / 2;
+                                        const cy = el.y + el.height / 2;
+                                        const isMesa = el.type === 'rect-table' || el.type === 'round-table';
+                                        const isBistro = el.type === 'bistro-table';
+                                        if (isMesa) {
+                                          const half = 17; const cs = 7; const gap = 3;
+                                          return (
+                                            <g key={el.id}>
+                                              <rect x={cx - cs/2} y={cy - half - gap - cs} width={cs} height={cs} rx="1" fill="#444" />
+                                              <rect x={cx - cs/2} y={cy + half + gap} width={cs} height={cs} rx="1" fill="#444" />
+                                              <rect x={cx - half - gap - cs} y={cy - cs/2} width={cs} height={cs} rx="1" fill="#444" />
+                                              <rect x={cx + half + gap} y={cy - cs/2} width={cs} height={cs} rx="1" fill="#444" />
+                                              <rect x={cx - half} y={cy - half} width={half*2} height={half*2} rx="3" fill="#C9A84C" stroke="#111" strokeWidth="1.2" />
+                                              <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#1a1a1a">{el.label}</text>
+                                            </g>
+                                          );
+                                        }
+                                        if (isBistro) {
+                                          return (
+                                            <g key={el.id}>
+                                              <circle cx={cx} cy={cy} r={20} fill="#8B4513" stroke="#C9A84C" strokeWidth="1.5" />
+                                              <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#C9A84C">{el.label}</text>
+                                            </g>
+                                          );
+                                        }
                                         return (
                                           <g key={el.id}>
-                                            <rect x={cx - cs/2} y={cy - half - gap - cs} width={cs} height={cs} rx="1" fill="#444" />
-                                            <rect x={cx - cs/2} y={cy + half + gap} width={cs} height={cs} rx="1" fill="#444" />
-                                            <rect x={cx - half - gap - cs} y={cy - cs/2} width={cs} height={cs} rx="1" fill="#444" />
-                                            <rect x={cx + half + gap} y={cy - cs/2} width={cs} height={cs} rx="1" fill="#444" />
-                                            <rect x={cx - half} y={cy - half} width={half*2} height={half*2} rx="3" fill="#C9A84C" stroke="#111" strokeWidth="1.2" />
-                                            <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#1a1a1a">{el.label}</text>
+                                            <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="4" fill="#374151" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+                                            <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.5)">{el.label}</text>
                                           </g>
                                         );
-                                      }
-                                      if (isBistro) {
-                                        return (
-                                          <g key={el.id}>
-                                            <circle cx={cx} cy={cy} r={20} fill="#8B4513" stroke="#C9A84C" strokeWidth="1.5" />
-                                            <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#C9A84C">{el.label}</text>
-                                          </g>
-                                        );
-                                      }
-                                      return (
-                                        <g key={el.id}>
-                                          <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="4" fill="#374151" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
-                                          <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.5)">{el.label}</text>
-                                        </g>
-                                      );
-                                    })}
-                                  </svg>
+                                      })}
+                                    </svg>
+                                  </div>
                                 </div>
                               );
                             })()}
@@ -1742,31 +1733,10 @@ export function DashboardView() {
                                   el => el.type === 'rect-table' || el.type === 'round-table'
                                 );
                                 if (!hasTableElements && total > 0) {
-                                  const cols = Math.min(5, Math.max(1, total));
-                                  const cellW = Math.min(130, Math.floor(720 / cols));
-                                  const mesaEls = Array.from({ length: total }).map((_, i) => ({
-                                    id: `layout-${Math.random().toString(36).slice(2, 10)}`,
-                                    type: 'rect-table' as const,
-                                    x: 40 + (i % cols) * cellW,
-                                    y: 75 + Math.floor(i / cols) * 95,
-                                    width: 64,
-                                    height: 64,
-                                    label: String(i + 1).padStart(2, '0'),
-                                    color: '#C9A84C',
-                                    capacity: formEvent.tableConfig?.seatsPerTable ?? 4,
-                                  }));
-                                  const bistroEls = Array.from({ length: totalB }).map((_, i) => ({
-                                    id: `layout-${Math.random().toString(36).slice(2, 10)}`,
-                                    type: 'bistro-table' as const,
-                                    x: 730,
-                                    y: 75 + i * 85,
-                                    width: 54,
-                                    height: 54,
-                                    label: `B${i + 1}`,
-                                    color: '#8B4513',
-                                    capacity: 2,
-                                  }));
-                                  setFormEvent({ ...formEvent, tableLayout: [...mesaEls, ...bistroEls] });
+                                  setFormEvent({
+                                    ...formEvent,
+                                    tableLayout: generateDefaultLayout(total, totalB, formEvent.tableConfig?.seatsPerTable ?? 4),
+                                  });
                                 }
                                 setIsTableLayoutEditorOpen(true);
                               }}

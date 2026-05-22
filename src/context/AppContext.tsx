@@ -447,15 +447,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           price: el.price ?? existing?.price ?? defaultPrice,
         };
       })
-    : Array.from({ length: activeEvent?.tableConfig?.totalTables || 20 }).map((_, i) => {
-        const existing = tables.find(t => t.id === i + 1);
-        return {
-          id: i + 1,
-          capacity: activeEvent?.tableConfig?.seatsPerTable ?? existing?.capacity ?? 4,
-          status: existing?.status || 'available',
-          price: existing?.price ?? activeEvent?.tableConfig?.tablePrice ?? 300,
-        };
-      });
+    : [
+        ...Array.from({ length: activeEvent?.tableConfig?.totalTables || 20 }).map((_, i) => {
+          const existing = tables.find(t => t.id === i + 1);
+          return {
+            id: i + 1,
+            capacity: activeEvent?.tableConfig?.seatsPerTable ?? existing?.capacity ?? 4,
+            status: (existing?.status || 'available') as 'available' | 'reserved',
+            price: existing?.price ?? activeEvent?.tableConfig?.tablePrice ?? 300,
+          };
+        }),
+        ...Array.from({ length: activeEvent?.tableConfig?.totalBistros || 0 }).map((_, i) => {
+          const id = (activeEvent?.tableConfig?.totalTables || 20) + i + 1;
+          const existing = tables.find(t => t.id === id);
+          return {
+            id,
+            capacity: 2,
+            status: (existing?.status || 'available') as 'available' | 'reserved',
+            price: existing?.price ?? activeEvent?.tableConfig?.bistroPrice ?? 200,
+          };
+        }),
+      ];
 
   const selectedTablesData = derivedTables.filter(t => selectedTables.includes(t.id));
   const tablesTotal = selectedTablesData.reduce((acc, curr) => acc + curr.price, 0);
