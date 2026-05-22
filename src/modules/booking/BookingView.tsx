@@ -408,29 +408,43 @@ export function BookingView() {
                               <p className="text-[10px] opacity-50 uppercase tracking-widest">Selecione sua mesa ou bistrô</p>
                             </div>
                             <div className="flex items-center gap-4 flex-wrap text-[10px] uppercase opacity-60 tracking-widest">
-                              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full border border-[#d4af37]" /> Livre</div>
-                              <div className="flex items-center gap-2"><Lock className="w-3 h-3 text-[#555]" /> Reservada</div>
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-3 h-3 rounded-sm bg-[#C9A84C]" />
+                                Livre
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Lock className="w-3 h-3 text-[#555]" />
+                                Reservada
+                              </div>
                               {hasBistro && (
-                                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full border border-amber-600 bg-amber-950/50" /> Bistrô</div>
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-3 h-3 rounded-full bg-[#8B4513] border border-[#C9A84C]" />
+                                  Bistrô
+                                </div>
                               )}
                             </div>
                           </div>
 
                           {/* SVG Map */}
                           {activeEvent?.tableLayout && activeEvent.tableLayout.some(el => el.type === 'round-table' || el.type === 'rect-table' || el.type === 'bistro-table') ? (
-                            <div className="relative w-full max-w-3xl mx-auto bg-[#0d0d0d] rounded-2xl border border-[#ffffff0a] overflow-hidden">
-                              <svg viewBox="0 0 800 600" className="w-full" style={{ display: 'block' }}>
-                                {/* Decorative elements */}
+                            <div className="relative w-full max-w-3xl mx-auto bg-[#111] rounded-2xl border border-[#ffffff0a] overflow-auto">
+                              <svg viewBox="0 0 800 600" className="w-full" style={{ display: 'block', minWidth: 320 }}>
+                                {/* Stage */}
+                                <rect x="0" y="0" width="800" height="55" fill="#1a1a1a" />
+                                <rect x="0" y="53" width="800" height="2" fill="#C9A84C" opacity="0.4" />
+                                <text x="400" y="33" textAnchor="middle" fill="#C9A84C" fontSize="13" fontWeight="bold" letterSpacing="5" opacity="0.65">PALCO</text>
+
+                                {/* Non-table decorative elements */}
                                 {activeEvent.tableLayout
                                   .filter(el => el.type !== 'round-table' && el.type !== 'rect-table' && el.type !== 'bistro-table')
                                   .map(el => (
                                     <g key={el.id}>
-                                      <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="8" fill={el.color} opacity="0.85" />
-                                      <text x={el.x + el.width / 2} y={el.y + el.height / 2 + 5} textAnchor="middle" fill="rgba(255,255,255,0.6)" fontSize="13" fontFamily="serif">{el.label}</text>
+                                      <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="6" fill={el.color} opacity="0.7" />
+                                      <text x={el.x + el.width / 2} y={el.y + el.height / 2 + 5} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="11">{el.label}</text>
                                     </g>
                                   ))}
 
-                                {/* Clickable table elements */}
+                                {/* Clickable table/bistro elements */}
                                 {activeEvent.tableLayout
                                   .filter(el => el.type === 'round-table' || el.type === 'rect-table' || el.type === 'bistro-table')
                                   .map((el, i) => {
@@ -442,45 +456,77 @@ export function BookingView() {
                                     const isBistro = el.type === 'bistro-table';
                                     const cx = el.x + el.width / 2;
                                     const cy = el.y + el.height / 2;
+                                    const half = Math.min(el.width, el.height) / 2;
 
-                                    const fill = isReserved ? '#111'
-                                      : isSelected ? (isBistro ? '#92400e' : '#d4af37')
-                                      : (isBistro ? '#451a03' : '#1a2332');
-                                    const stroke = isReserved ? '#333'
-                                      : isSelected ? (isBistro ? '#f59e0b' : '#f5c842')
-                                      : (isBistro ? '#78350f80' : '#d4af3780');
-                                    const textFill = isReserved ? '#555' : isSelected ? (isBistro ? '#fef3c7' : '#0a0a0a') : (isBistro ? '#d97706' : 'white');
+                                    // Colors per state
+                                    const tampoFill = isReserved ? '#2a2a2a'
+                                      : isSelected ? '#f5c842'
+                                      : '#C9A84C';
+                                    const bistroFill = isReserved ? '#2a2a2a'
+                                      : isSelected ? '#a0450f'
+                                      : '#8B4513';
+                                    const chairFill = isReserved ? '#222' : '#4a4a4a';
+                                    const strokeColor = isReserved ? '#333'
+                                      : isSelected ? '#f5c842'
+                                      : isBistro ? '#C9A84C' : '#C9A84C66';
+                                    const textFill = isReserved ? '#555' : '#1a1a1a';
+                                    const bistroTextFill = isReserved ? '#555' : '#C9A84C';
+
+                                    // Chair proportions scaled to element size
+                                    const cs = Math.max(5, Math.round(half * 0.38));
+                                    const gap = Math.max(2, Math.round(half * 0.12));
 
                                     return (
                                       <g
                                         key={el.id}
                                         onClick={() => { if (!isReserved && tableData) toggleTableSelection(tableNum, tableData.status); }}
                                         style={{ cursor: isReserved ? 'not-allowed' : 'pointer' }}
-                                        opacity={isReserved ? 0.5 : 1}
+                                        opacity={isReserved ? 0.55 : 1}
                                       >
                                         <title>
                                           {isBistro ? 'Bistrô' : 'Mesa'} {String(tableNum).padStart(2, '0')} • {tableData?.capacity ?? el.capacity ?? 4} pessoas • R$ {(tableData?.price ?? 300).toFixed(2)}{isReserved ? ' • Reservada' : isSelected ? ' • Selecionada' : ' • Livre'}
                                         </title>
-                                        {el.type === 'round-table' || el.type === 'bistro-table' ? (
-                                          <circle cx={cx} cy={cy} r={el.width / 2} fill={fill} stroke={stroke} strokeWidth="2.5" />
-                                        ) : (
-                                          <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="10" fill={fill} stroke={stroke} strokeWidth="2.5" />
-                                        )}
-                                        {isReserved ? (
-                                          <text x={cx} y={cy + 5} textAnchor="middle" dominantBaseline="middle" fontSize="16" fill="#555">🔒</text>
-                                        ) : isBistro ? (
+
+                                        {isBistro ? (
                                           <>
-                                            <text x={cx} y={cy - 4} textAnchor="middle" dominantBaseline="middle" fill={textFill} fontSize="12">🍷</text>
-                                            <text x={cx} y={cy + 9} textAnchor="middle" dominantBaseline="middle" fill={textFill} fontSize="9" fontFamily="serif">{String(tableNum).padStart(2, '0')}</text>
+                                            <circle cx={cx} cy={cy} r={half} fill={bistroFill} stroke={strokeColor} strokeWidth={isSelected ? 3 : 2} />
+                                            {isSelected && (
+                                              <circle cx={cx} cy={cy} r={half} fill="none" stroke="#f5c842" strokeWidth="3">
+                                                <animate attributeName="stroke-opacity" values="1;0.3;1" dur="1.4s" repeatCount="indefinite" />
+                                              </circle>
+                                            )}
+                                            {isReserved ? (
+                                              <text x={cx} y={cy + 5} textAnchor="middle" dominantBaseline="middle" fontSize="14" fill="#555">🔒</text>
+                                            ) : (
+                                              <text x={cx} y={cy + 4} textAnchor="middle" fontSize="11" fontWeight="bold" fill={bistroTextFill}>{String(tableNum).padStart(2, '0')}</text>
+                                            )}
                                           </>
                                         ) : (
                                           <>
-                                            <text x={cx} y={cy - 5} textAnchor="middle" dominantBaseline="middle" fill={textFill} fontSize="15" fontFamily="serif" fontWeight="bold">
-                                              {String(tableNum).padStart(2, '0')}
-                                            </text>
-                                            <text x={cx} y={cy + 13} textAnchor="middle" dominantBaseline="middle" fill={isSelected ? '#0a0a0a99' : '#d4af37'} fontSize="11">
-                                              {tableData?.capacity ?? el.capacity ?? 4}p
-                                            </text>
+                                            {/* 4 Chairs */}
+                                            <rect x={cx - cs/2} y={cy - half - gap - cs} width={cs} height={cs} rx="1" fill={chairFill} />
+                                            <rect x={cx - cs/2} y={cy + half + gap} width={cs} height={cs} rx="1" fill={chairFill} />
+                                            <rect x={cx - half - gap - cs} y={cy - cs/2} width={cs} height={cs} rx="1" fill={chairFill} />
+                                            <rect x={cx + half + gap} y={cy - cs/2} width={cs} height={cs} rx="1" fill={chairFill} />
+                                            {/* Tampo */}
+                                            <rect x={cx - half} y={cy - half} width={half*2} height={half*2} rx="4"
+                                              fill={tampoFill} stroke={strokeColor} strokeWidth="2"
+                                            />
+                                            {isSelected && (
+                                              <rect x={cx - half} y={cy - half} width={half*2} height={half*2} rx="4"
+                                                fill="none" stroke="#f5c842" strokeWidth="2.5"
+                                              >
+                                                <animate attributeName="stroke-opacity" values="1;0.25;1" dur="1.4s" repeatCount="indefinite" />
+                                              </rect>
+                                            )}
+                                            {/* Label or lock */}
+                                            {isReserved ? (
+                                              <text x={cx} y={cy + 5} textAnchor="middle" dominantBaseline="middle" fontSize="14" fill="#555">🔒</text>
+                                            ) : (
+                                              <text x={cx} y={cy + 4} textAnchor="middle" fontSize={Math.max(9, Math.round(half * 0.55))} fontWeight="bold" fill={textFill}>
+                                                {String(tableNum).padStart(2, '0')}
+                                              </text>
+                                            )}
                                           </>
                                         )}
                                       </g>

@@ -111,6 +111,7 @@ export interface TableConfig {
   gridCols: number;
   tablePrice?: number;
   bistroPrice?: number;
+  totalBistros?: number;
   globalIconSize?: number;
 }
 

@@ -1557,10 +1557,10 @@ export function DashboardView() {
                          <button 
                             onClick={() => {
                               if (!formEvent.hasTables && !formEvent.tableConfig) {
-                                setFormEvent({ 
-                                  ...formEvent, 
-                                  hasTables: true, 
-                                  tableConfig: { totalTables: 10, seatsPerTable: 4, gridRows: 2, gridCols: 5 } 
+                                setFormEvent({
+                                  ...formEvent,
+                                  hasTables: true,
+                                  tableConfig: { totalTables: 10, seatsPerTable: 4, gridRows: 2, gridCols: 5, totalBistros: 0 }
                                 });
                               } else {
                                 setFormEvent({ ...formEvent, hasTables: !formEvent.hasTables });
@@ -1574,16 +1574,32 @@ export function DashboardView() {
 
                       {formEvent.hasTables && formEvent.tableConfig && (
                         <div className="space-y-4 animate-in fade-in duration-300 relative">
+                          {/* Row 1: Mesas + Bistrôs */}
                           <div className="grid grid-cols-2 gap-4">
                             <div>
                               <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Total de Mesas</label>
-                              <input 
-                                type="number" 
+                              <input
+                                type="number"
+                                min={0}
                                 value={formEvent.tableConfig.totalTables}
                                 onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalTables: Number(e.target.value) } })}
                                 className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37]"
                               />
                             </div>
+                            <div>
+                              <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Total de Bistrôs</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={formEvent.tableConfig.totalBistros ?? 0}
+                                onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalBistros: Number(e.target.value) } })}
+                                className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37]"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Row 2: Lugares + Valor Mesa */}
+                          <div className="grid grid-cols-2 gap-4">
                             <div>
                               <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Lugares/Mesa</label>
                               <input
@@ -1593,9 +1609,6 @@ export function DashboardView() {
                                 className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37]"
                               />
                             </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4 mt-4">
                             <div>
                               <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Valor por Mesa (R$)</label>
                               <input
@@ -1608,6 +1621,10 @@ export function DashboardView() {
                                 className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] placeholder:opacity-30"
                               />
                             </div>
+                          </div>
+
+                          {/* Row 3: Valor Bistrô */}
+                          <div className="grid grid-cols-2 gap-4">
                             <div>
                               <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Valor por Bistrô (R$)</label>
                               <input
@@ -1622,84 +1639,140 @@ export function DashboardView() {
                             </div>
                           </div>
 
-                          <div className="pt-4 mt-4 border-t border-white/5">
-                            <h4 className="text-[10px] uppercase font-bold text-[#d4af37] mb-4">Preview do Mapa</h4>
-                            {formEvent.tableLayout && formEvent.tableLayout.length > 0 ? (
-                              <div className="relative bg-[#0a0a0a] rounded-xl border border-white/10 overflow-hidden">
-                                <svg viewBox="0 0 800 600" className="w-full" style={{ display: 'block', maxHeight: '200px' }}>
-                                  <defs>
-                                    <pattern id="miniGrid" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
-                                      <circle cx="1" cy="1" r="1" fill="rgba(255,255,255,0.06)" />
-                                    </pattern>
-                                  </defs>
-                                  <rect width="800" height="600" fill="url(#miniGrid)" />
-                                  {(() => {
-                                    let tableNum = 0;
-                                    return formEvent.tableLayout.map(el => {
-                                      const isTable = el.type === 'round-table' || el.type === 'rect-table';
-                                      if (isTable) tableNum++;
-                                      const num = isTable ? tableNum : 0;
+                          {/* Preview do Mapa */}
+                          <div className="pt-4 mt-2 border-t border-white/5">
+                            <p className="text-[10px] uppercase font-bold text-[#C9A84C] mb-3 tracking-widest">Preview do Mapa</p>
+                            {(() => {
+                              const savedLayout = formEvent.tableLayout || [];
+                              const hasElements = savedLayout.some(el =>
+                                el.type === 'rect-table' || el.type === 'round-table' || el.type === 'bistro-table' || el.type === 'entry-exit'
+                              );
+                              // Generate auto layout for preview when no saved layout
+                              const totalT = formEvent.tableConfig.totalTables;
+                              const totalB = formEvent.tableConfig.totalBistros ?? 0;
+                              const previewElements = hasElements ? savedLayout : (() => {
+                                const els: typeof savedLayout = [];
+                                const cols = Math.min(5, Math.max(1, totalT));
+                                const cellW = Math.min(130, Math.floor(720 / cols));
+                                for (let i = 0; i < totalT; i++) {
+                                  const col = i % cols;
+                                  const row = Math.floor(i / cols);
+                                  els.push({
+                                    id: `prev-m-${i}`, type: 'rect-table',
+                                    x: 40 + col * cellW, y: 75 + row * 95,
+                                    width: 64, height: 64,
+                                    label: String(i + 1).padStart(2, '0'),
+                                    color: '#C9A84C',
+                                    capacity: formEvent.tableConfig?.seatsPerTable ?? 4,
+                                  });
+                                }
+                                for (let i = 0; i < totalB; i++) {
+                                  els.push({
+                                    id: `prev-b-${i}`, type: 'bistro-table',
+                                    x: 730, y: 75 + i * 85,
+                                    width: 54, height: 54,
+                                    label: `B${i + 1}`,
+                                    color: '#8B4513',
+                                    capacity: 2,
+                                  });
+                                }
+                                return els;
+                              })();
+
+                              return (
+                                <div className="bg-[#1a1a1a] rounded-xl border border-white/10 overflow-hidden">
+                                  <svg viewBox="0 0 800 600" className="w-full" style={{ display: 'block', maxHeight: '220px' }}>
+                                    <defs>
+                                      <pattern id="dashGrid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                                        <circle cx="1" cy="1" r="0.8" fill="rgba(255,255,255,0.04)" />
+                                      </pattern>
+                                    </defs>
+                                    <rect width="800" height="600" fill="#1a1a1a" />
+                                    <rect width="800" height="600" fill="url(#dashGrid)" />
+                                    {/* Stage */}
+                                    <rect x="0" y="0" width="800" height="55" fill="#1e1e1e" />
+                                    <rect x="0" y="53" width="800" height="2" fill="#C9A84C" opacity="0.35" />
+                                    <text x="400" y="33" textAnchor="middle" fill="#C9A84C" fontSize="13" fontWeight="bold" letterSpacing="5" opacity="0.7">PALCO</text>
+                                    {/* Elements */}
+                                    {previewElements.map(el => {
                                       const cx = el.x + el.width / 2;
                                       const cy = el.y + el.height / 2;
-                                      if (el.type === 'round-table') {
+                                      const isMesa = el.type === 'rect-table' || el.type === 'round-table';
+                                      const isBistro = el.type === 'bistro-table';
+                                      if (isMesa) {
+                                        const half = 17;
+                                        const cs = 7; const gap = 3;
                                         return (
                                           <g key={el.id}>
-                                            <circle cx={cx} cy={cy} r={el.width / 2} fill="#1e1e1e" stroke="#d4af37" strokeWidth="2" />
-                                            <text x={cx} y={cy + 4} textAnchor="middle" fill="white" fontSize="14" fontFamily="serif" opacity="0.9">{num}</text>
+                                            <rect x={cx - cs/2} y={cy - half - gap - cs} width={cs} height={cs} rx="1" fill="#444" />
+                                            <rect x={cx - cs/2} y={cy + half + gap} width={cs} height={cs} rx="1" fill="#444" />
+                                            <rect x={cx - half - gap - cs} y={cy - cs/2} width={cs} height={cs} rx="1" fill="#444" />
+                                            <rect x={cx + half + gap} y={cy - cs/2} width={cs} height={cs} rx="1" fill="#444" />
+                                            <rect x={cx - half} y={cy - half} width={half*2} height={half*2} rx="3" fill="#C9A84C" stroke="#111" strokeWidth="1.2" />
+                                            <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#1a1a1a">{el.label}</text>
+                                          </g>
+                                        );
+                                      }
+                                      if (isBistro) {
+                                        return (
+                                          <g key={el.id}>
+                                            <circle cx={cx} cy={cy} r={20} fill="#8B4513" stroke="#C9A84C" strokeWidth="1.5" />
+                                            <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#C9A84C">{el.label}</text>
                                           </g>
                                         );
                                       }
                                       return (
                                         <g key={el.id}>
-                                          <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="6"
-                                            fill={isTable ? '#1e1e1e' : el.color}
-                                            stroke={isTable ? '#d4af37' : 'rgba(255,255,255,0.2)'}
-                                            strokeWidth="2"
-                                          />
-                                          <text x={cx} y={cy + 4} textAnchor="middle" fill={isTable ? 'white' : 'rgba(255,255,255,0.6)'} fontSize="12" opacity="0.9">{isTable ? num : el.label}</text>
+                                          <rect x={el.x} y={el.y} width={el.width} height={el.height} rx="4" fill="#374151" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+                                          <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.5)">{el.label}</text>
                                         </g>
                                       );
-                                    });
-                                  })()}
-                                </svg>
-                              </div>
-                            ) : (
-                              <div className="bg-white/2 rounded-xl border border-white/5 p-4 min-h-[120px] flex items-center justify-center flex-wrap gap-2">
-                                {Array.from({length: formEvent.tableConfig.totalTables}).map((_, i) => (
-                                  <div key={i} className="w-6 h-6 rounded-full border border-white/20 bg-white/5 flex items-center justify-center text-[8px] opacity-70">
-                                    {i+1}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                                    })}
+                                  </svg>
+                                </div>
+                              );
+                            })()}
                             <button
                               onClick={() => {
                                 if (!formEvent) return;
                                 const total = formEvent.tableConfig?.totalTables || 0;
+                                const totalB = formEvent.tableConfig?.totalBistros || 0;
                                 const currentLayout = formEvent.tableLayout || [];
                                 const hasTableElements = currentLayout.some(
-                                  el => el.type === 'round-table' || el.type === 'rect-table'
+                                  el => el.type === 'rect-table' || el.type === 'round-table'
                                 );
                                 if (!hasTableElements && total > 0) {
-                                  const cols = Math.ceil(Math.sqrt(total));
-                                  const defaultLayout = Array.from({ length: total }).map((_, i) => ({
+                                  const cols = Math.min(5, Math.max(1, total));
+                                  const cellW = Math.min(130, Math.floor(720 / cols));
+                                  const mesaEls = Array.from({ length: total }).map((_, i) => ({
                                     id: `layout-${Math.random().toString(36).slice(2, 10)}`,
-                                    type: 'round-table' as const,
-                                    x: 40 + (i % cols) * 120,
-                                    y: 40 + Math.floor(i / cols) * 120,
-                                    width: 80,
-                                    height: 80,
-                                    label: `Mesa ${String(i + 1).padStart(2, '0')}`,
-                                    color: '#2a2a2a',
+                                    type: 'rect-table' as const,
+                                    x: 40 + (i % cols) * cellW,
+                                    y: 75 + Math.floor(i / cols) * 95,
+                                    width: 64,
+                                    height: 64,
+                                    label: String(i + 1).padStart(2, '0'),
+                                    color: '#C9A84C',
                                     capacity: formEvent.tableConfig?.seatsPerTable ?? 4,
                                   }));
-                                  setFormEvent({ ...formEvent, tableLayout: defaultLayout });
+                                  const bistroEls = Array.from({ length: totalB }).map((_, i) => ({
+                                    id: `layout-${Math.random().toString(36).slice(2, 10)}`,
+                                    type: 'bistro-table' as const,
+                                    x: 730,
+                                    y: 75 + i * 85,
+                                    width: 54,
+                                    height: 54,
+                                    label: `B${i + 1}`,
+                                    color: '#8B4513',
+                                    capacity: 2,
+                                  }));
+                                  setFormEvent({ ...formEvent, tableLayout: [...mesaEls, ...bistroEls] });
                                 }
                                 setIsTableLayoutEditorOpen(true);
                               }}
-                              className="w-full mt-3 py-2.5 border border-[#d4af37]/30 bg-[#d4af37]/5 rounded-lg text-[9px] uppercase font-bold tracking-widest text-[#d4af37] hover:bg-[#d4af37]/10 transition"
+                              className="w-full mt-3 py-2.5 border border-[#C9A84C]/30 bg-[#C9A84C]/5 rounded-lg text-[9px] uppercase font-bold tracking-widest text-[#C9A84C] hover:bg-[#C9A84C]/10 transition"
                             >
-                              Abrir Editor Visual (Drag & Drop)
+                              Abrir Editor Visual (Drag &amp; Drop)
                             </button>
                           </div>
                         </div>

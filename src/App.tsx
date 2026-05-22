@@ -118,6 +118,7 @@ export function App() {
               <TableLayoutEditor
                 initialLayout={formEvent.tableLayout || []}
                 requiredTables={formEvent.tableConfig?.totalTables}
+                requiredBistros={formEvent.tableConfig?.totalBistros}
                 initialIconSize={formEvent.tableConfig?.globalIconSize}
                 onSave={(layout, iconSize) => {
                   setFormEvent({

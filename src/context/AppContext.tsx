@@ -748,7 +748,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     const cap = formEvent.capacity ?? 0;
     if (cap > 0) {
-      const totalQty = formEvent.batches.reduce((sum, b) => sum + b.sectors.reduce((s2, sec) => s2 + (sec.quantity ?? 0), 0), 0);
+      const totalQty = (formEvent.batches ?? []).reduce((sum, b) => sum + (b.sectors ?? []).reduce((s2, sec) => s2 + (sec.quantity ?? 0), 0), 0);
       if (totalQty > cap) { showToast(`Total de ingressos (${totalQty}) excede a capacidade máxima (${cap}).`, 'error'); return; }
     }
     try {
@@ -791,7 +791,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!evt.time) missing.push('Horário');
       if (!evt.location?.trim()) missing.push('Local');
       if (!evt.img) missing.push('Imagem de Capa');
-      if (!evt.batches || evt.batches.length === 0) missing.push('Pelo menos 1 Lote de Ingressos');
+      if (!evt.hasTables && (!evt.batches || evt.batches.length === 0)) missing.push('Pelo menos 1 Lote de Ingressos ou Apoio & Mesas ativo');
       if (missing.length > 0) {
         setReleaseValidationFields(missing);
         showToast(`Campos obrigatórios: ${missing.join(' • ')}`, 'error');
