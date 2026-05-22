@@ -11,7 +11,7 @@ import {
   DollarSign, TrendingUp, Filter, Search, Download, Mail, StopCircle,
   QrCode, User, ShieldCheck, RefreshCcw,
   ArrowLeft, Info, Trash2, UploadCloud, Square, UserCog,
-  Link as LinkIcon,
+  Link as LinkIcon, BarChart3, Code2, Layers, AlertTriangle, Info as InfoIcon, Trash,
 } from 'lucide-react';
 import type { Batch } from '../../types';
 import { useApp } from '../../context/AppContext';
@@ -22,7 +22,218 @@ import { AdminSettings } from '../../components/AdminSettings';
 import { DeveloperPanel } from '../../components/DeveloperPanel';
 import { TableLayoutEditor } from '../../components/TableLayoutEditor';
 import { downloadPDFList } from '../../shared/utils/pdf';
-import { generateDefaultLayout, getLayoutViewBox } from '../../shared/utils/defaultLayout';
+import type { Event, Buyer, Reservation } from '../../types';
+
+// ─── Admin Overview ────────────────────────────────────────────
+function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[]; buyers: Buyer[]; reservations: Reservation[] }) {
+  const totalRevenue = reservations.reduce((s, r) => s + (r.total || 0), 0);
+  const activeEvents = events.filter(e => e.status === 'Ativo' || e.status === 'Vendas liberadas').length;
+  const paidBuyers = buyers.filter(b => b.status === 'Pago').length;
+
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(); d.setMonth(d.getMonth() - (5 - i));
+    const label = d.toLocaleString('pt-BR', { month: 'short' });
+    const count = reservations.filter(r => {
+      if (!r.createdAt) return false;
+      const rd = new Date(r.createdAt);
+      return rd.getMonth() === d.getMonth() && rd.getFullYear() === d.getFullYear();
+    }).length;
+    return { label, count };
+  });
+  const maxCount = Math.max(...months.map(m => m.count), 1);
+
+  return (
+    <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto">
+      <div className="flex items-center gap-3 mb-2">
+        <BarChart3 className="w-6 h-6 text-[#d4af37]" />
+        <h1 className="text-2xl font-serif text-[#d4af37]">Visão Geral Admin</h1>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Eventos Ativos', value: activeEvents, icon: <Calendar className="w-5 h-5" />, color: 'text-blue-400' },
+          { label: 'Total Eventos', value: events.length, icon: <Layers className="w-5 h-5" />, color: 'text-purple-400' },
+          { label: 'Compradores', value: buyers.length, icon: <Users className="w-5 h-5" />, color: 'text-green-400' },
+          { label: 'Confirmados', value: paidBuyers, icon: <ShieldCheck className="w-5 h-5" />, color: 'text-[#d4af37]' },
+        ].map(kpi => (
+          <div key={kpi.label} className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+            <div className={`mb-3 ${kpi.color}`}>{kpi.icon}</div>
+            <p className="text-2xl font-bold text-white">{kpi.value}</p>
+            <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">{kpi.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Receita */}
+      <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-6">
+        <div className="flex items-center gap-2 mb-2">
+          <DollarSign className="w-4 h-4 text-[#d4af37]" />
+          <span className="text-[10px] uppercase tracking-widest text-white/40">Receita Total</span>
+        </div>
+        <p className="text-4xl font-bold text-[#d4af37]">
+          {totalRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+        </p>
+      </div>
+
+      {/* Gráfico simples de vendas por mês */}
+      <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-6">
+        <p className="text-[10px] uppercase tracking-widest text-white/40 mb-4">Reservas — Últimos 6 Meses</p>
+        <div className="flex items-end gap-3 h-32">
+          {months.map(m => (
+            <div key={m.label} className="flex-1 flex flex-col items-center gap-2">
+              <div className="w-full flex items-end justify-center" style={{ height: '80px' }}>
+                <div
+                  className="w-full bg-[#d4af37]/70 rounded-t-md transition-all"
+                  style={{ height: `${(m.count / maxCount) * 80}px`, minHeight: m.count > 0 ? '4px' : '0' }}
+                />
+              </div>
+              <span className="text-[9px] uppercase tracking-widest text-white/30">{m.label}</span>
+              <span className="text-[10px] font-bold text-white/60">{m.count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Lista de eventos */}
+      <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-white/5">
+          <p className="text-[10px] uppercase tracking-widest text-white/40">Eventos Recentes</p>
+        </div>
+        <div className="divide-y divide-white/5">
+          {events.slice(0, 5).map(e => (
+            <div key={e.id} className="flex items-center justify-between px-6 py-4">
+              <div>
+                <p className="text-sm font-medium text-white">{e.title || 'Sem título'}</p>
+                <p className="text-[10px] text-white/30 mt-0.5">{e.date}</p>
+              </div>
+              <span className={`text-[9px] uppercase tracking-widest px-2 py-1 rounded-full border ${
+                e.status === 'Ativo' || e.status === 'Vendas liberadas' ? 'border-green-500/30 text-green-400 bg-green-500/10' :
+                e.status === 'Finalizado' ? 'border-white/10 text-white/30 bg-white/5' :
+                'border-[#d4af37]/30 text-[#d4af37] bg-[#d4af37]/10'
+              }`}>{e.status}</span>
+            </div>
+          ))}
+          {events.length === 0 && (
+            <div className="px-6 py-10 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum evento cadastrado</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Dev Overview ──────────────────────────────────────────────
+const LOG_LEVEL_COLORS = { error: 'text-red-400 border-red-500/20 bg-red-500/5', warn: 'text-amber-400 border-amber-500/20 bg-amber-500/5', info: 'text-blue-400 border-blue-500/20 bg-blue-500/5' };
+
+function DevOverviewPanel({ events, buyers, reservations, systemLogs, clearSystemLogs }: {
+  events: Event[]; buyers: Buyer[]; reservations: Reservation[];
+  systemLogs: { id: string; level: 'error' | 'warn' | 'info'; message: string; time: Date }[];
+  clearSystemLogs: () => void;
+}) {
+  const [logFilter, setLogFilter] = React.useState<'all' | 'error' | 'warn' | 'info'>('all');
+  const [logSearch, setLogSearch] = React.useState('');
+
+  const totalRevenue = reservations.reduce((s, r) => s + (r.total || 0), 0);
+  const devFee = totalRevenue * 0.05;
+  const activeEvents = events.filter(e => e.status === 'Ativo' || e.status === 'Vendas liberadas').length;
+
+  const filteredLogs = systemLogs
+    .filter(l => logFilter === 'all' || l.level === logFilter)
+    .filter(l => !logSearch || l.message.toLowerCase().includes(logSearch.toLowerCase()));
+
+  return (
+    <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto">
+      <div className="flex items-center gap-3 mb-2">
+        <Code2 className="w-6 h-6 text-[#d4af37]" />
+        <h1 className="text-2xl font-serif text-[#d4af37]">Painel do Desenvolvedor</h1>
+      </div>
+
+      {/* Estatísticas do site */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Eventos Ativos', value: activeEvents, color: 'text-green-400' },
+          { label: 'Total Eventos', value: events.length, color: 'text-blue-400' },
+          { label: 'Usuários', value: buyers.length, color: 'text-purple-400' },
+          { label: 'Reservas', value: reservations.length, color: 'text-[#d4af37]' },
+        ].map(kpi => (
+          <div key={kpi.label} className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+            <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
+            <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">{kpi.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Receita */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <DollarSign className="w-4 h-4 text-[#d4af37]" />
+            <span className="text-[10px] uppercase tracking-widest text-white/40">Receita do Site</span>
+          </div>
+          <p className="text-3xl font-bold text-[#d4af37]">{totalRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-[#d4af37]/20 rounded-2xl p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp className="w-4 h-4 text-[#d4af37]" />
+            <span className="text-[10px] uppercase tracking-widest text-white/40">Taxa Dev (5%)</span>
+          </div>
+          <p className="text-3xl font-bold text-[#d4af37]">{devFee.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+        </div>
+      </div>
+
+      {/* Logs */}
+      <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+          <p className="text-[10px] uppercase tracking-widest text-white/40">Logs do Sistema ({filteredLogs.length})</p>
+          <button onClick={clearSystemLogs} className="flex items-center gap-1.5 text-[9px] uppercase tracking-widest text-red-400 hover:text-red-300 transition">
+            <Trash className="w-3 h-3" /> Limpar
+          </button>
+        </div>
+
+        {/* Filtros */}
+        <div className="flex items-center gap-3 px-6 py-3 border-b border-white/5 flex-wrap">
+          <div className="flex gap-1">
+            {(['all', 'error', 'warn', 'info'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setLogFilter(f)}
+                className={`px-3 py-1 rounded-lg text-[9px] uppercase tracking-widest font-bold transition ${logFilter === f ? 'bg-[#d4af37]/20 text-[#d4af37]' : 'text-white/30 hover:text-white/60'}`}
+              >
+                {f === 'all' ? 'Todos' : f === 'error' ? 'Erros' : f === 'warn' ? 'Avisos' : 'Info'}
+              </button>
+            ))}
+          </div>
+          <div className="relative flex-1 min-w-[160px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-white/30" />
+            <input
+              value={logSearch}
+              onChange={e => setLogSearch(e.target.value)}
+              placeholder="Filtrar logs..."
+              className="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs outline-none focus:border-white/20"
+            />
+          </div>
+        </div>
+
+        <div className="divide-y divide-white/5 max-h-[400px] overflow-y-auto custom-scrollbar">
+          {filteredLogs.length === 0 ? (
+            <div className="px-6 py-10 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum log registrado</div>
+          ) : filteredLogs.map(log => (
+            <div key={log.id} className={`px-6 py-3 flex gap-3 items-start border-l-2 ${LOG_LEVEL_COLORS[log.level]}`}>
+              {log.level === 'error' && <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+              {log.level === 'warn' && <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />}
+              {log.level === 'info' && <InfoIcon className="w-4 h-4 shrink-0 mt-0.5" />}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-mono break-all text-white/70">{log.message}</p>
+                <p className="text-[9px] text-white/20 mt-1">{log.time.toLocaleTimeString('pt-BR')}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function DashboardView() {
   const {
@@ -40,6 +251,8 @@ export function DashboardView() {
     handleCreateEvent, handleEditEvent, handleSaveEvent, handleUpdateEventStatus,
     handleCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff,
     showToast,
+    systemLogs, clearSystemLogs,
+    reservations,
     formEvent, setFormEvent,
     errors, setErrors,
     releaseValidationFields, setReleaseValidationFields,
@@ -57,6 +270,7 @@ export function DashboardView() {
     scannerError, setScannerError,
     scannerKey, setScannerKey,
     scannerConstraints, setScannerConstraints,
+    resetScanner,
     checkInInput, setCheckInInput,
     checkInSearch, setCheckInSearch,
     checkInSearchInput, setCheckInSearchInput,
@@ -802,7 +1016,7 @@ export function DashboardView() {
                               <AlertCircle className="w-10 h-10 text-amber-400" />
                               <p className="text-sm text-white/70 max-w-xs">{scannerError}</p>
                               <button
-                                onClick={() => { setScannerError(null); setScannerConstraints({ facingMode: { ideal: 'environment' } }); setScannerKey(k => k + 1); }}
+                                onClick={resetScanner}
                                 className="px-4 py-2 bg-white/10 border border-white/20 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-white/20 transition text-white"
                               >
                                 Tentar Novamente
@@ -1243,16 +1457,14 @@ export function DashboardView() {
 
                       <div className="space-y-8">
                         {formEvent.batches.map((batch, batchIndex) => (
-                          <div key={batch.id} className={`p-6 md:p-8 rounded-2xl border relative group ${batch.is_active === false ? 'bg-white/[0.01] border-white/5 opacity-60' : 'bg-white/[0.02] border-white/8'}`}>
+                          <div key={batch.id ?? `batch-${batchIndex}`} className={`p-6 md:p-8 rounded-2xl border relative group ${batch.is_active === false ? 'bg-white/[0.01] border-white/5 opacity-60' : 'bg-white/[0.02] border-white/8'}`}>
                             <div className="flex justify-between items-center mb-7">
                               <div className="flex items-center gap-3 flex-1 min-w-0">
                                 <input
                                   type="text"
                                   value={batch.name}
                                   onChange={(e) => {
-                                    const newBatches = [...formEvent.batches];
-                                    newBatches[batchIndex].name = e.target.value;
-                                    setFormEvent({ ...formEvent, batches: newBatches });
+                                    setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, name: e.target.value } : b) });
                                   }}
                                   className="bg-transparent border-b border-white/20 text-white font-bold text-lg focus:border-[#d4af37] outline-none transition-all pb-1 min-w-[160px]"
                                   placeholder="Nome do Lote"
@@ -1276,7 +1488,7 @@ export function DashboardView() {
 
                             <div className="space-y-4">
                               {batch.sectors.map((sector, sectorIndex) => (
-                                <div key={sector.id} className="p-5 md:p-6 rounded-xl bg-black/40 border border-white/8">
+                                <div key={sector.id ?? `sector-${batchIndex}-${sectorIndex}`} className="p-5 md:p-6 rounded-xl bg-black/40 border border-white/8">
                                   <div className="grid grid-cols-1 md:grid-cols-12 gap-x-6 gap-y-4">
                                     <div className="md:col-span-4">
                                       <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">Nome do Setor / Ingresso</label>
@@ -1284,9 +1496,7 @@ export function DashboardView() {
                                         type="text" 
                                         value={sector.name}
                                         onChange={(e) => {
-                                          const newBatches = [...formEvent.batches];
-                                          newBatches[batchIndex].sectors[sectorIndex].name = e.target.value;
-                                          setFormEvent({ ...formEvent, batches: newBatches });
+                                          setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, name: e.target.value } : s) } : b) });
                                         }}
                                         className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none"
                                         placeholder="Ex: Pista / Camarote"
@@ -1301,9 +1511,8 @@ export function DashboardView() {
                                           min="0"
                                           value={sector.price === 0 ? '' : sector.price}
                                           onChange={(e) => {
-                                            const newBatches = [...formEvent.batches];
-                                            newBatches[batchIndex].sectors[sectorIndex].price = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
-                                            setFormEvent({ ...formEvent, batches: newBatches });
+                                            const val = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
+                                            setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, price: val } : s) } : b) });
                                           }}
                                           placeholder="0,00"
                                           className="w-full bg-[#d4af37]/10 text-[#d4af37] font-bold border border-[#d4af37]/30 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none"
@@ -1317,9 +1526,7 @@ export function DashboardView() {
                                             type="number" 
                                             value={sector.priceFemale || ''}
                                             onChange={(e) => {
-                                              const newBatches = [...formEvent.batches];
-                                              newBatches[batchIndex].sectors[sectorIndex].priceFemale = Number(e.target.value);
-                                              setFormEvent({ ...formEvent, batches: newBatches });
+                                              setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, priceFemale: Number(e.target.value) } : s) } : b) });
                                             }}
                                             className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37]"
                                           />
@@ -1330,9 +1537,7 @@ export function DashboardView() {
                                             type="number" 
                                             value={sector.priceMale || sector.price}
                                             onChange={(e) => {
-                                              const newBatches = [...formEvent.batches];
-                                              newBatches[batchIndex].sectors[sectorIndex].priceMale = Number(e.target.value);
-                                              setFormEvent({ ...formEvent, batches: newBatches });
+                                              setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, priceMale: Number(e.target.value) } : s) } : b) });
                                             }}
                                             className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37]"
                                           />
@@ -1346,9 +1551,7 @@ export function DashboardView() {
                                         type="number" 
                                         value={sector.limitPerUser || 4}
                                         onChange={(e) => {
-                                          const newBatches = [...formEvent.batches];
-                                          newBatches[batchIndex].sectors[sectorIndex].limitPerUser = Number(e.target.value);
-                                          setFormEvent({ ...formEvent, batches: newBatches });
+                                          setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, limitPerUser: Number(e.target.value) } : s) } : b) });
                                         }}
                                         min="1"
                                         className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none"
@@ -1373,9 +1576,7 @@ export function DashboardView() {
                                               onChange={(e) => {
                                                 const raw = e.target.value;
                                                 const newVal = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
-                                                const newBatches = [...formEvent.batches];
-                                                newBatches[batchIndex].sectors[sectorIndex].quantity = newVal;
-                                                setFormEvent({ ...formEvent, batches: newBatches });
+                                                setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, quantity: newVal } : s) } : b) });
                                               }}
                                               placeholder="0"
                                               className={`w-full bg-white/5 border rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none ${isOver ? 'border-red-500' : 'border-white/10'}`}
@@ -1389,11 +1590,9 @@ export function DashboardView() {
                                     </div>
                                     
                                     <div className="md:col-span-1 flex items-end">
-                                      <button 
+                                      <button
                                         onClick={() => {
-                                          const newBatches = [...formEvent.batches];
-                                          newBatches[batchIndex].sectors = batch.sectors.filter((_, i) => i !== sectorIndex);
-                                          setFormEvent({ ...formEvent, batches: newBatches });
+                                          setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.filter((_, si) => si !== sectorIndex) } : b) });
                                         }}
                                         className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 flex items-center justify-center rounded-lg transition"
                                       >
@@ -1406,15 +1605,8 @@ export function DashboardView() {
 
                               <button
                                 onClick={() => {
-                                  const newBatches = [...formEvent.batches];
-                                  newBatches[batchIndex].sectors.push({
-                                    id: crypto.randomUUID(),
-                                    name: '',
-                                    quantity: 0,
-                                    price: 0,
-                                    limitPerUser: 4
-                                  });
-                                  setFormEvent({ ...formEvent, batches: newBatches });
+                                  const newSector = { id: crypto.randomUUID(), name: '', quantity: 0, price: 0, limitPerUser: 4 };
+                                  setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: [...b.sectors, newSector] } : b) });
                                 }}
                                 className="text-[10px] uppercase tracking-widest font-bold text-[#d4af37] hover:underline flex items-center gap-2"
                               >
@@ -1921,6 +2113,10 @@ export function DashboardView() {
               />
             ) : dashboardMode === 'developer-panel' && userRole === 'developer' ? (
               <DeveloperPanel />
+            ) : dashboardMode === 'admin-overview' && isAtLeast('admin') ? (
+              <AdminOverviewPanel events={events} buyers={buyers} reservations={reservations} />
+            ) : dashboardMode === 'dev-overview' && userRole === 'developer' ? (
+              <DevOverviewPanel events={events} buyers={buyers} reservations={reservations} systemLogs={systemLogs} clearSystemLogs={clearSystemLogs} />
             ) : null}
             </>
           )}

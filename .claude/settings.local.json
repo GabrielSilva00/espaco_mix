@@ -31,7 +31,10 @@
       "Bash(python write_app.py)",
       "Bash(del write_app.py)",
       "Bash(dir C:\\\\Gabriel\\\\Portifolio\\\\espaco_mix /b /a)",
-      "PowerShell(Head *)"
+      "PowerShell(Head *)",
+      "Bash(npx playwright *)",
+      "Bash(Get-Content \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Gabriel-Portifolio-espaco-mix\\\\15e743ab-1025-4d60-81ba-528c8149bb74\\\\tasks\\\\b5qaf2ahj.output\" -Wait -Tail 20)",
+      "Bash(Start-Sleep 3)"
     ]
   }
 }

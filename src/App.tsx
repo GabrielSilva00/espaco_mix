@@ -268,12 +268,13 @@ export function App() {
                           </button>
                           <button
                             onClick={() => {
-                              showToast(`Convite enviado para ${actionTicket.data.email}. A transferência será concluída quando o destinatário aceitar.`, 'success');
+                              const expiresAt = Date.now() + 3540000;
+                              showToast(`Convite enviado para ${actionTicket.data.email}. A transferência expira em 59 minutos.`, 'success');
                               const updated = reservations.map(res => {
                                 if (actionTicket.type === 'transfer_table' && res.id === actionTicket.reservationId) {
-                                  return { ...res, ticketsObj: res.ticketsObj?.map(t => t.tableNumber === actionTicket.id ? { ...t, status: 'pending_transfer' as const, pendingTransferEmail: actionTicket.data?.email } : t) };
+                                  return { ...res, ticketsObj: res.ticketsObj?.map(t => t.tableNumber === actionTicket.id ? { ...t, status: 'pending_transfer' as const, pendingTransferEmail: actionTicket.data?.email, transferExpiresAt: expiresAt } : t) };
                                 } else if (actionTicket.type === 'transfer') {
-                                  return { ...res, ticketsObj: res.ticketsObj?.map(t => t.id === actionTicket.id ? { ...t, status: 'pending_transfer' as const, pendingTransferEmail: actionTicket.data?.email } : t) };
+                                  return { ...res, ticketsObj: res.ticketsObj?.map(t => t.id === actionTicket.id ? { ...t, status: 'pending_transfer' as const, pendingTransferEmail: actionTicket.data?.email, transferExpiresAt: expiresAt } : t) };
                                 }
                                 return res;
                               });

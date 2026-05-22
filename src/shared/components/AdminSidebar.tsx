@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Eye, Calendar as CalendarIcon, PlusCircle, Users, ShieldCheck, BarChart3,
   LinkIcon, Bell, AlertCircle, Code2, Settings, User, LogOut, ChevronLeft,
-  ChevronRight, X, Menu,
+  ChevronRight, X, Menu, LayoutDashboard, MonitorDot,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -77,6 +77,33 @@ export function AdminSidebar() {
               {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Ver Site (Público)</span>}
             </button>
           </div>
+
+          {/* Visão Geral — visível para admin e developer */}
+          {isAtLeast('admin') && (
+            <div>
+              {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 mb-3">Visão Geral</h4>}
+              <div className="space-y-1">
+                <button
+                  onClick={() => { setCurrentView('dashboard'); setDashboardMode('admin-overview'); setIsMobileMenuOpen(false); }}
+                  className={navClass(currentView === 'dashboard' && dashboardMode === 'admin-overview')}
+                  title={isAdminSidebarCollapsed ? 'Dashboard Admin' : ''}
+                >
+                  <LayoutDashboard className={iconClass(currentView === 'dashboard' && dashboardMode === 'admin-overview')} />
+                  {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dashboard Admin</span>}
+                </button>
+                {userRole === 'developer' && (
+                  <button
+                    onClick={() => { setCurrentView('dashboard'); setDashboardMode('dev-overview'); setIsMobileMenuOpen(false); }}
+                    className={navClass(currentView === 'dashboard' && dashboardMode === 'dev-overview')}
+                    title={isAdminSidebarCollapsed ? 'Dashboard Dev' : ''}
+                  >
+                    <MonitorDot className={iconClass(currentView === 'dashboard' && dashboardMode === 'dev-overview')} />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dashboard Dev</span>}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Eventos */}
           <div>
@@ -192,6 +219,14 @@ export function AdminSidebar() {
         {/* Footer */}
         <div className={`border-t border-[#ffffff0a] space-y-2 ${isAdminSidebarCollapsed ? 'p-3' : 'p-4'}`}>
           <button
+            onClick={() => { setCurrentView('profile'); setIsMobileMenuOpen(false); }}
+            className={navClass(currentView === 'profile')}
+            title={isAdminSidebarCollapsed ? 'Meu Perfil' : ''}
+          >
+            <User className={iconClass(currentView === 'profile')} />
+            {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Meu Perfil</span>}
+          </button>
+          <button
             onClick={() => { setCurrentView('dashboard'); setDashboardMode('settings'); setIsMobileMenuOpen(false); }}
             className={navClass(currentView === 'dashboard' && dashboardMode === 'settings')}
             title={isAdminSidebarCollapsed ? 'Configurações Globais' : ''}
@@ -202,9 +237,11 @@ export function AdminSidebar() {
 
           <div className={`mt-2 rounded-xl flex items-center group transition ${isAdminSidebarCollapsed ? 'justify-center' : 'justify-between bg-gradient-to-br from-white/5 to-transparent border border-white/5 p-3'}`}>
             <div className="flex items-center gap-3 overflow-hidden">
-              <div className="w-8 h-8 rounded-full bg-[#d4af37]/20 border border-[#d4af37]/30 flex flex-col items-center justify-center shrink-0">
-                <User className="w-4 h-4 text-[#d4af37]" />
-              </div>
+              {userRole !== 'admin' && userRole !== 'developer' && (
+                <div className="w-8 h-8 rounded-full bg-[#d4af37]/20 border border-[#d4af37]/30 flex flex-col items-center justify-center shrink-0">
+                  <User className="w-4 h-4 text-[#d4af37]" />
+                </div>
+              )}
               {!isAdminSidebarCollapsed && (
                 <div className="flex flex-col min-w-0">
                   <p className="text-xs font-bold text-white truncate">

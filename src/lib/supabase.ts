@@ -100,7 +100,7 @@ export interface Reservation {
   platform_fee?: number;
   net_amount?: number;
   payment_status: 'pending' | 'approved' | 'cancelled' | 'refunded';
-  payment_method?: 'pix' | 'credit_card' | 'debit_card' | 'boleto';
+  payment_method?: 'pix' | 'credit_card' | 'debit_card';
   payment_id?: string;
   pix_qr_code?: string;
   pix_copy_paste?: string;

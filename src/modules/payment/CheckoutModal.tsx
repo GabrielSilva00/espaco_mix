@@ -3,12 +3,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Check, CreditCard, Copy, AlertCircle, QrCode, ChevronRight, ChevronLeft,
   Smartphone, User, Lock, AlertTriangle, StopCircle, MessageCircle,
-  ShieldAlert, RefreshCcw, Clock, Info, Edit2, ArrowLeft, Receipt, ShieldCheck,
+  ShieldAlert, RefreshCcw, Clock, Info, Edit2, ArrowLeft, ShieldCheck,
   Download, FileText, Mail, Ticket,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { GoogleIcon } from '../../components/GoogleIcon';
 import { EVENT_TICKET_PRICE } from '../../shared/constants/app';
+import { downloadTicketPDF } from '../../shared/utils/pdf';
 
 export function CheckoutModal() {
   const {
@@ -312,45 +313,6 @@ export function CheckoutModal() {
                       </div>
                     </button>
 
-                    {/* Boleto */}
-                    <AnimatePresence>
-                      <button 
-                        onClick={() => {
-                          setPaymentMethod('boleto');
-                          setErrors(prev => ({ ...prev, payment: '' }));
-                        }}
-                        className={`w-full p-3 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${paymentMethod === 'boleto' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
-                      >
-                        <div className="flex items-center gap-3 md:gap-4">
-                          <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center transition ${paymentMethod === 'boleto' ? 'bg-[#d4af37] text-black' : 'bg-white/10 text-white'}`}>
-                            <Receipt className="w-4 h-4 md:w-5 md:h-5" />
-                          </div>
-                          <div className="text-left">
-                            <p className="font-bold uppercase tracking-widest text-[9px] md:text-[10px]">Boleto Bancário</p>
-                            <p className="text-[9px] md:text-[10px] opacity-40">Compensação em até 48h</p>
-                          </div>
-                        </div>
-                        <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${paymentMethod === 'boleto' ? 'border-[#d4af37] bg-[#d4af37]' : 'border-white/10'}`}>
-                          {paymentMethod === 'boleto' && <Check className="w-3 h-3 text-black" />}
-                        </div>
-                      </button>
-
-                      {paymentMethod === 'boleto' && (
-                        <motion.div 
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="px-2 pb-2 overflow-hidden"
-                        >
-                          <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-left flex gap-3">
-                             <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                             <p className="text-[10px] md:text-[11px] text-amber-500/80 leading-relaxed font-bold">
-                               Atenção: Boletos podem levar até 48 horas úteis para compensar. Se o evento estiver próximo, sua reserva pode não ser confirmada a tempo.
-                             </p>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
                   </div>
 
                   <button 
@@ -936,16 +898,17 @@ export function CheckoutModal() {
                   </div>
                   
                   <div className="flex flex-col gap-3 w-full mb-6">
-                     <div className="flex gap-2">
-                       <button className="flex-1 bg-[#1a1a1a] hover:bg-[#222] border border-white/10 rounded-xl py-3 flex items-center justify-center gap-2 group transition">
-                          <svg className="w-4 h-4 text-white group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12c0-5.523-4.477-10-10-10z"></path></svg>
-                          <span className="text-[9px] uppercase tracking-widest font-bold text-white/50 group-hover:text-white transition">Compartilhar</span>
-                       </button>
-                       <button className="flex-1 bg-[#1a1a1a] hover:bg-[#222] border border-white/10 rounded-xl py-3 flex items-center justify-center gap-2 group transition">
-                          <Download className="w-4 h-4 text-white group-hover:scale-110 transition-transform" />
-                          <span className="text-[9px] uppercase tracking-widest font-bold text-white/50 group-hover:text-white transition">PDFs</span>
-                       </button>
-                     </div>
+                    <button
+                      onClick={() => {
+                        const tickets = reservations[0]?.ticketsObj;
+                        if (!tickets?.length) return;
+                        tickets.forEach(tkt => downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName }));
+                      }}
+                      className="w-full bg-[#1a1a1a] hover:bg-[#222] border border-white/10 rounded-xl py-3 flex items-center justify-center gap-2 group transition"
+                    >
+                      <Download className="w-4 h-4 text-white group-hover:scale-110 transition-transform" />
+                      <span className="text-[9px] uppercase tracking-widest font-bold text-white/50 group-hover:text-white transition">Baixar PDFs</span>
+                    </button>
                   </div>
 
                   <div className="w-full pt-4 border-t border-white/10">

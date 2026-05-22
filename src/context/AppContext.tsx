@@ -93,6 +93,10 @@ interface AppContextValue {
   newStaff: { name: string; username: string; password: string };
   setNewStaff: React.Dispatch<React.SetStateAction<{ name: string; username: string; password: string }>>;
 
+  // System logs
+  systemLogs: { id: string; level: 'error' | 'warn' | 'info'; message: string; time: Date }[];
+  clearSystemLogs: () => void;
+
   // Buyers / reservations
   buyers: Buyer[];
   setBuyers: React.Dispatch<React.SetStateAction<Buyer[]>>;
@@ -199,6 +203,7 @@ interface AppContextValue {
   setScannerConstraints: React.Dispatch<React.SetStateAction<MediaTrackConstraints>>;
   scannerError: string | null;
   setScannerError: React.Dispatch<React.SetStateAction<string | null>>;
+  resetScanner: () => void;
 
   // Reservations UI
   expandedRes: string | null;
@@ -327,6 +332,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Staff
   const [staffAccounts, setStaffAccounts] = useState<StaffAccount[]>([]);
   const [newStaff, setNewStaff] = useState({ name: '', username: '', password: '' });
+
+  // System logs
+  const [systemLogs, setSystemLogs] = useState<{ id: string; level: 'error' | 'warn' | 'info'; message: string; time: Date }[]>([]);
+  const clearSystemLogs = () => setSystemLogs([]);
 
   // Buyers / reservations
   const [buyers, setBuyers] = useState<Buyer[]>(MOCK_BUYERS);
@@ -548,6 +557,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (currentView === 'admin-login') {
+      setAuthTab('login');
+    } else {
+      setAdminForm({ username: '', password: '' });
+      setRegisterForm({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
+      setRegisterStep(1);
+      setVerificationStep(false);
+      setVerificationCode(['', '', '', '']);
+      setAdminError('');
+      setForgotPasswordStep('none');
+      setForgotPasswordData({ email: '', code: '', newPassword: '' });
+      setTotpPending(false);
+      setTotpInput('');
+    }
+  }, [currentView]);
+
+  useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
     let changed = false;
     const updatedEvents = events.map((e: Event) => {
@@ -587,11 +613,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener('error', handleError);
     window.addEventListener('unhandledrejection', handleError);
-    const originalConsoleError = console.error;
+
+    const addLog = (level: 'error' | 'warn' | 'info', args: any[]) => {
+      const message = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+      setSystemLogs(prev => [{ id: crypto.randomUUID(), level, message, time: new Date() }, ...prev].slice(0, 100));
+    };
+    const origError = console.error;
+    const origWarn = console.warn;
+    const origInfo = console.info;
     console.error = (...args) => {
       if (typeof args[0] === 'string' && args[0].includes('[vite] failed to connect to websocket')) return;
-      originalConsoleError.apply(console, args);
+      addLog('error', args);
+      origError.apply(console, args);
     };
+    console.warn = (...args) => { addLog('warn', args); origWarn.apply(console, args); };
+    console.info = (...args) => { addLog('info', args); origInfo.apply(console, args); };
+
     const savedSession = localStorage.getItem('eventix-session');
     if (savedSession) {
       try {
@@ -616,8 +653,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (conflictList.length > 0) setSessionConflict(conflictList);
         }
         if (restoredAnything) { setSessionRestored(true); setTimeout(() => setSessionRestored(false), 5000); }
-      } catch (e) { console.error('Erro ao restaurar sessão:', e); }
+      } catch (e) { origError('Erro ao restaurar sessão:', e); }
     }
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleError);
+      console.error = origError;
+      console.warn = origWarn;
+      console.info = origInfo;
+    };
   }, []);
 
   useEffect(() => {
@@ -678,12 +723,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const handleLogout = async () => {
     await signOut().catch(console.error);
-    setUserRole(null);
-    setIsApprovedEventCreator(false);
-    setSessionUser(null);
-    setIsStaff(false);
-    setLoggedInUserId(null);
-    setCurrentView('booking');
+    window.location.href = '/';
   };
 
   const handleRegister = (e: React.FormEvent) => {
@@ -773,6 +813,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...mappedSaved,
         batches: (saved as any).batches?.length ? (saved as any).batches.map((b: any) => ({
           id: b.id, name: b.name ?? '', startDate: b.start_date ?? '', endDate: b.end_date ?? '',
+          is_active: b.is_active ?? true, sort_order: b.sort_order,
           sectors: (b.sectors ?? []).map((s: any) => ({
             id: s.id, name: s.name ?? '', quantity: s.quantity ?? 0, price: s.price ?? 0,
             priceMale: s.price_male, priceFemale: s.price_female, convenienceFee: s.convenience_fee,
@@ -871,8 +912,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     console.warn('[Scanner]', error);
     if (error?.name === 'OverconstrainedError' || error?.name === 'ConstraintNotSatisfiedError') {
       scannerRetryRef.current += 1;
-      if (scannerRetryRef.current === 1) { setScannerConstraints({}); setScannerKey(k => k + 1); }
-      else setScannerError('Câmera não disponível. Use a busca manual abaixo.');
+      if (scannerRetryRef.current === 1) {
+        setScannerConstraints({ facingMode: { ideal: 'user' } });
+        setScannerKey(k => k + 1);
+      } else if (scannerRetryRef.current === 2) {
+        setScannerConstraints({});
+        setScannerKey(k => k + 1);
+      } else {
+        setScannerError('Câmera não disponível. Use a busca manual abaixo.');
+      }
     } else if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
       setScannerError('Permissão de câmera negada. Permita o acesso à câmera ou use a busca manual.');
     } else if (error?.name === 'NotFoundError' || error?.name === 'DevicesNotFoundError') {
@@ -881,6 +929,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setScannerError('Erro ao acessar a câmera. Use a busca manual abaixo.');
     }
   };
+
+  const resetScanner = () => {
+    scannerRetryRef.current = 0;
+    setScannerError(null);
+    setScannerConstraints({ facingMode: { ideal: 'environment' } });
+    setScannerKey(k => k + 1);
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setReservations(prev => prev.map(res => ({
+        ...res,
+        ticketsObj: res.ticketsObj?.map(t => {
+          if (t.status === 'pending_transfer' && t.transferExpiresAt && Date.now() > t.transferExpiresAt) {
+            return { ...t, status: 'active' as const, pendingTransferEmail: undefined, transferExpiresAt: undefined };
+          }
+          return t;
+        }),
+      })));
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleTableSelection = (tableId: number, status: 'available' | 'reserved') => {
     if (status === 'reserved') return;
@@ -1024,6 +1094,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     releaseValidationFields, setReleaseValidationFields,
     staffAccounts, setStaffAccounts,
     newStaff, setNewStaff,
+    systemLogs, clearSystemLogs,
     buyers, setBuyers,
     reservations, setReservations,
     selectedBuyerForDetails, setSelectedBuyerForDetails,
@@ -1073,6 +1144,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     scannerKey, setScannerKey,
     scannerConstraints, setScannerConstraints,
     scannerError, setScannerError,
+    resetScanner,
     expandedRes, setExpandedRes,
     reservationsTab, setReservationsTab,
     copiedCod, setCopiedCod,

@@ -173,14 +173,14 @@ export function BookingView() {
                   {hasTickets && (
                     <button
                       onClick={() => togglePanel('tickets')}
-                      className={`group relative text-left rounded-2xl border p-6 transition-all duration-300 flex flex-col gap-3 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
+                      className={`group relative text-left rounded-2xl border p-4 transition-all duration-300 flex flex-col gap-2 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
                         ${activePanel === 'tickets'
                           ? 'border-[#d4af37]/60 bg-[#d4af37]/5 shadow-[0_0_24px_rgba(212,175,55,0.08)]'
                           : 'border-white/10 bg-[#111] hover:border-[#d4af37]/30 hover:bg-[#d4af37]/[0.02]'
                         }`}
                     >
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${activePanel === 'tickets' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
-                        <Ticket className={`w-6 h-6 transition-colors ${activePanel === 'tickets' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${activePanel === 'tickets' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
+                        <Ticket className={`w-5 h-5 transition-colors ${activePanel === 'tickets' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
                       </div>
                       <div>
                         <h3 className="text-base font-bold text-white tracking-wide mb-1">Ingressos</h3>
@@ -215,17 +215,17 @@ export function BookingView() {
                   {hasTables && (
                     <button
                       onClick={() => togglePanel('tables')}
-                      className={`group relative text-left rounded-2xl border p-6 transition-all duration-300 flex flex-col gap-3 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
+                      className={`group relative text-left rounded-2xl border p-4 transition-all duration-300 flex flex-col gap-2 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
                         ${activePanel === 'tables'
                           ? 'border-[#d4af37]/60 bg-[#d4af37]/5 shadow-[0_0_24px_rgba(212,175,55,0.08)]'
                           : 'border-white/10 bg-[#111] hover:border-[#d4af37]/30 hover:bg-[#d4af37]/[0.02]'
                         }`}
                     >
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${activePanel === 'tables' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${activePanel === 'tables' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
                         {hasBistro ? (
-                          <Coffee className={`w-6 h-6 transition-colors ${activePanel === 'tables' ? 'text-amber-400' : 'text-white/50 group-hover:text-amber-400'}`} />
+                          <Coffee className={`w-5 h-5 transition-colors ${activePanel === 'tables' ? 'text-amber-400' : 'text-white/50 group-hover:text-amber-400'}`} />
                         ) : (
-                          <Armchair className={`w-6 h-6 transition-colors ${activePanel === 'tables' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
+                          <Armchair className={`w-5 h-5 transition-colors ${activePanel === 'tables' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
                         )}
                       </div>
                       <div>
@@ -269,8 +269,8 @@ export function BookingView() {
                     >
                       <div className="bg-[#111] border border-white/5 rounded-3xl p-6">
                         {/* Lotes fechados */}
-                        {activeEvent!.batches.filter(b => b.is_active === false).map(batch => (
-                          <div key={batch.id} className="mb-3 flex items-center gap-3 bg-[#0d0d0d] p-4 rounded-xl border border-white/5 opacity-50">
+                        {activeEvent!.batches.filter(b => b.is_active === false).map((batch, bi) => (
+                          <div key={batch.id ?? `closed-batch-${bi}`} className="mb-3 flex items-center gap-3 bg-[#0d0d0d] p-4 rounded-xl border border-white/5 opacity-50">
                             <div className="flex-1">
                               <h3 className="text-white/50 font-bold text-base">{batch.name}</h3>
                             </div>
@@ -289,7 +289,7 @@ export function BookingView() {
                         </div>
 
                         <div className="space-y-4">
-                          {previewSectors.map((sector) => {
+                          {previewSectors.map((sector, si) => {
                             const isExpanded = expandedSectorId === sector.id;
                             const sectorMinPrice = activeEvent!.priceType === 'gender'
                               ? Math.min(sector.priceMale || Infinity, sector.priceFemale || Infinity)
@@ -299,7 +299,7 @@ export function BookingView() {
 
                             return (
                               <div
-                                key={sector.id}
+                                key={sector.id ?? `sector-${si}`}
                                 className={`bg-[#0a0a0a] border rounded-2xl transition-all duration-300 overflow-hidden ${isExpanded ? 'border-[#d4af37]/50 shadow-[0_0_20px_rgba(212,175,55,0.05)]' : 'border-white/5 hover:border-white/20 cursor-pointer'}`}
                               >
                                 <div

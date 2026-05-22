@@ -39,6 +39,7 @@ export interface TicketItem {
   ownerEmail?: string;
   status: 'active' | 'transferred' | 'cancelled' | 'pending_transfer';
   pendingTransferEmail?: string;
+  transferExpiresAt?: number;
   originalBuyerId?: string;
 }
 
@@ -53,7 +54,7 @@ export interface Reservation {
   eventId?: number;
   buyerName?: string;
   paymentStatus?: 'pending' | 'approved' | 'cancelled' | 'refunded';
-  paymentMethod?: 'pix' | 'credit_card' | 'debit_card' | 'boleto';
+  paymentMethod?: 'pix' | 'credit_card' | 'debit_card';
   platformFee?: number;
   netAmount?: number;
   createdAt?: string;
@@ -89,6 +90,7 @@ export interface Batch {
   endDate: string;
   sectors: Sector[];
   is_active?: boolean;
+  sort_order?: number;
 }
 
 export interface Sector {
@@ -176,7 +178,7 @@ export type CheckoutStep =
   | 'processing'
   | 'success';
 
-export type PaymentMethod = 'pix' | 'credit_card' | 'debit_card' | 'boleto';
+export type PaymentMethod = 'pix' | 'credit_card' | 'debit_card';
 
 export type CurrentView =
   | 'home'
@@ -197,7 +199,9 @@ export type DashboardMode =
   | 'approval-queue'
   | 'producer-onboarding'
   | 'producer-dashboard'
-  | 'developer-panel';
+  | 'developer-panel'
+  | 'admin-overview'
+  | 'dev-overview';
 
 export type ToastType = 'info' | 'success' | 'error' | 'warning';
 

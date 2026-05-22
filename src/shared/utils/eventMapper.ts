@@ -20,6 +20,8 @@ export function mapDbEventToApp(db: any): Event {
       name: b.name ?? '',
       startDate: b.start_date ?? b.startDate ?? '',
       endDate: b.end_date ?? b.endDate ?? '',
+      is_active: b.is_active ?? true,
+      sort_order: b.sort_order,
       sectors: (b.sectors ?? []).map((s: any) => ({
         id: s.id,
         name: s.name ?? '',

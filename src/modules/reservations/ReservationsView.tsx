@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   ChevronDown,
@@ -17,6 +18,98 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { downloadTicketPDF } from '../../shared/utils/pdf';
+import type { TicketItem } from '../../types';
+
+function useCountdown(expiresAt: number | undefined): string {
+  const [remaining, setRemaining] = useState('');
+  useEffect(() => {
+    if (!expiresAt) { setRemaining(''); return; }
+    const update = () => {
+      const diff = Math.max(0, expiresAt - Date.now());
+      const m = Math.floor(diff / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setRemaining(diff === 0 ? 'Expirado' : `${m}:${String(s).padStart(2, '0')}`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  return remaining;
+}
+
+function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }: {
+  tkt: TicketItem;
+  singleCount: number;
+  setQrFullscreen: (v: { id: string; name: string } | null) => void;
+  setActionTicket: (v: any) => void;
+}) {
+  const needsData = !tkt.ownerName;
+  const countdown = useCountdown(tkt.transferExpiresAt);
+  return (
+    <div className={`p-4 rounded-xl border ${tkt.status === 'cancelled' ? 'border-red-500/20 bg-red-500/5' : needsData && tkt.status === 'active' ? 'bg-amber-500/5 border-amber-500/30' : 'border-white/10 bg-white/5'} flex flex-col md:flex-row justify-between items-start md:items-center gap-4`}>
+      <div className="flex gap-4 items-center w-full md:w-auto">
+        <div className="relative group cursor-pointer" onClick={(e) => { e.stopPropagation(); setQrFullscreen({ id: tkt.id, name: tkt.name }); }}>
+          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-16 h-16 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} />
+          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition backdrop-blur-[2px]">
+            <Expand className="w-5 h-5 text-white" />
+          </div>
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-bold text-[#d4af37]">{tkt.name}</p>
+          <div className="flex items-center gap-2 mt-1 mb-2">
+            <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full ${tkt.status === 'active' ? 'bg-green-500/10 text-green-400' : tkt.status === 'transferred' ? 'bg-blue-500/10 text-blue-400' : tkt.status === 'pending_transfer' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-500'}`}>
+              {tkt.status === 'active' ? 'Ativo' : tkt.status === 'transferred' ? 'Transferido' : tkt.status === 'pending_transfer' ? 'Ag. Transferência' : 'Cancelado'}
+            </span>
+            <span className="text-[10px] opacity-40 font-mono tracking-widest">{tkt.id}</span>
+          </div>
+          {tkt.status === 'pending_transfer' && (
+            <p className="text-[9px] text-yellow-400 mt-1 uppercase flex items-center gap-1">
+              <Clock className="w-3 h-3" /> {countdown} — Aguardando {tkt.pendingTransferEmail}
+            </p>
+          )}
+          <div className="text-[10px] uppercase opacity-80 min-h-[16px]">
+            {tkt.ownerName ? (
+              <p className="flex items-center gap-1.5"><User className="w-3 h-3 opacity-50" /> <span className="font-bold text-white max-w-[120px] sm:max-w-[180px] truncate">{tkt.ownerName}</span></p>
+            ) : (
+              <p className="text-amber-500 font-bold flex items-center gap-1.5"><AlertTriangle className="w-3 h-3" /> Pendente</p>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 w-full md:w-auto mt-2 md:mt-0">
+        {tkt.status === 'active' && (
+          <>
+            {singleCount > 1 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tkt.id, type: 'edit', data: { name: tkt.ownerName, cpf: tkt.ownerCpf, email: tkt.ownerEmail } }); }}
+                className={`px-3 py-2 rounded-lg text-[9px] uppercase tracking-[0.1em] font-bold transition flex-1 md:flex-none text-center h-[34px] ${needsData ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.2)]' : 'bg-white/5 hover:bg-white/10 text-white'}`}
+              >
+                {tkt.ownerName ? 'Editar Dados' : 'Preencher Dados'}
+              </button>
+            )}
+            <div className="flex gap-2 flex-1 md:flex-none w-full md:w-auto mt-2 md:mt-0">
+              <button
+                onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tkt.id, type: 'transfer' }); }}
+                className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white transition text-[9px] uppercase tracking-widest font-bold"
+              >Transferir</button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tkt.id, type: 'cancel' }); }}
+                className="h-[34px] flex-1 md:flex-none px-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition text-[9px] uppercase tracking-widest font-bold"
+              >Cancelar</button>
+            </div>
+          </>
+        )}
+        {tkt.status === 'active' && (
+          <div className="flex gap-2 flex-1 md:flex-none w-full md:w-auto mt-2 md:mt-0">
+            <button onClick={(e) => { e.stopPropagation(); downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName }); }} className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/50 hover:text-white transition flex justify-center items-center" title="Baixar PDF">
+              <Download className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function ReservationsView() {
   const {
@@ -307,73 +400,15 @@ export function ReservationsView() {
                                 })}
 
                                 <div className="space-y-4">
-                                    {singleTicketsArr.map(tkt => {
-                                      const needsData = !tkt.ownerName;
-                                      return (
-                                      <div key={tkt.id} className={`p-4 rounded-xl border ${tkt.status === 'cancelled' ? 'border-red-500/20 bg-red-500/5' : needsData && tkt.status === 'active' ? 'bg-amber-500/5 border-amber-500/30' : 'border-white/10 bg-white/5'} flex flex-col md:flex-row justify-between items-start md:items-center gap-4`}>
-                                        <div className="flex gap-4 items-center w-full md:w-auto">
-                                            <div className="relative group cursor-pointer" onClick={(e) => { e.stopPropagation(); setQrFullscreen({ id: tkt.id, name: tkt.name }); }}>
-                                               <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-16 h-16 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} />
-                                               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition backdrop-blur-[2px]">
-                                                  <Expand className="w-5 h-5 text-white" />
-                                               </div>
-                                            </div>
-                                            <div className="flex-1">
-                                            <p className="text-sm font-bold text-[#d4af37]">{tkt.name}</p>
-                                            <div className="flex items-center gap-2 mt-1 mb-2">
-                                              <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full ${tkt.status === 'active' ? 'bg-green-500/10 text-green-400' : tkt.status === 'transferred' ? 'bg-blue-500/10 text-blue-400' : tkt.status === 'pending_transfer' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-500'}`}>
-                                                {tkt.status === 'active' ? 'Ativo' : tkt.status === 'transferred' ? 'Transferido' : tkt.status === 'pending_transfer' ? 'Ag. Transferência' : 'Cancelado'}
-                                              </span>
-                                              <span className="text-[10px] opacity-40 font-mono tracking-widest">{tkt.id}</span>
-                                            </div>
-                                            {tkt.status === 'pending_transfer' && (
-                                              <p className="text-[9px] text-yellow-400 mt-1 uppercase">Aguardando {tkt.pendingTransferEmail}</p>
-                                            )}
-                                            <div className="text-[10px] uppercase opacity-80 min-h-[16px]">
-                                              {tkt.ownerName ? (
-                                                <p className="flex items-center gap-1.5"><User className="w-3 h-3 opacity-50" /> <span className="font-bold text-white max-w-[120px] sm:max-w-[180px] truncate">{tkt.ownerName}</span></p>
-                                              ) : (
-                                                <p className="text-amber-500 font-bold flex items-center gap-1.5"><AlertTriangle className="w-3 h-3" /> Pendente</p>
-                                              )}
-                                            </div>
-                                          </div>
-                                        </div>
-                                        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto mt-2 md:mt-0">
-                                          {tkt.status === 'active' && (
-                                            <>
-                                              <button
-                                                onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tkt.id, type: 'edit', data: { name: tkt.ownerName, cpf: tkt.ownerCpf, email: tkt.ownerEmail } }); }}
-                                                className={`px-3 py-2 rounded-lg text-[9px] uppercase tracking-[0.1em] font-bold transition flex-1 md:flex-none text-center h-[34px] ${needsData ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.2)]' : 'bg-white/5 hover:bg-white/10 text-white'}`}
-                                              >
-                                                {tkt.ownerName ? 'Editar Dados' : 'Preencher Dados'}
-                                              </button>
-                                              <div className="flex gap-2 flex-1 md:flex-none w-full md:w-auto mt-2 md:mt-0">
-                                                 <button
-                                                    onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tkt.id, type: 'transfer' }); }}
-                                                    className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white transition text-[9px] uppercase tracking-widest font-bold"
-                                                  >
-                                                    Transferir
-                                                  </button>
-                                                  <button
-                                                    onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tkt.id, type: 'cancel' }); }}
-                                                    className="h-[34px] flex-1 md:flex-none px-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition text-[9px] uppercase tracking-widest font-bold"
-                                                  >
-                                                    Cancelar
-                                                  </button>
-                                              </div>
-                                            </>
-                                          )}
-                                          {tkt.status === 'active' && (
-                                            <div className="flex gap-2 flex-1 md:flex-none w-full md:w-auto mt-2 md:mt-0">
-                                              <button onClick={(e) => { e.stopPropagation(); downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName }); }} className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/50 hover:text-white transition flex justify-center items-center" title="Baixar PDF">
-                                                <Download className="w-4 h-4" />
-                                              </button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                      );
-                                    })}
+                                  {singleTicketsArr.map(tkt => (
+                                    <SingleTicketRow
+                                      key={tkt.id}
+                                      tkt={tkt}
+                                      singleCount={singleTicketsArr.length}
+                                      setQrFullscreen={setQrFullscreen}
+                                      setActionTicket={setActionTicket}
+                                    />
+                                  ))}
                                 </div>
                               </div>
                             );
