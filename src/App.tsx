@@ -18,6 +18,7 @@ import { ProfileView } from './modules/profile/ProfileView';
 import { DashboardView } from './modules/dashboard/DashboardView';
 import { CheckoutModal } from './modules/payment/CheckoutModal';
 import { TableLayoutEditor } from './components/TableLayoutEditor';
+import { InstallPrompt } from './components/InstallPrompt';
 
 export function App() {
   const {
@@ -560,6 +561,7 @@ export function App() {
 
       <CheckoutModal />
       <Toast />
+      <InstallPrompt />
     </div>
   );
 }

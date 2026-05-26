@@ -34,7 +34,19 @@
       "PowerShell(Head *)",
       "Bash(npx playwright *)",
       "Bash(Get-Content \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Gabriel-Portifolio-espaco-mix\\\\15e743ab-1025-4d60-81ba-528c8149bb74\\\\tasks\\\\b5qaf2ahj.output\" -Wait -Tail 20)",
-      "Bash(Start-Sleep 3)"
+      "Bash(Start-Sleep 3)",
+      "Bash(findstr \"Home.tsx\")",
+      "Bash(Start-Sleep -Seconds 30)",
+      "Bash(Get-Content \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Gabriel-Portifolio-espaco-mix\\\\17f8b081-b1e5-40ee-b96e-358345a344a2\\\\tasks\\\\bm6km1s8f.output\" -Tail 30)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/api/health)",
+      "Bash(Out-File -FilePath \"playwright-raw-output.txt\" -Encoding utf8)",
+      "Bash(xargs grep -l \"Invalid login credentials\")",
+      "Bash(xargs grep -h \"^- Name:\")",
+      "Bash(tailwind)",
+      "Bash(browserslist\")",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Gabriel\\\\Portifolio\\\\espaco_mix\" -Name | Where-Object { $_ -match \"postcss|tailwind|browserslist\" })",
+      "Bash(npx pwa-assets-generator *)"
     ]
   }
 }

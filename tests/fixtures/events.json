@@ -1,0 +1,81 @@
+{
+  "_comentario": "Dados de eventos para testes. Datas são relativas — ajuste conforme necessário.",
+  "events": {
+    "basico": {
+      "title":       "Show Teste Playwright",
+      "description": "Evento criado para testes automatizados. Não remova.",
+      "location":    "Espaço Mix - Rua Teste, 123 - São Paulo, SP",
+      "status":      "Ativo",
+      "priceType":   "unique",
+      "price":       50,
+      "ageRating":   "18"
+    },
+    "com_mesas": {
+      "title":       "Festa com Mesas - Playwright",
+      "description": "Evento com seleção de mesas para testes.",
+      "location":    "Espaço Mix VIP",
+      "status":      "Vendas liberadas",
+      "priceType":   "unique",
+      "hasTables":   true,
+      "tableConfig": {
+        "totalTables": 10,
+        "seatsPerTable": 4,
+        "tablePrice": 300
+      }
+    },
+    "por_genero": {
+      "title":       "Evento Preço Gênero - Playwright",
+      "description": "Evento com preço diferenciado por gênero.",
+      "location":    "Espaço Mix Club",
+      "status":      "Vendas liberadas",
+      "priceType":   "gender",
+      "priceMale":   80,
+      "priceFemale": 50
+    },
+    "em_breve": {
+      "title":       "Evento Em Breve - Playwright",
+      "description": "Evento ainda não disponível.",
+      "status":      "Em breve",
+      "priceType":   "unique",
+      "price":       100
+    },
+    "rascunho": {
+      "title":       "Rascunho Playwright",
+      "description": "Este evento não deve aparecer para usuários comuns.",
+      "status":      "Rascunho",
+      "priceType":   "unique",
+      "price":       0
+    }
+  },
+  "lotes": {
+    "lote_unico": {
+      "name":      "Lote 1",
+      "startDate": "2026-01-01",
+      "endDate":   "2026-12-31",
+      "isActive":  true,
+      "sectors": [
+        { "name": "Pista", "quantity": 100, "price": 50 }
+      ]
+    },
+    "dois_lotes": [
+      {
+        "name":      "1° Lote",
+        "startDate": "2026-01-01",
+        "endDate":   "2026-06-30",
+        "isActive":  true,
+        "sectors": [
+          { "name": "Pista", "quantity": 50, "price": 40 }
+        ]
+      },
+      {
+        "name":      "2° Lote",
+        "startDate": "2026-07-01",
+        "endDate":   "2026-12-31",
+        "isActive":  false,
+        "sectors": [
+          { "name": "Pista", "quantity": 50, "price": 60 }
+        ]
+      }
+    ]
+  }
+}

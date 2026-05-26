@@ -69,6 +69,35 @@
   }
 }
 
+/* Compatibilidade Safari/iOS */
+html {
+  /* Previne redimensionamento automático de texto no iOS ao mudar orientação */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  /* Remove highlight azul/cinza ao tocar em elementos no iOS */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS Safari: previne zoom automático em inputs com font-size < 16px */
+@supports (-webkit-touch-callout: none) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+/* iOS Safari: 100vh não desconta a barra de endereço — usa -webkit-fill-available */
+@supports (-webkit-touch-callout: none) {
+  .h-screen {
+    height: -webkit-fill-available;
+  }
+  .min-h-screen {
+    min-height: -webkit-fill-available;
+  }
+}
+
 /* 1. Solução Nativa e 4. Acessibilidade */
 html {
   scroll-behavior: smooth;
@@ -121,6 +150,7 @@ input[type="number"] {
     font-size: 0.875rem;
     line-height: 1.25rem;
     color: white;
+    -webkit-appearance: none;
     appearance: none;
     cursor: pointer;
     color-scheme: dark;

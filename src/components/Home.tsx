@@ -20,6 +20,7 @@ interface Event {
   batches: any[];
   hasTables: boolean;
   tableConfig?: any;
+  tableLayout?: any[];
   ageRating?: string;
   importantNotes?: string;
   isFeatured?: boolean;
@@ -36,22 +37,32 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
   const [filterDate, setFilterDate] = useState('all');
   const [visibleCount, setVisibleCount] = useState(12);
 
+  const isEventPast = (event: Event) => {
+    const referenceDate = event.endDate ? new Date(event.endDate) : new Date(event.date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    referenceDate.setHours(23, 59, 59, 999);
+    return referenceDate < today;
+  };
+
   // Filter events
   const publicEvents = events.filter(e => e.status !== 'Rascunho');
-  const featuredEvents = publicEvents.filter(e => e.isFeatured).length > 0
-    ? publicEvents.filter(e => e.isFeatured)
-    : publicEvents.slice(0, 5); // Fallback to first 5
+  const activeFeatured = publicEvents.filter(e => e.isFeatured && !isEventPast(e));
+  const featuredEvents = activeFeatured.length > 0
+    ? activeFeatured
+    : publicEvents.filter(e => !isEventPast(e)).slice(0, 5);
 
   const filteredEvents = useMemo(() => {
     return publicEvents.filter(event => {
+      if (isEventPast(event)) return false;
       if (searchTerm && !event.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-      
+
       if (filterDate !== 'all') {
         const eventDate = new Date(event.date);
         const today = new Date();
         const thisWeekend = new Date();
         thisWeekend.setDate(today.getDate() + (6 - today.getDay())); // Saturday
-        
+
         if (filterDate === 'weekend' && eventDate > thisWeekend) return false;
         if (filterDate === 'month' && eventDate.getMonth() !== today.getMonth()) return false;
       }
@@ -197,11 +208,49 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {displayedEvents.map(event => {
-                // Verificar se está esgotado baseado nos lotes
-                const allBatchesTokens = event.batches?.flatMap(b => b.sectors) || [];
-                const isSoldOut = allBatchesTokens.length > 0 && allBatchesTokens.every(s => (s.sold || 0) >= s.quantity);
-                const cheapestSector = allBatchesTokens.length > 0 ? allBatchesTokens.reduce((prev, curr) => prev.price < curr.price ? prev : curr) : null;
-                const minPrice = cheapestSector?.price || 0;
+                const allSectors = event.batches?.flatMap((b: any) => b.sectors ?? []) ?? [];
+                const isSoldOut = allSectors.length > 0 && allSectors.every((s: any) => (s.sold ?? 0) >= s.quantity);
+
+                // Coleta todos os preços disponíveis do evento
+                const priceCandidates: number[] = [];
+
+                // 1. Ingressos por setor
+                for (const s of allSectors) {
+                  if (event.priceType === 'gender') {
+                    if (s.priceMale != null && s.priceMale > 0) priceCandidates.push(s.priceMale);
+                    if (s.priceFemale != null && s.priceFemale > 0) priceCandidates.push(s.priceFemale);
+                  } else {
+                    if (s.price != null && s.price > 0) priceCandidates.push(s.price);
+                  }
+                }
+
+                // 2. Mesas e Bistrôs via tableLayout (onde os preços reais ficam armazenados)
+                if (event.hasTables) {
+                  const tableEls = (event.tableLayout ?? []).filter(
+                    (el: any) => el.type === 'round-table' || el.type === 'rect-table' || el.type === 'bistro-table'
+                  );
+                  const layoutHasPrices = tableEls.some((el: any) => el.price != null && el.price > 0);
+
+                  if (layoutHasPrices) {
+                    // Bistrôs (mais baratos) ficam disponíveis primeiro
+                    const bistroPrices = tableEls
+                      .filter((el: any) => el.type === 'bistro-table' && el.price > 0)
+                      .map((el: any) => el.price as number);
+                    const tablePrices = tableEls
+                      .filter((el: any) => el.type !== 'bistro-table' && el.price > 0)
+                      .map((el: any) => el.price as number);
+
+                    if (bistroPrices.length > 0) priceCandidates.push(Math.min(...bistroPrices));
+                    if (tablePrices.length > 0) priceCandidates.push(Math.min(...tablePrices));
+                  } else {
+                    // Fallback para tableConfig (não persistido no DB, mas tenta)
+                    const tc = event.tableConfig as any;
+                    if (tc?.bistroPrice > 0 && (tc?.totalBistros ?? 0) > 0) priceCandidates.push(tc.bistroPrice);
+                    if (tc?.tablePrice > 0) priceCandidates.push(tc.tablePrice);
+                  }
+                }
+
+                const minPrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 0;
 
                 return (
                   <motion.div
@@ -251,7 +300,7 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
                         <div className="flex flex-col">
                           <span className="text-[9px] uppercase tracking-widest text-white/40">A partir de</span>
                           <span className="text-xs font-bold text-white">
-                            {minPrice === 0 ? <span className="text-green-400">Gratuito</span> : `R$ ${minPrice.toFixed(2).replace('.', ',')}`}
+                            {`R$ ${minPrice.toFixed(2).replace('.', ',')}`}
                           </span>
                         </div>
                         <div className="w-7 h-7 rounded-full bg-[#111] group-hover:bg-[#d4af37] group-hover:text-black text-white/40 border border-white/10 flex items-center justify-center transition-colors">

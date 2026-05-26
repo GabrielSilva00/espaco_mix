@@ -43,6 +43,9 @@ export function mapDbEventToApp(db: any): Event {
             seatsPerTable: db.table_seats ?? db.tableConfig?.seatsPerTable ?? 4,
             gridRows: db.table_rows ?? db.tableConfig?.gridRows ?? 0,
             gridCols: db.table_cols ?? db.tableConfig?.gridCols ?? 0,
+            totalBistros: db.total_bistros ?? db.tableConfig?.totalBistros,
+            tablePrice: db.table_price ?? db.tableConfig?.tablePrice,
+            bistroPrice: db.bistro_price ?? db.tableConfig?.bistroPrice,
           }
         : undefined,
     tableLayout: db.table_layout ?? db.tableLayout,

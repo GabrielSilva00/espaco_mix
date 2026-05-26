@@ -1,0 +1,62 @@
+{
+  "_comentario": "Credenciais de teste. Use variáveis de ambiente para dados reais. NÃO commite senhas reais neste arquivo.",
+  "_env_vars": {
+    "TEST_USER_EMAIL":    "E-mail do usuário comum de teste",
+    "TEST_USER_PASSWORD": "Senha do usuário comum de teste",
+    "TEST_ADMIN_EMAIL":   "E-mail do admin de teste",
+    "TEST_ADMIN_PASSWORD":"Senha do admin de teste",
+    "TEST_DEV_EMAIL":     "E-mail do dev de teste",
+    "TEST_DEV_PASSWORD":  "Senha do dev de teste"
+  },
+  "users": {
+    "comum": {
+      "email":    "user_teste@playwright.local",
+      "password": "SenhaTeste@123",
+      "name":     "Usuário Playwright",
+      "cpf":      "529.982.247-25",
+      "phone":    "(11) 99999-1234",
+      "role":     "client"
+    },
+    "admin": {
+      "email":    "admin_teste@playwright.local",
+      "password": "AdminTeste@123",
+      "name":     "Admin Playwright",
+      "cpf":      "111.444.777-35",
+      "phone":    "(11) 99999-5678",
+      "role":     "admin"
+    },
+    "dev": {
+      "email":    "dev_teste@playwright.local",
+      "password": "DevTeste@123",
+      "name":     "Dev Playwright",
+      "cpf":      "073.348.678-59",
+      "phone":    "(11) 99999-9012",
+      "role":     "developer"
+    },
+    "staff": {
+      "email":    "staff_teste@playwright.local",
+      "password": "StaffTeste@123",
+      "name":     "Colaborador Playwright",
+      "role":     "staff"
+    }
+  },
+  "invalid": {
+    "cpfs": {
+      "sequencial": "111.111.111-11",
+      "zeros":      "000.000.000-00",
+      "curto":      "123.456.789",
+      "letras":     "abc.def.ghi-jk"
+    },
+    "emails": {
+      "sem_arroba":   "emailsemarroba",
+      "sem_dominio":  "email@",
+      "so_dominio":   "@dominio.com",
+      "espacos":      "email com espaço@teste.com"
+    },
+    "senhas": {
+      "muito_curta": "123",
+      "sem_maiuscula": "senha@123",
+      "sem_especial": "Senha1234"
+    }
+  }
+}

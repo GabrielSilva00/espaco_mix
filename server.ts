@@ -116,7 +116,12 @@ async function startServer() {
       try {
         const { createClient } = await import("@supabase/supabase-js");
         const supabase = createClient(supabaseUrl, supabaseKey);
-        const { data: { user }, error } = await supabase.auth.getUser(token);
+        const { data: { user }, error } = await Promise.race([
+          supabase.auth.getUser(token),
+          new Promise<any>(resolve =>
+            setTimeout(() => resolve({ data: { user: null }, error: new Error("timeout") }), 5000)
+          ),
+        ]);
         if (error || !user) {
           res.status(401).json({ error: "Token inválido ou expirado." });
           return;
@@ -350,6 +355,12 @@ async function startServer() {
       rights: ["Acesso aos dados", "Exclusão de conta", "Correção de informações"],
       lastUpdated: "2026-05-06",
     });
+  });
+
+  // Rotas /api/* não encontradas — deve vir ANTES do middleware Vite
+  // (em dev, o Vite intercepta rotas desconhecidas e retorna 200 com index.html)
+  app.all("/api/*", (_req, res) => {
+    res.status(404).json({ error: "API endpoint not found" });
   });
 
   // ── Frontend ──────────────────────────────────────────────────────────────

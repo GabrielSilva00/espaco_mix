@@ -1,85 +1,104 @@
 import { defineConfig, devices } from '@playwright/test';
 
-/**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
- */
+// Para carregar .env localmente, descomente as linhas abaixo:
 // import dotenv from 'dotenv';
-// import path from 'path';
-// dotenv.config({ path: path.resolve(__dirname, '.env') });
+// dotenv.config();
 
-/**
- * See https://playwright.dev/docs/test-configuration.
- */
 export default defineConfig({
-  testDir: './testes',
-  /* Testes dentro do mesmo arquivo rodam em série para não sobrecarregar o servidor de dev */
+  // Cobre tanto a pasta legada `testes/` quanto a nova estrutura `tests/`
+  testDir: './',
+  testMatch: ['**/testes/**/*.spec.ts', '**/tests/**/*.spec.ts'],
+
+  // Arquivos do mesmo describe rodam em série; suites diferentes correm em paralelo
   fullyParallel: false,
-  /* Fail the build on CI if you accidentally left test.only in the source code. */
+
+  // Impede test.only acidental no CI
   forbidOnly: !!process.env.CI,
-  /* Retry on CI and locally to tolerate instabilidades do servidor de dev */
-  retries: process.env.CI ? 2 : 2,
-  /* Um único worker garante que todos os testes (inclusive retries) usem o mesmo servidor */
-  workers: 1,
-  /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: 'html',
-  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
-  use: {
-    /* Base URL to use in actions like `await page.goto('')`. */
-    baseURL: 'http://localhost:5173',
 
-    /* Não aguarda recursos externos (imagens de terceiros) para considerar a página carregada */
-    navigationTimeout: 30000,
+  // CI: 2 retries para tolerar instabilidade; local: 0 para feedback rápido
+  retries: process.env.CI ? 2 : 0,
 
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
-  },
+  // CI: 1 worker (mesmo servidor); local: até 2 para acelerar sem sobrecarregar
+  workers: process.env.CI ? 1 : 2,
 
-  /* Configure projects for major browsers */
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-
-    /* Test against mobile viewports. */
-    // {
-    //   name: 'Mobile Chrome',
-    //   use: { ...devices['Pixel 5'] },
-    // },
-    // {
-    //   name: 'Mobile Safari',
-    //   use: { ...devices['iPhone 12'] },
-    // },
-
-    /* Test against branded browsers. */
-    // {
-    //   name: 'Microsoft Edge',
-    //   use: { ...devices['Desktop Edge'], channel: 'msedge' },
-    // },
-    // {
-    //   name: 'Google Chrome',
-    //   use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-    // },
+  reporter: [
+    ['html', { open: 'never', outputFolder: 'playwright-report' }],
+    ['list'],
   ],
 
-  /* Run your local dev server before starting the tests */
-  webServer: [
+  use: {
+    baseURL: process.env.BASE_URL ?? 'http://localhost:5173',
+
+    // Timeouts
+    navigationTimeout: 30000,
+    actionTimeout:     10000,
+
+    // Diagnóstico em falhas
+    trace:      'on-first-retry',
+    screenshot: 'only-on-failure',
+    video:      'on-first-retry',
+  },
+
+  projects: [
+    // ── Desktop ────────────────────────────────────────────────────────────────
     {
-      command: 'npm run dev:server',
-      url: 'http://localhost:3000/api/health',
-      reuseExistingServer: !process.env.CI,
-      timeout: 120000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      name: 'chromium',
+      use:  { ...devices['Desktop Chrome'] },
     },
     {
-      command: 'npx vite',
-      url: 'http://localhost:5173',
+      name: 'firefox',
+      use:  { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use:  { ...devices['Desktop Safari'] },
+    },
+
+    // ── Desktop HD (1920 × 1080) ───────────────────────────────────────────────
+    {
+      name: 'desktop-hd',
+      use:  {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1920, height: 1080 },
+      },
+    },
+
+    // ── Mobile ─────────────────────────────────────────────────────────────────
+    {
+      name: 'mobile-chrome',
+      use:  { ...devices['Pixel 5'] },
+    },
+    {
+      name: 'mobile-safari',
+      use:  { ...devices['iPhone 12'] },
+    },
+
+    // ── Tablet ──────────────────────────────────────────────────────────────────
+    {
+      name: 'tablet',
+      use:  {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 768, height: 1024 },
+      },
+    },
+  ],
+
+  webServer: [
+    {
+      command:             'npm run dev:server',
+      url:                 'http://localhost:3000/api/health',
       reuseExistingServer: !process.env.CI,
-      timeout: 120000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      timeout:             120000,
+      stdout:              'pipe',
+      stderr:              'pipe',
+    },
+    {
+      command:             'npx vite',
+      url:                 'http://localhost:5173',
+      reuseExistingServer: !process.env.CI,
+      timeout:             120000,
+      stdout:              'pipe',
+      stderr:              'pipe',
     },
   ],
 });
