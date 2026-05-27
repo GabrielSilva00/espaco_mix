@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -26,6 +27,67 @@ function validateCpf(cpf: string): boolean {
   return calc(9) === Number(digits[9]) && calc(10) === Number(digits[10]);
 }
 
+// ─── Mascaramento de dados sensíveis ────────────────────────────────────────
+
+function maskCpf(cpf: string): string {
+  const d = cpf.replace(/\D/g, "");
+  if (d.length !== 11) return "***.***.***-**";
+  return `***.${d.slice(3, 6)}.${d.slice(6, 9)}-**`;
+}
+
+// ─── Criptografia AES-256-CBC ────────────────────────────────────────────────
+
+function getEncKey(): Buffer {
+  const hex = process.env.ENCRYPTION_KEY;
+  if (!hex || hex.length !== 64) {
+    throw new Error("ENCRYPTION_KEY deve ter 64 caracteres hex (32 bytes). Gere com: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"");
+  }
+  return Buffer.from(hex, "hex");
+}
+
+function encryptData(data: string): string {
+  const key = getEncKey();
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(data, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return "enc:" + iv.toString("hex") + ":" + encrypted;
+}
+
+function decryptData(value: string): string {
+  if (!value.startsWith("enc:")) return value; // Dado legado em plaintext
+  const parts = value.split(":");
+  const iv = Buffer.from(parts[1], "hex");
+  const decipher = crypto.createDecipheriv("aes-256-cbc", getEncKey(), iv);
+  let decrypted = decipher.update(parts[2], "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+
+// ─── Hash de Senha (scrypt) ──────────────────────────────────────────────────
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.randomBytes(32);
+  const hash = await new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (err, key) => (err ? reject(err) : resolve(key)));
+  });
+  return "scrypt:" + salt.toString("hex") + ":" + hash.toString("hex");
+}
+
+async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  if (!stored.startsWith("scrypt:")) {
+    // Senha legada em plaintext — comparação direta
+    return password === stored;
+  }
+  const [, saltHex, hashHex] = stored.split(":");
+  const salt = Buffer.from(saltHex, "hex");
+  const storedHash = Buffer.from(hashHex, "hex");
+  const hash = await new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (err, key) => (err ? reject(err) : resolve(key)));
+  });
+  return crypto.timingSafeEqual(hash, storedHash);
+}
+
 // ─── Server ─────────────────────────────────────────────────────────────────
 
 async function startServer() {
@@ -38,6 +100,18 @@ async function startServer() {
 
   if (isProduction && !appUrl) {
     throw new Error("APP_URL é obrigatória em produção para configurar CORS.");
+  }
+
+  // ── HTTPS redirect (produção) ─────────────────────────────────────────────
+  if (isProduction) {
+    app.use((req, res, next) => {
+      const proto = req.header("x-forwarded-proto") ?? req.protocol;
+      if (proto !== "https") {
+        res.redirect(301, `https://${req.header("host")}${req.url}`);
+        return;
+      }
+      next();
+    });
   }
 
   // ── Security Headers ──────────────────────────────────────────────────────
@@ -57,6 +131,16 @@ async function startServer() {
             },
           }
         : false,
+      // X-Frame-Options: DENY — impede clickjacking
+      frameguard: { action: "deny" },
+      // Referrer-Policy — não vaza URL em requisições cross-origin
+      referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+      // HSTS — força HTTPS por 1 ano (apenas produção)
+      hsts: isProduction
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false,
+      // Bloqueia plugins Flash/PDF cross-domain
+      permittedCrossDomainPolicies: { permittedPolicies: "none" },
     })
   );
 
@@ -346,14 +430,211 @@ async function startServer() {
     res.status(202).json({ success: true });
   });
 
+  // ── Profile Sensitive Data (encrypts CPF / phone / birth_date) ──────────────
+  app.put("/api/profile/sensitive", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const { name, cpf, phone, birth_date } = req.body as {
+      name?: string;
+      cpf?: string;
+      phone?: string;
+      birth_date?: string;
+    };
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      res.status(503).json({ error: "Serviço de perfil não configurado." });
+      return;
+    }
+
+    if (cpf && !validateCpf(cpf)) {
+      res.status(400).json({ error: "CPF inválido." });
+      return;
+    }
+
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+      const encKey = process.env.ENCRYPTION_KEY;
+      const updates: Record<string, string | null> = {};
+
+      if (name !== undefined) updates.name = name;
+
+      if (cpf !== undefined) {
+        updates.cpf = cpf && encKey ? encryptData(cpf) : cpf ?? null;
+      }
+      if (phone !== undefined) {
+        updates.phone = phone && encKey ? encryptData(phone) : phone ?? null;
+      }
+      if (birth_date !== undefined) {
+        updates.birth_date = birth_date && encKey ? encryptData(birth_date) : birth_date ?? null;
+      }
+
+      if (!encKey) {
+        console.warn("[PROFILE] ENCRYPTION_KEY não configurada — dados sensíveis salvos em plaintext.");
+      }
+
+      const { data, error } = await adminClient
+        .from("profiles")
+        .update(updates)
+        .eq("id", user.uid)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Retorna o perfil com dados descriptografados
+      const profile = { ...data };
+      if (profile.cpf?.startsWith("enc:")) profile.cpf = decryptData(profile.cpf);
+      if (profile.phone?.startsWith("enc:")) profile.phone = decryptData(profile.phone);
+      if (profile.birth_date?.startsWith("enc:")) profile.birth_date = decryptData(profile.birth_date);
+
+      console.log(`[PROFILE] Dados sensíveis atualizados para user ${user.uid}`);
+      res.json({ success: true, profile });
+    } catch (err: any) {
+      if (err.message?.includes("ENCRYPTION_KEY")) {
+        res.status(503).json({ error: err.message });
+        return;
+      }
+      console.error("[PROFILE] Erro ao atualizar perfil:", err.message);
+      res.status(500).json({ error: "Erro ao atualizar perfil." });
+    }
+  });
+
+  // ── Staff Login (senha verificada server-side com scrypt) ────────────────────
+  app.post("/api/staff/login", authLimiter, async (req, res) => {
+    const { username, password } = req.body as { username?: string; password?: string };
+
+    if (!username || !password) {
+      res.status(400).json({ error: "Username e senha são obrigatórios." });
+      return;
+    }
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      // Dev fallback sem Supabase configurado
+      res.status(401).json({ error: "Usuário ou senha incorretos." });
+      return;
+    }
+
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+      const { data: staff, error } = await adminClient
+        .from("staff_accounts")
+        .select("*")
+        .eq("username", username)
+        .eq("is_active", true)
+        .single();
+
+      if (error || !staff) {
+        res.status(401).json({ error: "Usuário ou senha incorretos." });
+        return;
+      }
+
+      const isValid = await verifyPassword(password, staff.password);
+      if (!isValid) {
+        res.status(401).json({ error: "Usuário ou senha incorretos." });
+        return;
+      }
+
+      // Auto-upgrade: se a senha estava em plaintext, salva o hash
+      if (!staff.password.startsWith("scrypt:")) {
+        const hashed = await hashPassword(password);
+        await adminClient
+          .from("staff_accounts")
+          .update({ password: hashed })
+          .eq("id", staff.id);
+        console.log(`[STAFF] Senha de ${username} migrada para scrypt.`);
+      }
+
+      const { password: _pw, ...safeStaff } = staff;
+      console.log(`[STAFF] Login bem-sucedido: ${username}`);
+      res.json({ staff: safeStaff });
+    } catch (err: any) {
+      console.error("[STAFF] Erro no login:", err.message);
+      res.status(500).json({ error: "Erro interno ao verificar credenciais." });
+    }
+  });
+
+  // ── Delete Account (LGPD Art. 18 — Direito ao Esquecimento) ─────────────────
+  app.delete("/api/users/me", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      res.status(503).json({ error: "Serviço de exclusão não configurado." });
+      return;
+    }
+
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+      // 1. Busca reservas do usuário (necessário para apagar ticket_items)
+      const { data: userReservations } = await adminClient
+        .from("reservations")
+        .select("id")
+        .eq("user_id", user.uid);
+
+      if (userReservations && userReservations.length > 0) {
+        const resIds = userReservations.map((r: any) => r.id);
+        // Remove ingressos individuais vinculados às reservas
+        await adminClient.from("ticket_items").delete().in("reservation_id", resIds);
+      }
+
+      // 2. Anonimiza reservas (mantém histórico financeiro, remove PII — LGPD Art. 18)
+      await adminClient
+        .from("reservations")
+        .update({ buyer_name: "Usuário excluído", buyer_email: null, buyer_cpf: null, buyer_phone: null })
+        .eq("user_id", user.uid);
+
+      // 3. Remove transferências onde o usuário é remetente
+      await adminClient.from("transfer_logs").delete().eq("from_user_id", user.uid);
+
+      // 4. Anonimiza logs de auditoria (remove PII, mantém ação para conformidade)
+      await adminClient
+        .from("audit_logs")
+        .update({ user_id: null, ip_address: null, user_agent: null })
+        .eq("user_id", user.uid);
+
+      // 5. Remove dados bancários e candidatura a produtor
+      await adminClient.from("banking_details").delete().eq("user_id", user.uid);
+      await adminClient.from("producer_applications").delete().eq("user_id", user.uid);
+
+      // 6. Deleta o usuário do Supabase Auth (profiles é deletado em cascata via FK)
+      const { error } = await adminClient.auth.admin.deleteUser(user.uid);
+      if (error) throw error;
+
+      console.log(`[DELETE] Account and PII erased for user ${user.uid}`);
+      res.status(200).json({ success: true });
+    } catch (err: any) {
+      console.error("[DELETE] Failed to delete account:", err.message);
+      res.status(500).json({ error: "Erro ao excluir conta. Contate o suporte." });
+    }
+  });
+
   // ── LGPD Privacy Policy ───────────────────────────────────────────────────
   app.get("/api/privacy-policy", (_req, res) => {
     res.json({
       policy:
-        "Esta plataforma coleta apenas os dados necessários para a emissão de ingressos e prevenção de fraudes. Seus dados são armazenados de forma segura e não são compartilhados com terceiros sem seu consentimento explícito.",
-      data_collected: ["Nome", "E-mail", "CPF"],
-      rights: ["Acesso aos dados", "Exclusão de conta", "Correção de informações"],
-      lastUpdated: "2026-05-06",
+        "Esta plataforma coleta apenas os dados necessários para a emissão de ingressos e prevenção de fraudes. Dados sensíveis (CPF, telefone, data de nascimento) são criptografados com AES-256 antes do armazenamento. Não compartilhamos dados com terceiros sem consentimento explícito.",
+      data_collected: ["Nome", "E-mail", "CPF (criptografado)", "Telefone (criptografado)", "Data de nascimento (criptografada)"],
+      rights: [
+        "Acesso aos dados (LGPD Art. 18, I)",
+        "Correção de informações (LGPD Art. 18, III)",
+        "Exclusão de conta e dados pessoais (LGPD Art. 18, VI)",
+        "Portabilidade (exportar JSON) (LGPD Art. 18, V)",
+        "Revogação de consentimento (LGPD Art. 18, IX)",
+      ],
+      dpo_email: "privacidade@espacomix.com.br",
+      lastUpdated: "2026-05-27",
     });
   });
 

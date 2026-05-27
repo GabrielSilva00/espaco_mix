@@ -353,30 +353,27 @@ export async function getMyProfile(): Promise<Profile | null> {
 
 /** Login especial para admin/staff (por username, não e-mail) */
 export async function signInWithUsername(username: string, password: string) {
-  // Busca o e-mail correspondente ao username na tabela profiles ou staff
-  // Admin padrão: username='admin' → e-mail='admin@espacomix.internal'
   const adminEmail = `${username}@espacomix.internal`;
 
-  // Tenta login de admin primeiro
+  // Tenta login de admin (via Supabase Auth) primeiro
   try {
     const result = await signIn(adminEmail, password);
     return result;
   } catch {
-    // Se falhar, tenta login de staff
-    const { data: staff, error } = await supabase
-      .from('staff_accounts')
-      .select('*')
-      .eq('username', username)
-      .eq('is_active', true)
-      .single();
+    // Para staff: verificação de senha no servidor (scrypt, nunca no cliente)
+    const response = await fetch('/api/staff/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
 
-    if (error || !staff) throw new Error('Usuário ou senha incorretos');
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error((err as any).error ?? 'Usuário ou senha incorretos');
+    }
 
-    // Verificação de senha do staff (no banco está armazenada como hash com crypt)
-    // Para simplificar no MVP, comparar direto. Em produção, use pgcrypto no backend.
-    if (staff.password !== password) throw new Error('Usuário ou senha incorretos');
-
-    return { staff };
+    const data = await response.json();
+    return { staff: data.staff };
   }
 }
 
@@ -393,11 +390,56 @@ export async function resetPassword(email: string) {
 // ═══════════════════════════════════════════════════════════════
 
 export async function updateProfile(userId: string, updates: Partial<Profile>) {
+  const SENSITIVE = ['cpf', 'phone', 'birth_date'] as const;
+
+  const sensitive: Partial<Profile> = {};
+  const regular: Partial<Profile> = {};
+  for (const [k, v] of Object.entries(updates)) {
+    if ((SENSITIVE as readonly string[]).includes(k)) {
+      (sensitive as any)[k] = v;
+    } else {
+      (regular as any)[k] = v;
+    }
+  }
+
+  // Dados sensíveis → roteados pelo servidor para criptografia
+  if (Object.keys(sensitive).length > 0) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error('Sessão expirada. Faça login novamente.');
+
+    const response = await fetch('/api/profile/sensitive', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(sensitive),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error((err as any).error ?? 'Erro ao atualizar dados sensíveis.');
+    }
+  }
+
+  // Dados não-sensíveis (name, avatar_url) → direto no Supabase
+  if (Object.keys(regular).length > 0) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(regular)
+      .eq('id', userId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  // Se só dados sensíveis foram atualizados, retorna o perfil atual
   const { data, error } = await supabase
     .from('profiles')
-    .update(updates)
+    .select('*')
     .eq('id', userId)
-    .select()
     .single();
   if (error) throw error;
   return data;

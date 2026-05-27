@@ -10,6 +10,7 @@ import { useApp } from '../../context/AppContext';
 import { GoogleIcon } from '../../components/GoogleIcon';
 import { EVENT_TICKET_PRICE } from '../../shared/constants/app';
 import { downloadTicketPDF } from '../../shared/utils/pdf';
+import { signIn, getMyProfile } from '../../lib/supabase';
 
 export function CheckoutModal() {
   const {
@@ -417,7 +418,7 @@ export function CheckoutModal() {
                               phone: registerForm.phone,
                               cpf: registerForm.cpf,
                               birthDate: registerForm.birthDate,
-                              password: registerForm.password
+                              // Senha nunca armazenada em memória
                             };
                             setUsers([...users, newUser]);
                             setUserRole('client');
@@ -450,27 +451,28 @@ export function CheckoutModal() {
                       </button>
                     </div>
                   ) : forgotPasswordStep === 'none' ? (
-                    <form onSubmit={(e) => {
+                    <form onSubmit={async (e) => {
                       e.preventDefault();
                       if (authTab === 'login') {
-                        const user = users.find(u => u.email === adminForm.username && u.password === adminForm.password);
-                        if (user) {
-                          setUserRole('client');
-                          setIsApprovedEventCreator(Boolean(user.isApprovedEventCreator));
+                        try {
+                          const data = await signIn(adminForm.username, adminForm.password);
+                          const profile = await getMyProfile();
+                          setUserRole((profile?.role as any) ?? 'client');
+                          setIsApprovedEventCreator(profile?.is_approved_event_creator ?? false);
                           setSessionUser({
-                            id: user.id,
-                            email: user.email,
-                            name: user.name || 'Sua Conta',
-                            role: 'client',
-                            isApprovedEventCreator: Boolean(user.isApprovedEventCreator),
-                            producerProfile: user.producerProfile
+                            id: data.user.id,
+                            email: data.user.email!,
+                            name: profile?.name || 'Usuário',
+                            role: (profile?.role as any) ?? 'client',
+                            isApprovedEventCreator: profile?.is_approved_event_creator ?? false,
+                            avatarUrl: profile?.avatar_url,
                           });
-                          setLoggedInUserId(user.id);
+                          setLoggedInUserId(data.user.id);
                           setAdminError('');
-                          setGuestData({ name: user.name || 'Usuário', email: user.email, cpf: user.cpf || '000.000.000-00' });
+                          setGuestData({ name: profile?.name || 'Usuário', email: data.user.email!, cpf: '' });
                           setCheckoutStep('payment-method');
-                        } else {
-                          setAdminError('Usuário ou senha incorretos');
+                        } catch (err: any) {
+                          setAdminError(err?.message ?? 'Usuário ou senha incorretos');
                         }
                       } else {
                         handleRegister(e);

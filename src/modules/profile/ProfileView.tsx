@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
-import { User, Edit2, Save, X, Camera, Phone, FileText, Calendar, Mail, ShieldCheck } from 'lucide-react';
+import { User, Edit2, Save, X, Camera, Phone, FileText, Calendar, Mail, ShieldCheck, Shield } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { updateProfile } from '../../lib/supabase';
 import { supabase } from '../../lib/supabase';
@@ -210,10 +210,27 @@ export function ProfileView() {
             </Field>
           </div>
 
+          {/* Privacidade */}
+          <div className="mt-8 pt-6 border-t border-white/5">
+            <button
+              onClick={() => setCurrentView('profile-privacy')}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-[#d4af37]/20 bg-[#d4af37]/[0.03] hover:bg-[#d4af37]/[0.06] transition group"
+            >
+              <div className="flex items-center gap-3">
+                <Shield className="w-4 h-4 text-[#d4af37]/60 group-hover:text-[#d4af37] transition" />
+                <div className="text-left">
+                  <p className="text-[11px] font-bold text-white/70 group-hover:text-white transition">Privacidade & Dados</p>
+                  <p className="text-[10px] text-white/30">Consentimentos, exportar dados, excluir conta</p>
+                </div>
+              </div>
+              <span className="text-[#d4af37]/40 group-hover:text-[#d4af37] transition text-lg leading-none">›</span>
+            </button>
+          </div>
+
           {/* Voltar */}
           <button
             onClick={() => setCurrentView('home')}
-            className="mt-8 text-[10px] uppercase tracking-widest text-white/30 hover:text-white/60 transition"
+            className="mt-4 text-[10px] uppercase tracking-widest text-white/30 hover:text-white/60 transition"
           >
             ← Voltar ao site
           </button>

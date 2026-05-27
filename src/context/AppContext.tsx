@@ -18,6 +18,7 @@ import type {
   Event, Buyer, Reservation, StaffAccount, SessionUser, SiteConfig,
   TableDef, TableStatus, TicketItem, Sector, GuestData, PixData,
   CurrentView, DashboardMode, CheckoutStep, PaymentMethod, Toast, ToastType,
+  ConsentData,
 } from '../types';
 import { loadDeveloperConfig, saveDeveloperConfig } from '../services/developerConfig';
 import type { DeveloperConfig } from '../types/developer';
@@ -148,9 +149,9 @@ interface AppContextValue {
   forgotPasswordData: { email: string; code: string; newPassword: string };
   setForgotPasswordData: React.Dispatch<React.SetStateAction<{ email: string; code: string; newPassword: string }>>;
 
-  // LGPD
-  showLgpdBanner: boolean;
-  acceptLgpd: () => void;
+  // Consentimento / LGPD
+  consentData: ConsentData | null;
+  saveConsent: (data: ConsentData) => void;
 
   // UI state
   isMobileMenuOpen: boolean;
@@ -366,8 +367,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [forgotPasswordStep, setForgotPasswordStep] = useState<'none' | 'email' | 'code' | 'new_password'>('none');
   const [forgotPasswordData, setForgotPasswordData] = useState({ email: '', code: '', newPassword: '' });
 
-  // LGPD
-  const [showLgpdBanner, setShowLgpdBanner] = useState(() => !localStorage.getItem('lgpd-consent'));
+  // Consentimento / LGPD
+  const [consentData, setConsentData] = useState<ConsentData | null>(() => {
+    try {
+      const stored = localStorage.getItem('lgpd-consent-v2');
+      if (stored) return JSON.parse(stored) as ConsentData;
+      // Migração do consentimento anterior (simples boolean)
+      if (localStorage.getItem('lgpd-consent') === 'true') {
+        const migrated: ConsentData = {
+          essential: true,
+          functional: false,
+          analytics: false,
+          marketing: false,
+          grantedAt: new Date().toISOString(),
+          version: 'migrated-v1',
+        };
+        localStorage.setItem('lgpd-consent-v2', JSON.stringify(migrated));
+        return migrated;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
 
   // UI state
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -493,6 +515,77 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Effects ─────────────────────────────────────────────────────────────
 
+  // Gerencia sessão do Supabase: admin/developer jamais são auto-logados ao abrir a página
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'INITIAL_SESSION') {
+        if (session?.user) {
+          try {
+            const profile = await getMyProfile();
+            // Admin e developer nunca são restaurados automaticamente — devem fazer login manual
+            if (profile?.role === 'admin' || profile?.role === 'developer') {
+              await signOut();
+              return;
+            }
+            // Clientes comuns têm sessão restaurada normalmente
+            if (profile) {
+              const r = profile.role as UserRole;
+              setUserRole(r);
+              setLoggedInUserId(profile.id);
+              setIsApprovedEventCreator(profile.is_approved_event_creator);
+              setSessionUser({
+                id: profile.id,
+                email: profile.email,
+                name: profile.name,
+                role: r,
+                isApprovedEventCreator: profile.is_approved_event_creator,
+                avatarUrl: profile.avatar_url,
+              });
+            }
+          } catch (err) {
+            console.error('Erro ao verificar sessão inicial:', err);
+          }
+        }
+      } else if (event === 'SIGNED_IN') {
+        // Login explícito pelo formulário — atualiza estado normalmente
+        if (session?.user) {
+          try {
+            const profile = await getMyProfile();
+            if (profile) {
+              const r = profile.role as UserRole;
+              setUserRole(r);
+              setLoggedInUserId(profile.id);
+              setIsApprovedEventCreator(profile.is_approved_event_creator);
+              setSessionUser({
+                id: profile.id,
+                email: profile.email,
+                name: profile.name,
+                role: r,
+                isApprovedEventCreator: profile.is_approved_event_creator,
+                avatarUrl: profile.avatar_url,
+              });
+              // Rebusca eventos com o contexto de auth do usuário logado
+              getEvents()
+                .then(data => setEvents(data.map(mapDbEventToApp)))
+                .catch(e => console.error('[Context] Erro ao buscar eventos:', (e as Error)?.message))
+                .finally(() => setLoadingEvents(false));
+            }
+          } catch (err) {
+            console.error('[Context] Erro ao carregar perfil após login');
+          }
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setUserRole(null);
+        setLoggedInUserId(null);
+        setIsApprovedEventCreator(false);
+        setSessionUser(null);
+        setIsStaff(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
     adminScrollRef.current?.scrollTo(0, 0);
@@ -586,7 +679,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     getEvents()
       .then(data => setEvents(data.map(mapDbEventToApp)))
-      .catch(console.error)
+      .catch(e => console.error('[Context] Erro ao carregar eventos:', (e as Error)?.message))
       .finally(() => setLoadingEvents(false));
     const unsubscribe = subscribeToEvents(data => setEvents(data.map(mapDbEventToApp)));
     return () => { unsubscribe(); };
@@ -594,7 +687,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (userRole !== 'admin' && userRole !== 'developer') { setPendingApprovalsCount(0); return; }
-    getPendingApplications().then(apps => setPendingApprovalsCount(apps.length)).catch(console.error);
+    getPendingApplications().then(apps => setPendingApprovalsCount(apps.length)).catch(e => console.error('[Context] Erro ao buscar aprovações:', (e as Error)?.message));
     const unsubscribe = subscribeToPendingApplications(setPendingApprovalsCount);
     return () => { unsubscribe(); };
   }, [userRole]);
@@ -602,7 +695,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     getSystemConfig()
       .then(cfg => setSiteConfig(prev => ({ ...prev, venueMaxCapacity: cfg.venue_max_capacity ?? null, platformName: cfg.site_name ?? prev.platformName })))
-      .catch(console.error);
+      .catch(e => console.error('[Context] Erro ao carregar config:', (e as Error)?.message));
   }, []);
 
   // Session persistence
@@ -666,13 +759,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const session = { selectedTables, singleTickets, guestData, paymentMethod, isCheckoutOpen, checkoutStep };
+    // CPF não é persistido no localStorage — dados sensíveis ficam apenas em memória
+    const { cpf: _cpf, ...guestDataSafe } = guestData;
+    const session = { selectedTables, singleTickets, guestData: guestDataSafe, paymentMethod, isCheckoutOpen, checkoutStep };
     localStorage.setItem('eventix-session', JSON.stringify(session));
   }, [selectedTables, singleTickets, guestData, paymentMethod, isCheckoutOpen, checkoutStep]);
 
   useEffect(() => {
     if (userRole !== 'admin' && userRole !== 'developer') return;
-    getStaffAccounts().then(data => setStaffAccounts(data)).catch(console.error);
+    getStaffAccounts().then(data => setStaffAccounts(data)).catch(e => console.error('[Context] Erro ao carregar staff:', (e as Error)?.message));
   }, [userRole]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────
@@ -682,9 +777,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTimeout(() => setActionToast(null), 3500);
   };
 
-  const acceptLgpd = () => {
-    localStorage.setItem('lgpd-consent', 'true');
-    setShowLgpdBanner(false);
+  const saveConsent = (data: ConsentData) => {
+    localStorage.setItem('lgpd-consent-v2', JSON.stringify(data));
+    setConsentData(data);
   };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
@@ -693,17 +788,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const email = adminForm.username.includes('@')
       ? adminForm.username
       : `${adminForm.username}@espacomix.internal`;
-    const DEV_EMAIL = import.meta.env.VITE_DEV_EMAIL as string | undefined;
-    const DEV_PASSWORD = import.meta.env.VITE_DEV_PASSWORD as string | undefined;
-    if (DEV_EMAIL && DEV_PASSWORD && email === DEV_EMAIL && adminForm.password === DEV_PASSWORD) {
-      setUserRole('developer');
-      setIsApprovedEventCreator(true);
-      setLoggedInUserId('dev');
-      setSessionUser({ id: 'dev', email: DEV_EMAIL, name: 'Admin / Dev', role: 'developer', isApprovedEventCreator: true });
-      setCurrentView('dashboard');
-      setDashboardMode('list');
-      return;
-    }
     try {
       await signIn(email, adminForm.password);
       const profile: Profile | null = await getMyProfile();
@@ -722,7 +806,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const handleLogout = async () => {
-    await signOut().catch(console.error);
+    await signOut().catch(e => console.error('[Auth] Erro no logout:', (e as Error)?.message));
     window.location.href = '/';
   };
 
@@ -909,7 +993,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const handleScannerError = (err: unknown) => {
     const error = err as Error;
-    console.warn('[Scanner]', error);
+    console.warn('[Scanner]', error?.name, error?.message);
     if (error?.name === 'OverconstrainedError' || error?.name === 'ConstraintNotSatisfiedError') {
       scannerRetryRef.current += 1;
       if (scannerRetryRef.current === 1) {
@@ -1048,7 +1132,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setFemaleTickets(0);
       }, 2000);
     } catch (err: any) {
-      console.error(err);
+      console.error('[Payment] Erro na transação:', err?.message ?? 'Erro desconhecido');
       setErrors({ payment: err.message || 'Falha na transação de segurança.' });
       setPaymentStatus('idle');
       setIsProcessingPayment(false);
@@ -1118,7 +1202,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     adminError, setAdminError,
     forgotPasswordStep, setForgotPasswordStep,
     forgotPasswordData, setForgotPasswordData,
-    showLgpdBanner, acceptLgpd,
+    consentData, saveConsent,
     isMobileMenuOpen, setIsMobileMenuOpen,
     isAdminSidebarCollapsed, setIsAdminSidebarCollapsed,
     isUserDropdownOpen, setIsUserDropdownOpen,

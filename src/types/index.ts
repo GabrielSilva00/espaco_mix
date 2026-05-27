@@ -187,7 +187,19 @@ export type CurrentView =
   | 'contact'
   | 'admin-login'
   | 'dashboard'
-  | 'profile';
+  | 'profile'
+  | 'privacy'
+  | 'terms'
+  | 'profile-privacy';
+
+export interface ConsentData {
+  essential: true;
+  functional: boolean;
+  analytics: boolean;
+  marketing: boolean;
+  grantedAt: string;
+  version: string;
+}
 
 export type DashboardMode =
   | 'list'

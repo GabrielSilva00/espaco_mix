@@ -59,7 +59,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ onToast }) => {
       }));
       setAllApprovals(mapped);
     } catch (err) {
-      console.error('[ApprovalQueue] Erro ao carregar candidaturas:', err);
+      console.error('[ApprovalQueue] Erro ao carregar candidaturas:', (err as Error)?.message);
     }
   };
 
@@ -95,7 +95,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ onToast }) => {
       setAllApprovals((prev) => prev.filter((entry) => entry.id !== item.id));
       onToast?.(`Produtor ${item.name} aprovado com sucesso.`, 'success');
     } catch (err) {
-      console.error(err);
+      console.error('[ApprovalQueue] Erro ao aprovar produtor:', (err as Error)?.message);
       onToast?.('Erro ao aprovar produtor.', 'error');
     }
   };
@@ -131,7 +131,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ onToast }) => {
       setRejecting(null);
       setRejectionReason('');
     } catch (err) {
-      console.error(err);
+      console.error('[ApprovalQueue] Erro ao rejeitar produtor:', (err as Error)?.message);
       onToast?.('Erro ao rejeitar produtor.', 'error');
     }
   };

@@ -27,3 +27,21 @@ GITS
 3. git clone <url>: Clona um repositório remoto para a sua máquina.
 4. git config --global user.name "Seu Nome": Define o nome de usuário global.
 5. git config --global user.email "seu@email.com": Define o e-mail global.
+
+  Para testar o PWA localmente, rode o build de produção (o service worker só funciona em produção):
+
+  npm run build
+  npm run preview
+
+  Depois abra http://localhost:4173 no Chrome — o botão de instalação vai aparecer na barra de endereço.
+
+  Fix 2 — RLS do Supabase (você precisa rodar)
+
+  O banco está bloqueando leitura das tabelas events, batches e sectors para visitantes não autenticados. Você precisa rodar o script SQL criado:
+
+  1. Acesse o Supabase Dashboard (https://supabase.com/dashboard)
+  2. Vá em SQL Editor → New Query
+  3. Cole e execute o conteúdo de scripts/rls-events-public.sql
+
+  Isso cria políticas que permitem a qualquer visitante (sem login) ler eventos que não sejam rascunho — o que é o comportamento correto para uma vitrine pública de
+  eventos.

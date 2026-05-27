@@ -144,7 +144,7 @@ export function AdminSettings({
           contactPhone:         c.contact_phone          ?? prev.contactPhone,
         }));
       })
-      .catch((err) => console.error('[AdminSettings] Erro ao carregar config:', err));
+      .catch((err) => console.error('[AdminSettings] Erro ao carregar config:', (err as Error)?.message));
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -220,7 +220,7 @@ export function AdminSettings({
       setTimeout(() => setIsSaved(false), 3000);
       onSettingsSaved?.(settings.platformName, logoPreview);
     } catch (err) {
-      console.error('[AdminSettings] Erro ao salvar:', err);
+      console.error('[AdminSettings] Erro ao salvar:', (err as Error)?.message);
     }
   };
 

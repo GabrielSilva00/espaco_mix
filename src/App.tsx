@@ -8,13 +8,16 @@ import { useApp } from './context/AppContext';
 import { AdminSidebar } from './shared/components/AdminSidebar';
 import { Navbar } from './shared/components/Navbar';
 import { Toast } from './shared/components/Toast';
-import { LgpdBanner } from './shared/components/LgpdBanner';
+import { ConsentBanner } from './shared/components/ConsentBanner';
 import { Home } from './components/Home';
 import { BookingView } from './modules/booking/BookingView';
 import { ReservationsView } from './modules/reservations/ReservationsView';
 import { ContactView } from './modules/contact/ContactView';
 import { AuthView } from './modules/auth/AuthView';
 import { ProfileView } from './modules/profile/ProfileView';
+import { PrivacySettingsView } from './modules/profile/PrivacySettingsView';
+import { PrivacyView } from './modules/privacy/PrivacyView';
+import { TermsView } from './modules/terms/TermsView';
 import { DashboardView } from './modules/dashboard/DashboardView';
 import { CheckoutModal } from './modules/payment/CheckoutModal';
 import { TableLayoutEditor } from './components/TableLayoutEditor';
@@ -22,7 +25,7 @@ import { InstallPrompt } from './components/InstallPrompt';
 
 export function App() {
   const {
-    isAdminLayout, currentView, isPreviewingEvent,
+    isAdminLayout, currentView, isPreviewingEvent, consentData, saveConsent,
     setCurrentView, setDashboardMode, setIsPreviewingEvent,
     adminScrollRef, events, loadingEvents, selectedDashboardEvent, setFormEvent,
     isTableLayoutEditorOpen, setIsTableLayoutEditorOpen, formEvent, showToast,
@@ -80,6 +83,9 @@ export function App() {
           {currentView === 'contact' && <ContactView />}
           {currentView === 'admin-login' && <AuthView />}
           {currentView === 'profile' && <ProfileView />}
+          {currentView === 'profile-privacy' && <PrivacySettingsView />}
+          {currentView === 'privacy' && <PrivacyView />}
+          {currentView === 'terms' && <TermsView />}
           {currentView === 'dashboard' && <DashboardView />}
 
         </main>
@@ -87,6 +93,28 @@ export function App() {
         <footer className="px-6 md:px-10 py-8 md:py-6 border-t border-[#ffffff1a] flex flex-col md:flex-row justify-between items-center gap-6 bg-[#0a0a0a]/50 backdrop-blur-sm relative z-40">
           <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-6 text-center md:text-left">
             <p className="text-[9px] md:text-[10px] opacity-40 uppercase tracking-widest">© 2026 Espaço Mix Eventos</p>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setCurrentView('privacy')}
+                className="text-[9px] opacity-30 hover:opacity-60 uppercase tracking-widest transition"
+              >
+                Privacidade
+              </button>
+              <button
+                onClick={() => setCurrentView('terms')}
+                className="text-[9px] opacity-30 hover:opacity-60 uppercase tracking-widest transition"
+              >
+                Termos de Uso
+              </button>
+              {consentData && (
+                <button
+                  onClick={() => setCurrentView('profile-privacy')}
+                  className="text-[9px] opacity-30 hover:opacity-60 uppercase tracking-widest transition"
+                >
+                  Cookies
+                </button>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
@@ -95,7 +123,7 @@ export function App() {
         </footer>
       </div>
 
-      <LgpdBanner />
+      <ConsentBanner />
 
       {/* Modal — Layout do Local */}
       <AnimatePresence>
