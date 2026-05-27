@@ -104,6 +104,17 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
   const [confirmClear, setConfirmClear] = useState(false);
   const [limitMsg, setLimitMsg] = useState('');
   const canvasRef = useRef<HTMLDivElement>(null);
+  const canvasSectionRef = useRef<HTMLDivElement>(null);
+
+  // Auto-fit zoom ao carregar: encaixa o canvas na largura disponível
+  useEffect(() => {
+    if (!canvasSectionRef.current) return;
+    const available = canvasSectionRef.current.clientWidth - 48; // desconta padding e borda
+    if (available < CANVAS_WIDTH) {
+      const fit = Math.max(ZOOM_MIN, Number((available / CANVAS_WIDTH).toFixed(1)));
+      setZoom(fit);
+    }
+  }, []);
 
   const selectedElement = elements.find(el => el.id === selectedId) ?? null;
   const mesaCount = elements.filter(el => el.type === 'rect-table' || el.type === 'round-table').length;
@@ -319,7 +330,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
       </aside>
 
       {/* Center: Canvas */}
-      <section className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 overflow-auto flex flex-col">
+      <section ref={canvasSectionRef} className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 overflow-auto flex flex-col">
         <div className="flex items-center justify-between mb-3 shrink-0">
           <div className="flex items-center gap-3">
             <h4 className="text-[11px] uppercase tracking-widest font-bold text-white/50">Canvas</h4>
@@ -339,6 +350,8 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
         </div>
 
         <div className="overflow-auto rounded-xl border border-white/10 flex-1" style={{ background: '#0a0a0a' }}>
+          {/* Wrapper com dimensões visuais reais (zoom aplicado) para scroll correto */}
+          <div style={{ width: `${CANVAS_WIDTH * zoom}px`, height: `${CANVAS_HEIGHT * zoom}px`, position: 'relative', flexShrink: 0 }}>
           <div
             ref={canvasRef}
             onDrop={onCanvasDrop}
@@ -353,6 +366,9 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
               height: `${CANVAS_HEIGHT}px`,
               transform: `scale(${zoom})`,
               transformOrigin: 'top left',
+              position: 'absolute',
+              top: 0,
+              left: 0,
               background: '#111',
               backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px)',
               backgroundSize: `${GRID_STEP}px ${GRID_STEP}px`,
@@ -415,6 +431,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
               );
             })}
           </div>
+          </div>{/* fim wrapper de dimensão visual */}
         </div>
       </section>
 

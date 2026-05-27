@@ -2,15 +2,15 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Eye, Calendar as CalendarIcon, PlusCircle, Users, ShieldCheck, BarChart3,
-  LinkIcon, Bell, AlertCircle, Code2, Settings, User, LogOut, ChevronLeft,
-  ChevronRight, X, Menu, LayoutDashboard, MonitorDot,
+  LinkIcon, Bell, AlertCircle, Code2, Settings, LogOut, ChevronLeft,
+  ChevronRight, LayoutDashboard, MonitorDot,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
 export function AdminSidebar() {
   const {
     siteConfig, isAdminSidebarCollapsed, setIsAdminSidebarCollapsed,
-    isMobileMenuOpen, setIsMobileMenuOpen, currentView, dashboardMode,
+    setIsMobileMenuOpen, currentView, dashboardMode,
     setCurrentView, setDashboardMode, userRole, isAtLeast, isStaff,
     staffAccounts, loggedInUserId, users, formEvent, handleCreateEvent,
     handleLogout, showToast, pendingApprovalsCount, developerConfig,
@@ -19,32 +19,29 @@ export function AdminSidebar() {
   const modules = developerConfig.adminModules;
 
   const navClass = (active: boolean) =>
-    `nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group ${
-      active ? 'bg-[#d4af37]/10 text-[#d4af37]' : 'text-white/60 hover:bg-white/5 hover:text-white'
+    `nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group relative ${
+      active
+        ? 'bg-[#d4af37]/10 text-[#d4af37]'
+        : 'text-white/60 hover:bg-white/5 hover:text-white'
     }`;
 
   const iconClass = (active: boolean) =>
     `w-5 h-5 shrink-0 ${active ? 'text-[#d4af37]' : 'text-white/40 group-hover:text-white'}`;
 
+  /* ─── Active indicator pill (collapsed only) ─── */
+  const ActivePill = ({ active }: { active: boolean }) =>
+    active && isAdminSidebarCollapsed ? (
+      <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-[#d4af37] rounded-full" />
+    ) : null;
+
   return (
     <>
-      {/* Mobile Overlay */}
-      <AnimatePresence>
-        {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="fixed inset-0 bg-black/80 z-40 md:hidden backdrop-blur-sm"
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Sidebar */}
+      {/* ═══ DESKTOP SIDEBAR ═══ */}
       <aside
-        className={`fixed md:relative top-0 left-0 h-screen bg-[#0d0d0d] border-r border-[#ffffff0a] z-50 flex flex-col transition-[width,transform] duration-200 ease-in-out ${isAdminSidebarCollapsed ? 'w-[80px] md:w-[80px]' : 'w-[280px]'} ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+        className={`hidden md:flex flex-col fixed md:relative top-0 left-0 h-screen bg-[#0d0d0d] border-r border-[#ffffff0a] z-50 transition-[width] duration-200 ease-in-out ${isAdminSidebarCollapsed ? 'w-[72px]' : 'w-[272px]'}`}
       >
         {/* Header */}
-        <div className={`h-20 flex items-center ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-6'} border-b border-[#ffffff0a]`}>
+        <div className={`h-20 flex items-center shrink-0 ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-5'} border-b border-[#ffffff0a]`}>
           <div className="flex items-center gap-3 overflow-hidden">
             <div className="w-8 h-8 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0 overflow-hidden">
               {siteConfig.platformLogo
@@ -52,42 +49,53 @@ export function AdminSidebar() {
                 : <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-base">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
               }
             </div>
-            {!isAdminSidebarCollapsed && <span className="text-lg font-display tracking-widest text-[#d4af37] uppercase whitespace-nowrap animate-in fade-in">{siteConfig.platformName}</span>}
+            {!isAdminSidebarCollapsed && (
+              <span className="text-base font-display tracking-widest text-[#d4af37] uppercase whitespace-nowrap animate-in fade-in">
+                {siteConfig.platformName}
+              </span>
+            )}
           </div>
           <button
             onClick={() => setIsAdminSidebarCollapsed(!isAdminSidebarCollapsed)}
-            className={`hidden md:flex text-white/40 hover:text-white transition ${isAdminSidebarCollapsed ? 'absolute right-[-14px] top-6 bg-[#0d0d0d] border border-white/10 rounded-full p-1' : ''}`}
+            className={`hidden md:flex items-center justify-center text-white/40 hover:text-white transition-colors ${
+              isAdminSidebarCollapsed
+                ? 'absolute right-[-14px] top-6 w-7 h-7 bg-[#0d0d0d] border border-[#ffffff15] rounded-full'
+                : 'w-7 h-7 rounded-lg hover:bg-white/5'
+            }`}
           >
-            {isAdminSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-5 h-5" />}
-          </button>
-          <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-white/40 hover:text-white transition">
-            <X className="w-5 h-5" />
+            {isAdminSidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
         </div>
 
         {/* Navigation */}
-        <div className={`flex-1 overflow-y-auto custom-scrollbar ${isAdminSidebarCollapsed ? 'py-6 px-3' : 'py-6 px-4'} space-y-8`}>
-          <div className="mb-4">
+        <div className={`flex-1 overflow-y-auto custom-scrollbar ${isAdminSidebarCollapsed ? 'py-5 px-2.5' : 'py-5 px-3'} space-y-6`}>
+
+          {/* Ver Site */}
+          <div>
             <button
               onClick={() => setCurrentView('home')}
-              className={`w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group border border-[#d4af37]/30 text-[#d4af37] bg-[#d4af37]/5 hover:bg-[#d4af37]/10`}
-              title={isAdminSidebarCollapsed ? 'Visualizar Site' : ''}
+              className={`w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group border border-[#d4af37]/20 text-[#d4af37]/70 bg-[#d4af37]/5 hover:bg-[#d4af37]/10 hover:text-[#d4af37] relative`}
+              title={isAdminSidebarCollapsed ? 'Ver Site (Público)' : ''}
             >
-              <Eye className="w-5 h-5 shrink-0 text-[#d4af37]" />
-              {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Ver Site (Público)</span>}
+              <Eye className="w-5 h-5 shrink-0 text-[#d4af37]/70 group-hover:text-[#d4af37] transition-colors" />
+              {!isAdminSidebarCollapsed && <span className="text-[11px] font-semibold tracking-widest uppercase whitespace-nowrap">Ver Site (Público)</span>}
             </button>
           </div>
 
-          {/* Visão Geral — visível para admin e developer */}
+          {/* Visão Geral */}
           {isAtLeast('admin') && (
             <div>
-              {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 mb-3">Visão Geral</h4>}
-              <div className="space-y-1">
+              {!isAdminSidebarCollapsed
+                ? <p className="px-2 text-[9px] font-bold tracking-[0.2em] uppercase text-white/25 mb-2">Visão Geral</p>
+                : <div className="w-6 h-px bg-white/10 mx-auto mb-2" />
+              }
+              <div className="space-y-0.5">
                 <button
                   onClick={() => { setCurrentView('dashboard'); setDashboardMode('admin-overview'); setIsMobileMenuOpen(false); }}
                   className={navClass(currentView === 'dashboard' && dashboardMode === 'admin-overview')}
                   title={isAdminSidebarCollapsed ? 'Dashboard Admin' : ''}
                 >
+                  <ActivePill active={currentView === 'dashboard' && dashboardMode === 'admin-overview'} />
                   <LayoutDashboard className={iconClass(currentView === 'dashboard' && dashboardMode === 'admin-overview')} />
                   {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dashboard Admin</span>}
                 </button>
@@ -97,6 +105,7 @@ export function AdminSidebar() {
                     className={navClass(currentView === 'dashboard' && dashboardMode === 'dev-overview')}
                     title={isAdminSidebarCollapsed ? 'Dashboard Dev' : ''}
                   >
+                    <ActivePill active={currentView === 'dashboard' && dashboardMode === 'dev-overview'} />
                     <MonitorDot className={iconClass(currentView === 'dashboard' && dashboardMode === 'dev-overview')} />
                     {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dashboard Dev</span>}
                   </button>
@@ -107,21 +116,26 @@ export function AdminSidebar() {
 
           {/* Eventos */}
           <div>
-            {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 mb-3">Eventos</h4>}
-            <div className="space-y-1">
+            {!isAdminSidebarCollapsed
+              ? <p className="px-2 text-[9px] font-bold tracking-[0.2em] uppercase text-white/25 mb-2">Eventos</p>
+              : <div className="w-6 h-px bg-white/10 mx-auto mb-2" />
+            }
+            <div className="space-y-0.5">
               <button
                 onClick={() => { setCurrentView('dashboard'); setDashboardMode('list'); setIsMobileMenuOpen(false); }}
                 className={navClass(currentView === 'dashboard' && dashboardMode === 'list')}
-                title={isAdminSidebarCollapsed ? 'Eventos Ativos' : ''}
+                title={isAdminSidebarCollapsed ? 'Meus Eventos' : ''}
               >
+                <ActivePill active={currentView === 'dashboard' && dashboardMode === 'list'} />
                 <CalendarIcon className={iconClass(currentView === 'dashboard' && dashboardMode === 'list')} />
                 {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Meus Eventos</span>}
               </button>
               <button
                 onClick={() => { setCurrentView('dashboard'); handleCreateEvent(); setIsMobileMenuOpen(false); }}
                 className={navClass(currentView === 'dashboard' && dashboardMode === 'edit' && !formEvent?.id)}
-                title={isAdminSidebarCollapsed ? 'Criar Evento' : ''}
+                title={isAdminSidebarCollapsed ? 'Criar Novo Evento' : ''}
               >
+                <ActivePill active={currentView === 'dashboard' && dashboardMode === 'edit' && !formEvent?.id} />
                 <PlusCircle className={iconClass(currentView === 'dashboard' && dashboardMode === 'edit' && !formEvent?.id)} />
                 {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Criar Novo</span>}
               </button>
@@ -130,68 +144,63 @@ export function AdminSidebar() {
 
           {/* Operação */}
           <div>
-            {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 mb-3">Operação</h4>}
-            <div className="space-y-1">
+            {!isAdminSidebarCollapsed
+              ? <p className="px-2 text-[9px] font-bold tracking-[0.2em] uppercase text-white/25 mb-2">Operação</p>
+              : <div className="w-6 h-px bg-white/10 mx-auto mb-2" />
+            }
+            <div className="space-y-0.5">
               <button
                 onClick={() => { setCurrentView('dashboard'); setDashboardMode('staff'); setIsMobileMenuOpen(false); }}
                 className={navClass(currentView === 'dashboard' && dashboardMode === 'staff')}
                 title={isAdminSidebarCollapsed ? 'Equipe' : ''}
               >
+                <ActivePill active={currentView === 'dashboard' && dashboardMode === 'staff'} />
                 <Users className={iconClass(currentView === 'dashboard' && dashboardMode === 'staff')} />
                 {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Equipe</span>}
               </button>
               {isAtLeast('admin') && modules.approvals_kyc && (
                 <button
                   onClick={() => showToast('Em Desenvolvimento', 'info')}
-                  className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
+                  className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 hover:bg-white/5 cursor-not-allowed`}
                   title={isAdminSidebarCollapsed ? 'Aprovações KYC' : ''}
                 >
-                  <ShieldCheck className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
-                  {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Aprovações KYC</span>}
+                  <ShieldCheck className="w-5 h-5 shrink-0 text-white/20" />
+                  {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Aprovações KYC</span>}
                 </button>
               )}
             </div>
           </div>
 
-          {/* Gestão — itens visíveis somente quando habilitados pelo DEV */}
+          {/* Gestão */}
           {(modules.reports || modules.integrations || modules.notifications || modules.support) && (
             <div>
-              {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 mb-3">Gestão</h4>}
-              <div className="space-y-1">
+              {!isAdminSidebarCollapsed
+                ? <p className="px-2 text-[9px] font-bold tracking-[0.2em] uppercase text-white/25 mb-2">Gestão</p>
+                : <div className="w-6 h-px bg-white/10 mx-auto mb-2" />
+              }
+              <div className="space-y-0.5">
                 {modules.reports && (
-                  <button
-                    className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
-                    title={isAdminSidebarCollapsed ? 'Relatórios Financeiros' : ''}
-                  >
-                    <BarChart3 className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Relatórios Financeiros</span>}
+                  <button className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 cursor-not-allowed`} title={isAdminSidebarCollapsed ? 'Relatórios Financeiros' : ''}>
+                    <BarChart3 className="w-5 h-5 shrink-0 text-white/20" />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Relatórios Financeiros</span>}
                   </button>
                 )}
                 {modules.integrations && (
-                  <button
-                    className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
-                    title={isAdminSidebarCollapsed ? 'Integrações' : ''}
-                  >
-                    <LinkIcon className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Integrações</span>}
+                  <button className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 cursor-not-allowed`} title={isAdminSidebarCollapsed ? 'Integrações' : ''}>
+                    <LinkIcon className="w-5 h-5 shrink-0 text-white/20" />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Integrações</span>}
                   </button>
                 )}
                 {modules.notifications && (
-                  <button
-                    className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
-                    title={isAdminSidebarCollapsed ? 'Notificações' : ''}
-                  >
-                    <Bell className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Notificações</span>}
+                  <button className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 cursor-not-allowed`} title={isAdminSidebarCollapsed ? 'Notificações' : ''}>
+                    <Bell className="w-5 h-5 shrink-0 text-white/20" />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Notificações</span>}
                   </button>
                 )}
                 {modules.support && (
-                  <button
-                    className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/40 hover:bg-white/5 cursor-not-allowed`}
-                    title={isAdminSidebarCollapsed ? 'Suporte ao Produtor' : ''}
-                  >
-                    <AlertCircle className="w-5 h-5 shrink-0 text-white/20 group-hover:text-white/40" />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-60">Suporte ao Produtor</span>}
+                  <button className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 cursor-not-allowed`} title={isAdminSidebarCollapsed ? 'Suporte ao Produtor' : ''}>
+                    <AlertCircle className="w-5 h-5 shrink-0 text-white/20" />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Suporte ao Produtor</span>}
                   </button>
                 )}
               </div>
@@ -201,13 +210,19 @@ export function AdminSidebar() {
           {/* Desenvolvedor */}
           {userRole === 'developer' && (
             <div>
-              {!isAdminSidebarCollapsed && <h4 className="px-2 text-[10px] font-bold tracking-[0.2em] uppercase text-[#d4af37]/40 mb-3">Desenvolvedor</h4>}
-              <div className="space-y-1">
+              {!isAdminSidebarCollapsed
+                ? <p className="px-2 text-[9px] font-bold tracking-[0.2em] uppercase text-[#d4af37]/30 mb-2">Desenvolvedor</p>
+                : <div className="w-6 h-px bg-[#d4af37]/20 mx-auto mb-2" />
+              }
+              <div className="space-y-0.5">
                 <button
                   onClick={() => { setCurrentView('dashboard'); setDashboardMode('developer-panel'); setIsMobileMenuOpen(false); }}
-                  className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group ${currentView === 'dashboard' && dashboardMode === 'developer-panel' ? 'bg-[#d4af37]/10 text-[#d4af37]' : 'text-[#d4af37]/50 hover:bg-[#d4af37]/5 hover:text-[#d4af37]'}`}
+                  className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group relative ${currentView === 'dashboard' && dashboardMode === 'developer-panel' ? 'bg-[#d4af37]/10 text-[#d4af37]' : 'text-[#d4af37]/40 hover:bg-[#d4af37]/5 hover:text-[#d4af37]'}`}
                   title={isAdminSidebarCollapsed ? 'Painel do Desenvolvedor' : ''}
                 >
+                  {currentView === 'dashboard' && dashboardMode === 'developer-panel' && isAdminSidebarCollapsed && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-[#d4af37] rounded-full" />
+                  )}
                   <Code2 className={`w-5 h-5 shrink-0 ${currentView === 'dashboard' && dashboardMode === 'developer-panel' ? 'text-[#d4af37]' : 'text-[#d4af37]/30 group-hover:text-[#d4af37]'}`} />
                   {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dev Panel</span>}
                 </button>
@@ -216,72 +231,125 @@ export function AdminSidebar() {
           )}
         </div>
 
-        {/* Footer */}
-        <div className={`border-t border-[#ffffff0a] space-y-2 ${isAdminSidebarCollapsed ? 'p-3' : 'p-4'}`}>
-          <button
-            onClick={() => { setCurrentView('profile'); setIsMobileMenuOpen(false); }}
-            className={navClass(currentView === 'profile')}
-            title={isAdminSidebarCollapsed ? 'Meu Perfil' : ''}
-          >
-            <User className={iconClass(currentView === 'profile')} />
-            {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Meu Perfil</span>}
-          </button>
+        {/* Footer — sem botão de perfil para admin/developer */}
+        <div className={`border-t border-[#ffffff0a] space-y-1 ${isAdminSidebarCollapsed ? 'p-2.5' : 'p-3'}`}>
           <button
             onClick={() => { setCurrentView('dashboard'); setDashboardMode('settings'); setIsMobileMenuOpen(false); }}
             className={navClass(currentView === 'dashboard' && dashboardMode === 'settings')}
-            title={isAdminSidebarCollapsed ? 'Configurações Globais' : ''}
+            title={isAdminSidebarCollapsed ? 'Configurações' : ''}
           >
+            <ActivePill active={currentView === 'dashboard' && dashboardMode === 'settings'} />
             <Settings className={iconClass(currentView === 'dashboard' && dashboardMode === 'settings')} />
             {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Configurações</span>}
           </button>
 
-          <div className={`mt-2 rounded-xl flex items-center group transition ${isAdminSidebarCollapsed ? 'justify-center' : 'justify-between bg-gradient-to-br from-white/5 to-transparent border border-white/5 p-3'}`}>
-            <div className="flex items-center gap-3 overflow-hidden">
-              {userRole !== 'admin' && userRole !== 'developer' && (
-                <div className="w-8 h-8 rounded-full bg-[#d4af37]/20 border border-[#d4af37]/30 flex flex-col items-center justify-center shrink-0">
-                  <User className="w-4 h-4 text-[#d4af37]" />
-                </div>
-              )}
-              {!isAdminSidebarCollapsed && (
-                <div className="flex flex-col min-w-0">
-                  <p className="text-xs font-bold text-white truncate">
-                    {userRole === 'admin' ? 'Admin Central' : userRole === 'developer' ? 'Admin / Dev' : isStaff ? staffAccounts.find(s => s.id === loggedInUserId)?.name || 'Equipe' : users.find(u => u.id === loggedInUserId)?.name || 'Sua Conta'}
-                  </p>
-                  <p className="text-[9px] uppercase tracking-[1px] text-[#d4af37] font-semibold mt-0.5">
-                    {userRole === 'admin' ? 'Administrador' : userRole === 'developer' ? 'Desenvolvedor' : isStaff ? 'Colaborador' : 'Produtor'}
-                  </p>
-                </div>
-              )}
-            </div>
+          <div className={`mt-1 rounded-xl flex items-center transition ${isAdminSidebarCollapsed ? 'justify-center' : 'justify-between bg-white/[0.03] border border-white/5 px-3 py-2.5'}`}>
             {!isAdminSidebarCollapsed && (
-              <button onClick={handleLogout} className="p-2 text-red-400 hover:bg-red-500/20 hover:text-red-300 rounded-lg transition" title="Sair">
-                <LogOut className="w-4 h-4" />
-              </button>
+              <div className="flex flex-col min-w-0 mr-2">
+                <p className="text-[11px] font-bold text-white/80 truncate">
+                  {userRole === 'admin' ? 'Admin Central' : userRole === 'developer' ? 'Admin / Dev' : isStaff ? staffAccounts.find(s => s.id === loggedInUserId)?.name || 'Equipe' : users.find(u => u.id === loggedInUserId)?.name || 'Sua Conta'}
+                </p>
+                <p className="text-[9px] uppercase tracking-[1.5px] text-[#d4af37]/60 font-semibold mt-0.5">
+                  {userRole === 'admin' ? 'Administrador' : userRole === 'developer' ? 'Desenvolvedor' : isStaff ? 'Colaborador' : 'Produtor'}
+                </p>
+              </div>
             )}
-          </div>
-          {isAdminSidebarCollapsed && (
-            <button onClick={handleLogout} className="w-full flex items-center justify-center p-3 text-red-400 hover:bg-red-500/20 hover:text-red-300 rounded-xl transition" title="Sair">
-              <LogOut className="w-5 h-5" />
+            <button
+              onClick={handleLogout}
+              className={`${isAdminSidebarCollapsed ? 'w-full flex items-center justify-center p-3 rounded-xl' : 'p-1.5 rounded-lg shrink-0'} text-red-400/70 hover:bg-red-500/15 hover:text-red-400 transition-colors`}
+              title="Sair da conta"
+            >
+              <LogOut className="w-4 h-4" />
             </button>
-          )}
+          </div>
         </div>
       </aside>
 
-      {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 w-full h-16 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-[#ffffff0a] z-30 flex items-center justify-between px-4">
-        <div className="flex items-center gap-3">
+      {/* ═══ MOBILE TOP HEADER ═══ */}
+      <div className="md:hidden fixed top-0 w-full h-14 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-[#ffffff0a] z-30 flex items-center justify-between px-4">
+        <div className="flex items-center gap-2.5">
           <div className="w-6 h-6 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0 overflow-hidden">
             {siteConfig.platformLogo
               ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-contain -rotate-45 scale-[1.4]" />
-              : <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-xs">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
+              : <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none text-xs">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
             }
           </div>
-          <span className="text-sm font-serif tracking-widest text-[#d4af37] uppercase">{siteConfig.platformName} Admin</span>
+          <span className="text-sm font-serif tracking-widest text-[#d4af37] uppercase">{siteConfig.platformName}</span>
         </div>
-        <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-white/70 hover:text-white transition">
-          <Menu className="w-6 h-6" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setCurrentView('home')}
+            className="p-2.5 min-w-[40px] min-h-[40px] flex items-center justify-center text-white/40 hover:text-[#d4af37] rounded-lg transition-colors"
+            title="Ver site público"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleLogout}
+            className="p-2.5 min-w-[40px] min-h-[40px] flex items-center justify-center text-red-400/60 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+            title="Sair"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       </div>
+
+      {/* ═══ MOBILE BOTTOM TAB BAR ═══ */}
+      <nav
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0d0d0d]/97 backdrop-blur-xl border-t border-[#ffffff0a]"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        <div className="flex items-stretch h-[60px]">
+
+          {/* Dashboard */}
+          <button
+            onClick={() => { setCurrentView('dashboard'); setDashboardMode(isAtLeast('admin') ? 'admin-overview' : 'list'); }}
+            className="flex-1 flex flex-col items-center justify-center gap-1 transition-colors active:scale-95"
+          >
+            <LayoutDashboard className={`w-5 h-5 transition-colors ${currentView === 'dashboard' && (dashboardMode === 'admin-overview' || dashboardMode === 'dev-overview') ? 'text-[#d4af37]' : 'text-white/35'}`} />
+            <span className={`text-[9px] font-bold uppercase tracking-wider transition-colors ${currentView === 'dashboard' && (dashboardMode === 'admin-overview' || dashboardMode === 'dev-overview') ? 'text-[#d4af37]' : 'text-white/35'}`}>Painel</span>
+          </button>
+
+          {/* Eventos */}
+          <button
+            onClick={() => { setCurrentView('dashboard'); setDashboardMode('list'); }}
+            className="flex-1 flex flex-col items-center justify-center gap-1 transition-colors active:scale-95"
+          >
+            <CalendarIcon className={`w-5 h-5 transition-colors ${currentView === 'dashboard' && dashboardMode === 'list' ? 'text-[#d4af37]' : 'text-white/35'}`} />
+            <span className={`text-[9px] font-bold uppercase tracking-wider transition-colors ${currentView === 'dashboard' && dashboardMode === 'list' ? 'text-[#d4af37]' : 'text-white/35'}`}>Eventos</span>
+          </button>
+
+          {/* Criar Evento — botão central destacado */}
+          <button
+            onClick={() => { setCurrentView('dashboard'); handleCreateEvent(); }}
+            className="flex-1 flex flex-col items-center justify-center gap-1 -mt-3 active:scale-95 transition-transform"
+          >
+            <div className="w-11 h-11 bg-[#d4af37] rounded-full flex items-center justify-center shadow-[0_0_16px_rgba(212,175,55,0.35)]">
+              <PlusCircle className="w-5 h-5 text-[#0a0a0a]" />
+            </div>
+            <span className="text-[9px] font-bold uppercase tracking-wider text-[#d4af37]/60">Novo</span>
+          </button>
+
+          {/* Equipe */}
+          <button
+            onClick={() => { setCurrentView('dashboard'); setDashboardMode('staff'); }}
+            className="flex-1 flex flex-col items-center justify-center gap-1 transition-colors active:scale-95"
+          >
+            <Users className={`w-5 h-5 transition-colors ${currentView === 'dashboard' && dashboardMode === 'staff' ? 'text-[#d4af37]' : 'text-white/35'}`} />
+            <span className={`text-[9px] font-bold uppercase tracking-wider transition-colors ${currentView === 'dashboard' && dashboardMode === 'staff' ? 'text-[#d4af37]' : 'text-white/35'}`}>Equipe</span>
+          </button>
+
+          {/* Configurações */}
+          <button
+            onClick={() => { setCurrentView('dashboard'); setDashboardMode('settings'); }}
+            className="flex-1 flex flex-col items-center justify-center gap-1 transition-colors active:scale-95"
+          >
+            <Settings className={`w-5 h-5 transition-colors ${currentView === 'dashboard' && dashboardMode === 'settings' ? 'text-[#d4af37]' : 'text-white/35'}`} />
+            <span className={`text-[9px] font-bold uppercase tracking-wider transition-colors ${currentView === 'dashboard' && dashboardMode === 'settings' ? 'text-[#d4af37]' : 'text-white/35'}`}>Config</span>
+          </button>
+
+        </div>
+      </nav>
     </>
   );
 }

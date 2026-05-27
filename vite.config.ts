@@ -73,6 +73,16 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-motion':   ['motion'],
+          'vendor-recharts': ['recharts'],
+          'vendor-supabase': ['@supabase/supabase-js'],
+          'vendor-embla':    ['embla-carousel-react', 'embla-carousel-autoplay'],
+        },
+      },
+    },
   },
   server: {
     host: 'localhost',

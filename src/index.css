@@ -79,6 +79,10 @@ html {
 body {
   /* Remove highlight azul/cinza ao tocar em elementos no iOS */
   -webkit-tap-highlight-color: transparent;
+  /* Previne scroll horizontal global */
+  overflow-x: hidden;
+  /* Largura mínima suportada */
+  min-width: 320px;
 }
 
 /* iOS Safari: previne zoom automático em inputs com font-size < 16px */
@@ -107,6 +111,20 @@ html {
   html {
     scroll-behavior: auto;
   }
+}
+
+/* Foco visível para navegação por teclado (oculto no mouse/touch) */
+:focus-visible {
+  outline: 2px solid #d4af37;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Inputs já têm foco customizado via border — não duplicar outline */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 
 /* 3. Lenis Scroll (Premium Inertial) - CSS Recomendado */

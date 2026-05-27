@@ -116,7 +116,7 @@ export function InstallPrompt() {
             {/* Fechar */}
             <button
               onClick={handleDismiss}
-              className="text-white/30 hover:text-white/70 transition shrink-0 mt-0.5"
+              className="text-white/30 hover:text-white/70 transition shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2"
               aria-label="Fechar"
             >
               <X className="w-4 h-4" />

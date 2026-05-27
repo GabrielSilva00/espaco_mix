@@ -345,7 +345,7 @@ export function DashboardView() {
                           className="bg-[#0d0d0d] border border-white/10 rounded-2xl md:rounded-3xl overflow-hidden group cursor-pointer hover:border-[#d4af37]/30 transition-all duration-500"
                       >
                         <div className="h-40 md:h-48 overflow-hidden relative">
-                          {evt.img ? <img src={evt.img} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-60" referrerPolicy="no-referrer" /> : <div className="w-full h-full bg-white/5" />}
+                          {evt.img ? <img src={evt.img} alt={evt.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-60" referrerPolicy="no-referrer" loading="lazy" decoding="async" /> : <div className="w-full h-full bg-white/5" />}
                           <div className="absolute top-4 right-4 px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-md text-[8px] uppercase tracking-widest font-bold text-[#d4af37]">
                               {evt.status}
                           </div>
@@ -1664,7 +1664,7 @@ export function DashboardView() {
                         >
                             {formEvent.img ? (
                               <>
-                                <img src={formEvent.img} alt="Preview" className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-40 transition" />
+                                <img src={formEvent.img} alt="Preview" className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-40 transition" loading="lazy" decoding="async" />
                                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
                                   <div className="bg-black/80 px-4 py-2 border border-white/20 rounded-lg text-xs font-bold uppercase tracking-widest text-white backdrop-blur-md">Alterar Imagem</div>
                                 </div>

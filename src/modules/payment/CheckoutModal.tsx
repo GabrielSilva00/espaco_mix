@@ -159,14 +159,16 @@ export function CheckoutModal() {
                       <span className="text-[10px] md:text-[11px] uppercase tracking-widest">Subtotal</span>
                       <span className="text-sm font-serif text-white whitespace-nowrap">R$ {subTotal.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between items-center opacity-60 group relative cursor-help">
-                      <span className="text-[10px] md:text-[11px] uppercase tracking-widest flex items-center gap-1">
-                         Taxa de conveniência (10%) <Info className="w-3 h-3 hidden md:block" />
-                      </span>
-                      <span className="text-sm font-serif text-white whitespace-nowrap">R$ {taxAmount.toFixed(2)}</span>
-                      <div className="absolute left-0 bottom-full mb-2 w-[220px] p-2 bg-[#222] border border-white/10 text-[9px] normal-case tracking-normal rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none md:block hidden z-50 shadow-2xl">
-                        Esta taxa cobre os custos operacionais da plataforma, garantindo segurança na transação e suporte dedicado.
+                    <div className="flex justify-between items-start opacity-60">
+                      <div>
+                        <span className="text-[10px] md:text-[11px] uppercase tracking-widest flex items-center gap-1">
+                          Taxa de conveniência (10%) <Info className="w-3 h-3" />
+                        </span>
+                        <p className="text-[9px] normal-case tracking-normal text-white/40 mt-0.5 max-w-[180px]">
+                          Cobre os custos operacionais e segurança da transação.
+                        </p>
                       </div>
+                      <span className="text-sm font-serif text-white whitespace-nowrap ml-4">R$ {taxAmount.toFixed(2)}</span>
                     </div>
 
                     <div className="pt-2 mt-2 border-t border-white/5 flex justify-between items-center">
@@ -883,7 +885,7 @@ export function CheckoutModal() {
                             <div className="text-[#0a0a0a] text-[8px] font-bold uppercase tracking-widest mb-2 border-b border-black/10 pb-2 w-full text-center truncate px-1">
                               {tkt.name}
                             </div>
-                            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt={`QR Code ${tkt.id}`} className="w-20 h-20 mx-auto" />
+                            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt={`QR Code ${tkt.id}`} className="w-20 h-20 mx-auto" loading="lazy" decoding="async" />
                             <p className="text-black/40 text-[7px] font-mono tracking-widest text-center mt-2">{tkt.id}</p>
                           </div>
                         </div>

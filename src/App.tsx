@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, X, Check, Smartphone, AlertTriangle,
@@ -18,10 +18,18 @@ import { ProfileView } from './modules/profile/ProfileView';
 import { PrivacySettingsView } from './modules/profile/PrivacySettingsView';
 import { PrivacyView } from './modules/privacy/PrivacyView';
 import { TermsView } from './modules/terms/TermsView';
-import { DashboardView } from './modules/dashboard/DashboardView';
-import { CheckoutModal } from './modules/payment/CheckoutModal';
-import { TableLayoutEditor } from './components/TableLayoutEditor';
 import { InstallPrompt } from './components/InstallPrompt';
+
+// Lazy-loaded: carregados sob demanda para reduzir o bundle inicial
+const DashboardView = React.lazy(() =>
+  import('./modules/dashboard/DashboardView').then(m => ({ default: m.DashboardView }))
+);
+const CheckoutModal = React.lazy(() =>
+  import('./modules/payment/CheckoutModal').then(m => ({ default: m.CheckoutModal }))
+);
+const TableLayoutEditor = React.lazy(() =>
+  import('./components/TableLayoutEditor').then(m => ({ default: m.TableLayoutEditor }))
+);
 
 export function App() {
   const {
@@ -33,11 +41,19 @@ export function App() {
     reservations, setReservations,
     isStaffModalOpen, setIsStaffModalOpen, staffAccounts,
     isMessageModalOpen, setIsMessageModalOpen, messageText, setMessageText, buyers,
-    isLogsModalOpen, setIsLogsModalOpen,
+    isLogsModalOpen, setIsLogsModalOpen, userRole,
   } = useApp();
 
   return (
     <div className={`min-h-screen bg-[#0a0a0a] text-[#e5e5e5] font-sans selection:bg-[#d4af37]/30 ${isAdminLayout ? 'flex' : ''}`}>
+
+      {/* Skip link — acessibilidade para navegação por teclado */}
+      <a
+        href="#main-content"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-4 focus-visible:left-4 focus-visible:z-[9999] focus-visible:px-4 focus-visible:py-2 focus-visible:bg-[#d4af37] focus-visible:text-black focus-visible:rounded-lg focus-visible:font-bold focus-visible:text-xs focus-visible:uppercase focus-visible:tracking-widest"
+      >
+        Pular para conteúdo principal
+      </a>
 
       {isAdminLayout ? <AdminSidebar /> : <Navbar />}
 
@@ -46,7 +62,7 @@ export function App() {
         data-lenis-prevent
         className={`${isAdminLayout ? 'flex-1 h-screen overflow-y-auto custom-scrollbar relative' : 'w-full'} flex flex-col`}
       >
-        <main className={`${isAdminLayout ? 'pt-20 md:pt-10' : 'pt-16 md:pt-20'} pb-24 px-0 md:px-0 flex-1`}>
+        <main id="main-content" className={`${isAdminLayout ? 'pt-20 md:pt-10' : 'pt-16 md:pt-20'} pb-24 px-0 md:px-0 flex-1`}>
 
           {currentView === 'home' && (
             <Home
@@ -82,11 +98,15 @@ export function App() {
           {currentView === 'reservations' && <ReservationsView />}
           {currentView === 'contact' && <ContactView />}
           {currentView === 'admin-login' && <AuthView />}
-          {currentView === 'profile' && <ProfileView />}
+          {currentView === 'profile' && userRole !== 'admin' && userRole !== 'developer' && <ProfileView />}
           {currentView === 'profile-privacy' && <PrivacySettingsView />}
           {currentView === 'privacy' && <PrivacyView />}
           {currentView === 'terms' && <TermsView />}
-          {currentView === 'dashboard' && <DashboardView />}
+          {currentView === 'dashboard' && (
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[60vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
+              <DashboardView />
+            </Suspense>
+          )}
 
         </main>
 
@@ -144,6 +164,7 @@ export function App() {
               </button>
             </div>
             <div className="flex-1 p-4 md:p-6 overflow-auto">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[50vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
               <TableLayoutEditor
                 initialLayout={formEvent.tableLayout || []}
                 requiredTables={formEvent.tableConfig?.totalTables}
@@ -161,6 +182,7 @@ export function App() {
                   showToast('Layout salvo com sucesso.', 'success');
                 }}
               />
+              </Suspense>
             </div>
           </motion.div>
         )}
@@ -587,7 +609,9 @@ export function App() {
         )}
       </AnimatePresence>
 
-      <CheckoutModal />
+      <Suspense fallback={null}>
+        <CheckoutModal />
+      </Suspense>
       <Toast />
       <InstallPrompt />
     </div>

@@ -49,7 +49,7 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
     <div className={`p-4 rounded-xl border ${tkt.status === 'cancelled' ? 'border-red-500/20 bg-red-500/5' : needsData && tkt.status === 'active' ? 'bg-amber-500/5 border-amber-500/30' : 'border-white/10 bg-white/5'} flex flex-col md:flex-row justify-between items-start md:items-center gap-4`}>
       <div className="flex gap-4 items-center w-full md:w-auto">
         <div className="relative group cursor-pointer" onClick={(e) => { e.stopPropagation(); setQrFullscreen({ id: tkt.id, name: tkt.name }); }}>
-          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-16 h-16 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} />
+          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-16 h-16 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} loading="lazy" decoding="async" />
           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition backdrop-blur-[2px]">
             <Expand className="w-5 h-5 text-white" />
           </div>
@@ -196,7 +196,7 @@ export function ReservationsView() {
                     <div className="flex justify-between items-center relative z-10 gap-4">
                       <div className="flex items-center gap-4">
                         <div className="w-14 h-14 md:w-16 md:h-16 flex-shrink-0 bg-[#111] overflow-hidden rounded-xl border border-white/10 group-hover:border-[#d4af37]/30 transition">
-                          <img src="https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80" alt="Cover" className="w-full h-full object-cover" />
+                          <img src="https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80" alt="Cover" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                         </div>
                         <div>
                            <div className="flex items-center gap-2 mb-1">
@@ -209,7 +209,7 @@ export function ReservationsView() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                         <div className="hidden sm:flex flex-col items-end mr-4">
+                         <div className="flex flex-col items-end mr-4">
                            <span className="text-[9px] uppercase opacity-40 tracking-widest">Total</span>
                            <span className="text-sm font-serif text-white">R$ {res.total.toFixed(2)}</span>
                          </div>
@@ -228,7 +228,7 @@ export function ReservationsView() {
                       <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-6">
                         <div className="flex gap-4">
                            <div className="hidden md:block w-20 h-20 md:w-24 md:h-24 flex-shrink-0 bg-[#111] overflow-hidden rounded-xl border border-white/10">
-                             <img src="https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80" alt="Cover" className="w-full h-full object-cover" />
+                             <img src="https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80" alt="Cover" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                            </div>
                            <div>
                             <div className="flex flex-wrap items-center gap-3 mb-2">
@@ -352,7 +352,7 @@ export function ReservationsView() {
                                             <div key={tkt.id} className={`flex flex-col md:flex-row justify-between items-start md:items-center gap-4 p-4 rounded-xl border ${needsData && tkt.status === 'active' && !allCancelled ? 'bg-amber-500/5 border-amber-500/30' : 'bg-black/20 border-white/5'}`}>
                                               <div className="flex gap-4 items-center w-full md:w-auto">
                                                 <div className="relative group cursor-pointer" onClick={(e) => { e.stopPropagation(); setQrFullscreen({ id: tkt.id, name: tkt.name }); }}>
-                                                   <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-14 h-14 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} />
+                                                   <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-14 h-14 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} loading="lazy" decoding="async" />
                                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition backdrop-blur-[2px]">
                                                       <Expand className="w-4 h-4 text-white" />
                                                    </div>

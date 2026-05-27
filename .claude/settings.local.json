@@ -46,7 +46,14 @@
       "Bash(tailwind)",
       "Bash(browserslist\")",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Gabriel\\\\Portifolio\\\\espaco_mix\" -Name | Where-Object { $_ -match \"postcss|tailwind|browserslist\" })",
-      "Bash(npx pwa-assets-generator *)"
+      "Bash(npx pwa-assets-generator *)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(sort -t'[' -k2 -n)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(k,'->',v\\) for k,v in {**d.get\\('dependencies',{}\\),**d.get\\('devDependencies',{}\\)}.items\\(\\)]\")",
+      "Bash(grep -v \"//\")",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(curl -s http://localhost:3000/api/health)"
     ]
   }
 }

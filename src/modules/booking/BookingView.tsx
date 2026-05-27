@@ -451,7 +451,7 @@ export function BookingView() {
                       exit={{ opacity: 0, y: -8 }}
                       transition={{ duration: 0.25 }}
                     >
-                      <div className="space-y-6 flex flex-col p-1 border border-[#ffffff1a] bg-gradient-to-br from-[#0f0f0f] to-[#0a0a0a] rounded-[1.5rem]">
+                      <div className="space-y-6 flex flex-col p-1 border border-[#ffffff1a] bg-gradient-to-br from-[#0f0f0f] to-[#0a0a0a] rounded-[1.5rem] min-h-[720px]">
                         <div className="pt-8 pb-8 pr-8 pl-[17px]">
                           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8">
                             <div>

@@ -55,7 +55,7 @@ export const PublicProducerPage = ({ profile }: { profile: ProducerProfile }) =>
       <div className="w-full h-48 md:h-80 relative mt-16 bg-[#111]">
         {profile.bannerUrl ? (
           <>
-            <img src={profile.bannerUrl} alt="Banner" className="w-full h-full object-cover opacity-80" />
+            <img src={profile.bannerUrl} alt="Banner" className="w-full h-full object-cover opacity-80" fetchPriority="high" decoding="async" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent"></div>
           </>
         ) : (
@@ -127,7 +127,7 @@ export const PublicProducerPage = ({ profile }: { profile: ProducerProfile }) =>
                   {filteredEvents.map(event => (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} key={event.id} className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden group cursor-pointer hover:border-[#d4af37]/50 transition">
                       <div className="h-40 bg-[#d4af37]/10 relative overflow-hidden">
-                        {event.imageUrl && <img src={event.imageUrl} alt={event.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />}
+                        {event.imageUrl && <img src={event.imageUrl} alt={event.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" loading="lazy" decoding="async" />}
                         <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-white/10">
                           {event.date}
                         </div>

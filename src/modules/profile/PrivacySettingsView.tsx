@@ -5,6 +5,7 @@ import {
   Download, Trash2, Check, AlertTriangle, X, RefreshCw, Eye,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { supabase } from '../../lib/supabase';
 import type { ConsentData } from '../../types';
 
 const CONSENT_VERSION = '2026-05-26';
@@ -139,7 +140,6 @@ export function PrivacySettingsView() {
     }
     setDeletingAccount(true);
     try {
-      const { supabase } = await import('../../lib/supabase');
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
 

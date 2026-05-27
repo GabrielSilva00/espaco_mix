@@ -137,7 +137,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ onToast }) => {
   };
 
   return (
-    <div className="p-8 space-y-6 relative">
+    <div className="p-4 md:p-8 space-y-6 relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
           <h1 className="text-2xl font-serif text-[#d4af37]">Fila de Ativacao KYC</h1>
@@ -158,6 +158,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ onToast }) => {
       </div>
 
       <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-white/5 border-b border-white/10">
             <tr>
@@ -213,6 +214,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ onToast }) => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {rejecting && (
