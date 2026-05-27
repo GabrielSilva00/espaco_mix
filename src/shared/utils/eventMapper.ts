@@ -39,13 +39,13 @@ export function mapDbEventToApp(db: any): Event {
     tableConfig:
       (db.has_tables ?? db.hasTables) && (db.table_total || db.tableConfig)
         ? {
-            totalTables: db.table_total ?? db.tableConfig?.totalTables ?? 0,
+            totalTables: db.table_total ?? db.tableConfig?.totalTables ?? 20,
             seatsPerTable: db.table_seats ?? db.tableConfig?.seatsPerTable ?? 4,
             gridRows: db.table_rows ?? db.tableConfig?.gridRows ?? 0,
             gridCols: db.table_cols ?? db.tableConfig?.gridCols ?? 0,
-            totalBistros: db.total_bistros ?? db.tableConfig?.totalBistros,
-            tablePrice: db.table_price ?? db.tableConfig?.tablePrice,
-            bistroPrice: db.bistro_price ?? db.tableConfig?.bistroPrice,
+            totalBistros: db.total_bistros ?? db.tableConfig?.totalBistros ?? 5,
+            tablePrice: db.table_price ?? db.tableConfig?.tablePrice ?? 300,
+            bistroPrice: db.bistro_price ?? db.tableConfig?.bistroPrice ?? 150,
           }
         : undefined,
     tableLayout: db.table_layout ?? db.tableLayout,

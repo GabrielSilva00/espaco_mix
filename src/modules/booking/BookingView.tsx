@@ -92,8 +92,42 @@ export function BookingView() {
   const togglePanel = (panel: ActivePanel) =>
     setActivePanel(p => p === panel ? null : panel);
 
+  const hasSelectedItems = totalTicketsSelected > 0 || selectedTables.length > 0;
+
   return (
     <>
+      {/* Mobile Bottom Indicator Bar */}
+      {hasSelectedItems && (
+        <motion.div
+          initial={{ y: 100 }}
+          animate={{ y: 0 }}
+          className="fixed bottom-0 left-0 right-0 lg:hidden bg-gradient-to-t from-[#0a0a0a] to-[#0a0a0a]/80 backdrop-blur-md border-t border-white/10 p-4 z-40"
+        >
+          <div className="max-w-7xl mx-auto px-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {selectedTables.length > 0 && (
+                <span className="px-3 py-1 bg-[#d4af37]/20 text-[#d4af37] text-[11px] font-bold uppercase tracking-widest rounded-full">
+                  {selectedTables.length} Mesa{selectedTables.length > 1 ? 's' : ''}
+                </span>
+              )}
+              {totalTicketsSelected > 0 && (
+                <span className="px-3 py-1 bg-[#d4af37]/20 text-[#d4af37] text-[11px] font-bold uppercase tracking-widest rounded-full">
+                  {totalTicketsSelected} Ingresso{totalTicketsSelected > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            <motion.div
+              animate={{ x: [0, 4, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+              className="flex items-center gap-2 text-[#d4af37]"
+            >
+              <span className="text-[11px] font-bold uppercase tracking-widest">Scroll para revisar</span>
+              <ChevronRight className="w-4 h-4" />
+            </motion.div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Banner do Evento */}
       <section className="relative w-full h-[35vh] md:h-[50vh] bg-[#0d0d0d] overflow-hidden group">
         <motion.img
@@ -104,6 +138,8 @@ export function BookingView() {
           alt="Event Banner"
           className="w-full h-full object-cover brightness-110 contrast-110 group-hover:scale-105 transition-transform duration-[2s] ease-out will-change-transform"
           referrerPolicy="no-referrer"
+          fetchPriority="high"
+          decoding="async"
         />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_20%,rgba(10,10,10,0.5)_100%)] pointer-events-none" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/40 to-transparent pointer-events-none" />
@@ -359,9 +395,9 @@ export function BookingView() {
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
-                                              <button onClick={(e) => { e.stopPropagation(); setMaleTickets(Math.max(0, maleTickets - 1)); }} disabled={maleTickets === 0} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
+                                              <button aria-label="Remover ingresso masculino" onClick={(e) => { e.stopPropagation(); setMaleTickets(Math.max(0, maleTickets - 1)); }} disabled={maleTickets === 0} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
                                               <span className="w-5 text-center text-sm font-bold text-white">{maleTickets}</span>
-                                              <button onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setMaleTickets(maleTickets + 1); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
+                                              <button aria-label="Adicionar ingresso masculino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setMaleTickets(maleTickets + 1); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
                                             </div>
                                           </div>
                                           <div className="flex justify-between items-center py-3 border-t border-white/5">
@@ -373,9 +409,9 @@ export function BookingView() {
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
-                                              <button onClick={(e) => { e.stopPropagation(); setFemaleTickets(Math.max(0, femaleTickets - 1)); }} disabled={femaleTickets === 0} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
+                                              <button aria-label="Remover ingresso feminino" onClick={(e) => { e.stopPropagation(); setFemaleTickets(Math.max(0, femaleTickets - 1)); }} disabled={femaleTickets === 0} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
                                               <span className="w-5 text-center text-sm font-bold text-white">{femaleTickets}</span>
-                                              <button onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setFemaleTickets(femaleTickets + 1); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
+                                              <button aria-label="Adicionar ingresso feminino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setFemaleTickets(femaleTickets + 1); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
                                             </div>
                                           </div>
                                         </>
@@ -389,9 +425,9 @@ export function BookingView() {
                                             </div>
                                           </div>
                                           <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
-                                            <button onClick={(e) => { e.stopPropagation(); setSingleTickets(Math.max(0, singleTickets - 1)); }} disabled={singleTickets === 0} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
+                                            <button aria-label="Remover ingresso" onClick={(e) => { e.stopPropagation(); setSingleTickets(Math.max(0, singleTickets - 1)); }} disabled={singleTickets === 0} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
                                             <span className="w-5 text-center text-sm font-bold text-white">{singleTickets}</span>
-                                            <button onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setSingleTickets(singleTickets + 1); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
+                                            <button aria-label="Adicionar ingresso" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setSingleTickets(singleTickets + 1); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
                                           </div>
                                         </div>
                                       )}
@@ -742,46 +778,10 @@ export function BookingView() {
               </div>
             </section>
 
-            {/* FAQ */}
-            <section className="bg-transparent mb-8">
-              <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
-                <Info className="w-5 h-5 text-[#d4af37]" />
-                <h2 className="text-sm md:text-base tracking-[0.2em] uppercase text-white font-bold">Informações Úteis / FAQ</h2>
-              </div>
-              <div className="space-y-3">
-                <details className="bg-[#111] border border-[#ffffff0a] rounded-2xl group hover:border-white/20 transition-all cursor-pointer">
-                  <summary className="flex justify-between items-center p-5 list-none font-semibold text-white focus:outline-none focus:ring-1 focus:ring-[#d4af37] rounded-xxl tracking-wide text-sm [::-webkit-details-marker]:hidden">
-                    Posso transferir meu ingresso?
-                    <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
-                  </summary>
-                  <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
-                    Sim, a transferência de titularidade pode ser feita pelo app do Espaço Mix até 24h antes do evento. Apenas um repasse é permitido por ingresso.
-                  </div>
-                </details>
-                <details className="bg-[#111] border border-[#ffffff0a] rounded-2xl group hover:border-white/20 transition-all cursor-pointer">
-                  <summary className="flex justify-between items-center p-5 list-none font-semibold text-white focus:outline-none focus:ring-1 focus:ring-[#d4af37] rounded-xxl tracking-wide text-sm [::-webkit-details-marker]:hidden">
-                    Qual a política de cancelamento?
-                    <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
-                  </summary>
-                  <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
-                    Conforme o CDC, você pode cancelar a compra em até 7 dias após o pedido, desde que falte mais de 48h para o evento.
-                  </div>
-                </details>
-                <details className="bg-[#111] border border-[#ffffff0a] rounded-2xl group hover:border-white/20 transition-all cursor-pointer">
-                  <summary className="flex justify-between items-center p-5 list-none font-semibold text-white focus:outline-none focus:ring-1 focus:ring-[#d4af37] rounded-xxl tracking-wide text-sm [::-webkit-details-marker]:hidden">
-                    Quais os métodos de pagamento?
-                    <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
-                  </summary>
-                  <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
-                    Aceitamos Pix (com aprovação imediata), Cartão de Crédito em até 12x e Apple Pay mediante stripe checkout.
-                  </div>
-                </details>
-              </div>
-            </section>
           </div>
 
           {/* Right Column: Resumo */}
-          <div className={`lg:col-span-4 flex flex-col ${activeEvent?.status === 'Em breve' && !isPreviewingEvent ? 'hidden' : ''}`}>
+          <div className={`lg:col-span-4 flex flex-col ${activeEvent?.status === 'Em breve' && !isPreviewingEvent ? 'hidden' : ''} order-3 lg:order-none`}>
             <div className="sticky top-24 flex flex-col gap-8">
               <div className="flex-1 flex flex-col">
                 <h2 className="text-[10px] tracking-[0.2em] uppercase text-[#d4af37] mb-6">Detalhes do Pedido</h2>
@@ -810,7 +810,7 @@ export function BookingView() {
                                   </div>
                                   <div className="flex items-center gap-3">
                                     <span className="text-sm font-display">R$ {(maleTickets * (previewSectors[0]?.priceMale || 0)).toFixed(2)}</span>
-                                    <button onClick={() => setMaleTickets(0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
+                                    <button aria-label="Remover ingressos masculinos" onClick={() => setMaleTickets(0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
                                   </div>
                                 </div>
                               )}
@@ -822,7 +822,7 @@ export function BookingView() {
                                   </div>
                                   <div className="flex items-center gap-3">
                                     <span className="text-sm font-display">R$ {(femaleTickets * (previewSectors[0]?.priceFemale || 0)).toFixed(2)}</span>
-                                    <button onClick={() => setFemaleTickets(0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
+                                    <button aria-label="Remover ingressos femininos" onClick={() => setFemaleTickets(0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
                                   </div>
                                 </div>
                               )}
@@ -836,7 +836,7 @@ export function BookingView() {
                                 </div>
                                 <div className="flex items-center gap-3">
                                   <span className="text-sm font-display">R$ {ticketsTotal.toFixed(2)}</span>
-                                  <button onClick={() => setSingleTickets(0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
+                                  <button aria-label="Remover ingressos" onClick={() => setSingleTickets(0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
                                 </div>
                               </div>
                             )
@@ -862,7 +862,7 @@ export function BookingView() {
                               </div>
                               <div className="flex items-center gap-3">
                                 <span className="text-sm font-display">R$ {table.price.toFixed(2)}</span>
-                                <button onClick={() => toggleTableSelection(table.id, table.status)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
+                                <button aria-label="Remover item da seleção" onClick={() => toggleTableSelection(table.id, table.status)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
                               </div>
                             </div>
                             );
@@ -912,6 +912,43 @@ export function BookingView() {
             </div>
           </div>
         </div>
+
+        {/* FAQ - aparece no final no mobile */}
+        <section className="bg-transparent mt-16 mb-8 max-w-3xl">
+          <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
+            <Info className="w-5 h-5 text-[#d4af37]" />
+            <h2 className="text-sm md:text-base tracking-[0.2em] uppercase text-white font-bold">Informações Úteis / FAQ</h2>
+          </div>
+          <div className="space-y-3">
+            <details className="bg-[#111] border border-[#ffffff0a] rounded-2xl group hover:border-white/20 transition-all cursor-pointer">
+              <summary className="flex justify-between items-center p-5 list-none font-semibold text-white focus:outline-none focus:ring-1 focus:ring-[#d4af37] rounded-xxl tracking-wide text-sm [::-webkit-details-marker]:hidden">
+                Posso transferir meu ingresso?
+                <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
+              </summary>
+              <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
+                Sim, a transferência de titularidade pode ser feita pelo app do Espaço Mix até 24h antes do evento. Apenas um repasse é permitido por ingresso.
+              </div>
+            </details>
+            <details className="bg-[#111] border border-[#ffffff0a] rounded-2xl group hover:border-white/20 transition-all cursor-pointer">
+              <summary className="flex justify-between items-center p-5 list-none font-semibold text-white focus:outline-none focus:ring-1 focus:ring-[#d4af37] rounded-xxl tracking-wide text-sm [::-webkit-details-marker]:hidden">
+                Qual a política de cancelamento?
+                <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
+              </summary>
+              <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
+                Conforme o CDC, você pode cancelar a compra em até 7 dias após o pedido, desde que falte mais de 48h para o evento.
+              </div>
+            </details>
+            <details className="bg-[#111] border border-[#ffffff0a] rounded-2xl group hover:border-white/20 transition-all cursor-pointer">
+              <summary className="flex justify-between items-center p-5 list-none font-semibold text-white focus:outline-none focus:ring-1 focus:ring-[#d4af37] rounded-xxl tracking-wide text-sm [::-webkit-details-marker]:hidden">
+                Quais os métodos de pagamento?
+                <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
+              </summary>
+              <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
+                Aceitamos Pix (com aprovação imediata), Cartão de Crédito em até 12x e Apple Pay mediante stripe checkout.
+              </div>
+            </details>
+          </div>
+        </section>
       </div>
     </>
   );

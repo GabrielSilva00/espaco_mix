@@ -33,12 +33,20 @@ export const STATUS_FROM_DB: Record<string, Event['status']> = {
   Pausado:       'Pausado',
 };
 
-export const mockTables: TableDef[] = Array.from({ length: 20 }).map((_, i) => ({
-  id: i + 1,
-  capacity: 4,
-  status: [3, 5, 8, 12, 15, 18].includes(i + 1) ? 'reserved' : 'available',
-  price: 300,
-}));
+export const mockTables: TableDef[] = [
+  ...Array.from({ length: 20 }).map((_, i) => ({
+    id: i + 1,
+    capacity: 4,
+    status: [3, 5, 8, 12, 15, 18].includes(i + 1) ? ('reserved' as const) : ('available' as const),
+    price: 300,
+  })),
+  ...Array.from({ length: 5 }).map((_, i) => ({
+    id: 21 + i,
+    capacity: 2,
+    status: [23].includes(21 + i) ? ('reserved' as const) : ('available' as const),
+    price: 150,
+  })),
+];
 
 export const MOCK_BUYERS = [
   { id: '1', name: 'Gabriel Silva', email: 'gab@email.com', cpf: '123.456.789-00', phone: '(11) 98765-4321', type: 'Mesa #12', value: 300, status: 'Pago' as const, checkedIn: false, purchaseDate: '2026-05-15T22:30:00' },

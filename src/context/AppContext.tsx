@@ -543,7 +543,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               });
             }
           } catch (err) {
-            console.error('Erro ao verificar sessão inicial:', err);
+            const errMsg = String(err).toLowerCase();
+            if (errMsg.includes('infinite recursion') || errMsg.includes('policies')) {
+              console.error('[Context] Erro ao verificar sessão: problema com configuração do banco de dados');
+            } else {
+              console.error('Erro ao verificar sessão inicial:', err);
+            }
           }
         }
       } else if (event === 'SIGNED_IN') {
@@ -571,7 +576,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 .finally(() => setLoadingEvents(false));
             }
           } catch (err) {
-            console.error('[Context] Erro ao carregar perfil após login');
+            const errMsg = String(err).toLowerCase();
+            if (errMsg.includes('infinite recursion') || errMsg.includes('policies')) {
+              console.error('[Context] Erro ao carregar perfil: problema com configuração do banco de dados');
+            } else {
+              console.error('[Context] Erro ao carregar perfil após login:', err);
+            }
+            try {
+              await signOut();
+            } catch {}
           }
         }
       } else if (event === 'SIGNED_OUT') {

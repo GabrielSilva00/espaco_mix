@@ -122,7 +122,7 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
                       <span className="inline-block px-3 py-1 bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#d4af37] text-[10px] uppercase font-bold tracking-[0.2em] rounded-full mb-4">
                         Destaque
                       </span>
-                      <h2 className="text-4xl md:text-6xl font-elastic text-[#d4af37] mb-3 leading-tight tracking-wide drop-shadow-xl normal-case" style={{ textShadow: '0 4px 24px rgba(0,0,0,0.9)' }}>
+                      <h2 className="text-2xl sm:text-4xl md:text-6xl font-elastic text-[#d4af37] mb-3 leading-tight tracking-wide drop-shadow-xl normal-case" style={{ textShadow: '0 4px 24px rgba(0,0,0,0.9)' }}>
                         {event.title}
                       </h2>
                       <div className="flex flex-wrap gap-4 text-xs md:text-sm text-white/80 uppercase tracking-widest font-bold mb-6">
@@ -141,14 +141,16 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
 
           {/* Controles do Carrossel */}
           <div className="absolute bottom-6 right-6 md:bottom-12 md:right-12 flex items-center gap-4 z-10">
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               {featuredEvents.map((_, i) => (
                 <button
                   key={i}
-                  className={`w-12 h-1 rounded-full transition-all duration-300 ${i === selectedIndex ? 'bg-[#d4af37]' : 'bg-white/20'}`}
+                  className="py-5 px-0.5 flex items-center"
                   onClick={() => emblaApi?.scrollTo(i)}
                   aria-label={`Slide ${i + 1}`}
-                />
+                >
+                  <span className={`block w-12 h-1 rounded-full transition-all duration-300 ${i === selectedIndex ? 'bg-[#d4af37]' : 'bg-white/20'}`} />
+                </button>
               ))}
             </div>
             <div className="hidden md:flex gap-2 ml-4">
@@ -165,17 +167,19 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
 
       {/* Sec 3: Filtros e Listagem */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 md:mt-20">
-        <div className="flex flex-col md:flex-row justify-between items-end gap-6 mb-10">
-          <div>
-            <h3 className="text-2xl md:text-4xl font-serif text-[#d4af37] mb-2">Próximos Eventos</h3>
-            <p className="text-xs text-white/50 uppercase tracking-widest font-bold">Encontre sua próxima experiência</p>
+        <div className="flex flex-col md:flex-row justify-center md:justify-between items-center md:items-end gap-6 mb-10">
+          <div className="text-center md:text-left">
+            <h3 className="text-xl md:text-3xl font-serif text-[#d4af37] mb-2">Próximos Eventos</h3>
+            <p className="text-[10px] md:text-xs text-white/50 uppercase tracking-widest font-bold">Encontre sua próxima experiência</p>
           </div>
 
           {/* Filtros */}
           <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
             <div className="relative">
+              <label htmlFor="event-search" className="sr-only">Buscar evento</label>
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
               <input
+                id="event-search"
                 type="text"
                 placeholder="Buscar evento..."
                 value={searchTerm}
