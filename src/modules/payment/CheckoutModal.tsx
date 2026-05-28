@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Check, CreditCard, Copy, AlertCircle, QrCode, ChevronRight, ChevronLeft,
@@ -11,8 +11,20 @@ import { GoogleIcon } from '../../components/GoogleIcon';
 import { EVENT_TICKET_PRICE } from '../../shared/constants/app';
 import { downloadTicketPDF } from '../../shared/utils/pdf';
 import { signIn, getMyProfile } from '../../lib/supabase';
+import { CardData, validateCardData, formatCardNumber } from '../../lib/cardUtils';
 
 export function CheckoutModal() {
+  const [cardData, setCardData] = useState<CardData>({
+    number: '',
+    holderName: '',
+    expiryMonth: '',
+    expiryYear: '',
+    cvv: '',
+    installments: '1',
+  });
+
+  const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
+
   const {
     isCheckoutOpen, setIsCheckoutOpen,
     checkoutStep, setCheckoutStep,
@@ -275,15 +287,87 @@ export function CheckoutModal() {
                           <div className="pt-4 border-t border-white/5 mt-4 space-y-4">
                              <div className="space-y-4">
                                <div className="relative">
-                                 <input type="text" placeholder="Número do Cartão" className="w-full bg-[#111] border border-white/10 p-3 md:p-4 rounded-xl text-[11px] md:text-sm focus:outline-none focus:border-[#d4af37] transition font-mono tracking-widest text-[#d4af37]" />
+                                 <input 
+                                   type="text" 
+                                   placeholder="Número do Cartão" 
+                                   value={cardData.number}
+                                   onChange={(e) => {
+                                     const formatted = formatCardNumber(e.target.value.replace(/\D/g, ''));
+                                     setCardData(prev => ({ ...prev, number: formatted }));
+                                     if (cardErrors.number) setCardErrors(prev => ({ ...prev, number: '' }));
+                                   }}
+                                   maxLength={23}
+                                   className={`w-full bg-[#111] border rounded-xl p-3 md:p-4 text-[11px] md:text-sm focus:outline-none transition font-mono tracking-widest ${
+                                     cardErrors.number ? 'border-red-500 text-red-400' : 'border-white/10 focus:border-[#d4af37] text-[#d4af37]'
+                                   }`}
+                                 />
                                  <CreditCard className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
                                </div>
-                               <input type="text" placeholder="Nome Impresso no Cartão" className="w-full bg-[#111] border border-white/10 p-3 md:p-4 rounded-xl text-[11px] md:text-sm focus:outline-none focus:border-[#d4af37] transition uppercase" />
+                               {cardErrors.number && <p className="text-xs text-red-400">{cardErrors.number}</p>}
+
+                               <input 
+                                 type="text" 
+                                 placeholder="Nome Impresso no Cartão" 
+                                 value={cardData.holderName}
+                                 onChange={(e) => {
+                                   setCardData(prev => ({ ...prev, holderName: e.target.value.toUpperCase() }));
+                                   if (cardErrors.holderName) setCardErrors(prev => ({ ...prev, holderName: '' }));
+                                 }}
+                                 className={`w-full bg-[#111] border rounded-xl p-3 md:p-4 text-[11px] md:text-sm focus:outline-none transition uppercase ${
+                                   cardErrors.holderName ? 'border-red-500 text-red-400' : 'border-white/10 focus:border-[#d4af37]'
+                                 }`}
+                               />
+                               {cardErrors.holderName && <p className="text-xs text-red-400">{cardErrors.holderName}</p>}
+
                                <div className="flex gap-4">
-                                  <input type="text" placeholder="Validade (MM/AA)" className="w-1/2 bg-[#111] border border-white/10 p-3 md:p-4 rounded-xl text-[11px] md:text-sm focus:outline-none focus:border-[#d4af37] transition font-mono" />
-                                  <input type="text" placeholder="CVV" className="w-1/2 bg-[#111] border border-white/10 p-3 md:p-4 rounded-xl text-[11px] md:text-sm focus:outline-none focus:border-[#d4af37] transition font-mono" />
+                                  <div className="w-1/2">
+                                    <input 
+                                      type="text" 
+                                      placeholder="Validade (MM/AA)" 
+                                      value={
+                                        cardData.expiryMonth && cardData.expiryYear 
+                                          ? `${cardData.expiryMonth}/${cardData.expiryYear}` 
+                                          : ''
+                                      }
+                                      onChange={(e) => {
+                                        const val = e.target.value.replace(/\D/g, '');
+                                        if (val.length <= 2) {
+                                          setCardData(prev => ({ ...prev, expiryMonth: val }));
+                                        } else if (val.length <= 4) {
+                                          setCardData(prev => ({ ...prev, expiryMonth: val.slice(0, 2), expiryYear: val.slice(2) }));
+                                        }
+                                        if (cardErrors.expiryMonth) setCardErrors(prev => ({ ...prev, expiryMonth: '' }));
+                                      }}
+                                      maxLength={5}
+                                      className={`w-full bg-[#111] border rounded-xl p-3 md:p-4 text-[11px] md:text-sm focus:outline-none transition font-mono ${
+                                        cardErrors.expiryMonth ? 'border-red-500 text-red-400' : 'border-white/10 focus:border-[#d4af37]'
+                                      }`}
+                                    />
+                                  </div>
+                                  <div className="w-1/2">
+                                    <input 
+                                      type="text" 
+                                      placeholder="CVV" 
+                                      value={cardData.cvv}
+                                      onChange={(e) => {
+                                        setCardData(prev => ({ ...prev, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) }));
+                                        if (cardErrors.cvv) setCardErrors(prev => ({ ...prev, cvv: '' }));
+                                      }}
+                                      maxLength={4}
+                                      className={`w-full bg-[#111] border rounded-xl p-3 md:p-4 text-[11px] md:text-sm focus:outline-none transition font-mono ${
+                                        cardErrors.cvv ? 'border-red-500 text-red-400' : 'border-white/10 focus:border-[#d4af37]'
+                                      }`}
+                                    />
+                                  </div>
                                </div>
-                               <select className="w-full select-field text-[11px] md:text-sm">
+                               {cardErrors.expiryMonth && <p className="text-xs text-red-400">{cardErrors.expiryMonth}</p>}
+                               {cardErrors.cvv && <p className="text-xs text-red-400">{cardErrors.cvv}</p>}
+
+                               <select 
+                                 value={cardData.installments}
+                                 onChange={(e) => setCardData(prev => ({ ...prev, installments: e.target.value }))}
+                                 className="w-full select-field text-[11px] md:text-sm"
+                               >
                                   <option value="1">1x de R$ {grandTotal.toFixed(2)} sem juros</option>
                                   <option value="2">2x de R$ {(grandTotal / 2).toFixed(2)} sem juros</option>
                                   <option value="3">3x de R$ {(grandTotal / 3).toFixed(2)} sem juros</option>
@@ -319,7 +403,19 @@ export function CheckoutModal() {
                   </div>
 
                   <button 
-                    onClick={handleConfirmReservation}
+                    onClick={() => {
+                      if (paymentMethod === 'credit_card') {
+                        // Validar dados do cartão
+                        const validation = validateCardData(cardData);
+                        if (!validation.isValid) {
+                          setCardErrors(validation.errors);
+                          showToast('Verifique os dados do cartão', 'error');
+                          return;
+                        }
+                        setCardErrors({});
+                      }
+                      handleConfirmReservation();
+                    }}
                     disabled={!paymentMethod || isProcessingPayment}
                     className="w-full py-3 md:py-4 mt-2 text-[10px] md:text-[11px] font-bold tracking-[0.2em] uppercase text-[#0a0a0a] bg-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.2)] rounded-full hover:brightness-110 transition flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
                   >

@@ -403,6 +403,140 @@ async function startServer() {
     }
   });
 
+  // ── Mercado Pago - Test Connection ────────────────────────────────────────
+  app.post("/api/admin/test-mercadopago", requireAuth, async (req, res) => {
+    const { accessToken, publicKey } = req.body as { accessToken?: string; publicKey?: string };
+
+    if (!accessToken || !publicKey) {
+      res.status(400).json({ error: "Access Token e Public Key são obrigatórios." });
+      return;
+    }
+
+    try {
+      // Teste simples: fazer uma requisição à API do Mercado Pago
+      const response = await fetch("https://api.mercadopago.com/v1/payment_methods", {
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+        },
+      });
+
+      if (response.ok) {
+        console.log("[MERCADOPAGO] ✓ Credenciais válidas");
+        res.json({ success: true, message: "Credenciais válidas! Conexão estabelecida." });
+      } else {
+        console.log("[MERCADOPAGO] ✗ Credenciais inválidas:", response.status);
+        res.status(401).json({ error: "Credenciais inválidas ou expiradas." });
+      }
+    } catch (error) {
+      console.error("[MERCADOPAGO] Erro ao testar:", error);
+      res.status(500).json({ error: "Erro ao conectar com Mercado Pago." });
+    }
+  });
+
+  // ── Mercado Pago - Process Payment ────────────────────────────────────────
+  app.post("/api/payment/mercadopago", paymentLimiter, requireAuth, async (req, res) => {
+    const { 
+      cardToken, 
+      amount, 
+      description,
+      paymentMethod,
+      installments,
+      guestData 
+    } = req.body as {
+      cardToken?: string;
+      amount?: number;
+      description?: string;
+      paymentMethod?: string;
+      installments?: string;
+      guestData?: { name?: string; email?: string; cpf?: string };
+    };
+
+    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+
+    if (!accessToken) {
+      console.error("[MERCADOPAGO] Access Token não configurado");
+      res.status(503).json({ error: "Mercado Pago não configurado no servidor." });
+      return;
+    }
+
+    if (!cardToken || !amount || !description) {
+      res.status(400).json({ error: "Dados incompletos para pagamento." });
+      return;
+    }
+
+    if (amount <= 0 || amount > 999999) {
+      res.status(400).json({ error: "Valor inválido para pagamento." });
+      return;
+    }
+
+    try {
+      const payload = {
+        token: cardToken,
+        installments: parseInt(installments || "1", 10),
+        statement_descriptor: description.slice(0, 22),
+        amount: Math.round(amount * 100) / 100, // Garante 2 casas decimais
+        currency_id: "BRL",
+        description,
+        payer: {
+          email: guestData?.email || "comprador@mercadopago.com",
+          first_name: (guestData?.name || "").split(" ")[0],
+          last_name: (guestData?.name || "").split(" ").slice(1).join(" "),
+          identification: {
+            number: guestData?.cpf?.replace(/\D/g, "") || "00000000000",
+            type: "CPF",
+          },
+        },
+      };
+
+      console.log(`[MERCADOPAGO] Processando pagamento: R$ ${amount} | Método: ${paymentMethod}`);
+
+      const response = await fetch("https://api.mercadopago.com/v1/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("[MERCADOPAGO] Erro:", data);
+        res.status(response.status).json({
+          error: data.message || "Erro ao processar pagamento",
+          details: data,
+        });
+        return;
+      }
+
+      console.log("[MERCADOPAGO] ✓ Pagamento processado:", data.id);
+
+      res.json({
+        success: true,
+        paymentId: data.id,
+        status: data.status,
+        statusDetail: data.status_detail,
+        amount: data.transaction_amount,
+      });
+    } catch (error) {
+      console.error("[MERCADOPAGO] Erro ao processar:", error);
+      res.status(500).json({ error: "Erro interno ao processar pagamento." });
+    }
+  });
+
+  // ── Mercado Pago - Webhook ────────────────────────────────────────────────
+  app.post("/api/webhook/mercadopago", express.json(), (req, res) => {
+    const { type, data } = req.body as { type?: string; data?: { id?: string } };
+
+    console.log(`[WEBHOOK MERCADOPAGO] Evento: ${type} | ID: ${data?.id}`);
+
+    // Aqui você processaria notificações de pagamento
+    // Por enquanto, apenas registramos e retornamos sucesso
+
+    res.status(200).json({ received: true });
+  });
+
   // ── Admin Routes ──────────────────────────────────────────────────────────
   app.get("/api/admin/settings", requireAuth, (req, res) => {
     const user = (req as any).user;

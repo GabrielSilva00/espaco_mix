@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
   Settings, Image as ImageIcon, Save, Check, Filter,
-  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw
+  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, CreditCard
 } from 'lucide-react';
 import { getSystemConfig, updateSystemConfig } from '../lib/supabase';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
+import { MercadoPagoSettings } from './MercadoPagoSettings';
 
 export function AdminSettings({
   userRole,
@@ -16,6 +17,7 @@ export function AdminSettings({
   const { can } = usePermissions(userRole);
   const [isSaved, setIsSaved] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'general' | 'payments'>('general');
 
   const defaultSettings = {
     // General
@@ -295,8 +297,38 @@ export function AdminSettings({
         </div>
       </div>
 
+      {/* Abas */}
+      <div className="flex gap-2 sticky top-16 bg-[#0a0a0a]/90 backdrop-blur-xl z-20 py-4 border-b border-white/5">
+        <button
+          onClick={() => setActiveTab('general')}
+          className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-xs uppercase tracking-widest transition ${
+            activeTab === 'general'
+              ? 'bg-[#d4af37] text-black shadow-[0_0_20px_rgba(212,175,55,0.2)]'
+              : 'hover:bg-white/5 text-white/60 hover:text-white'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+          Geral
+        </button>
+        <button
+          onClick={() => setActiveTab('payments')}
+          className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-xs uppercase tracking-widest transition ${
+            activeTab === 'payments'
+              ? 'bg-[#d4af37] text-black shadow-[0_0_20px_rgba(212,175,55,0.2)]'
+              : 'hover:bg-white/5 text-white/60 hover:text-white'
+          }`}
+        >
+          <CreditCard className="w-4 h-4" />
+          Pagamentos
+        </button>
+      </div>
+
+      {/* Conteúdo de Abas */}
       <div className="space-y-10">
-        {/* 1. Configurações Gerais */}
+        {activeTab === 'general' ? (
+          // SEÇÕES GERAIS
+          <>
+            {/* 1. Configurações Gerais */}
         <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8 relative overflow-hidden">
           <div className="absolute top-0 right-0 p-8 opacity-5">
             <Building2 className="w-40 h-40" />
@@ -748,8 +780,13 @@ export function AdminSettings({
               </div>
            </div>
         </section>
-
+          </>
+        ) : (
+          // ABA DE PAGAMENTOS
+          <MercadoPagoSettings />
+        )}
       </div>
     </div>
   );
 }
+

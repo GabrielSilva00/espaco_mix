@@ -28,6 +28,7 @@ GITS
 4. git config --global user.name "Seu Nome": Define o nome de usuário global.
 5. git config --global user.email "seu@email.com": Define o e-mail global.
 
+ 
   Para testar o PWA localmente, rode o build de produção (o service worker só funciona em produção):
 
   npm run build
@@ -51,6 +52,7 @@ GITS
     res.status(400).json({ error: "Provedor de pagamento não reconhecido." });
   });
 
+  
   ---
   Passo 6 — Adicionar o tipo cardToken no request do frontend
 
