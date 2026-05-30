@@ -19,6 +19,7 @@ import { PrivacySettingsView } from './modules/profile/PrivacySettingsView';
 import { PrivacyView } from './modules/privacy/PrivacyView';
 import { TermsView } from './modules/terms/TermsView';
 import { InstallPrompt } from './components/InstallPrompt';
+import { ErrorBoundary } from './shared/components/ErrorBoundary';
 
 // Lazy-loaded: carregados sob demanda para reduzir o bundle inicial
 const DashboardView = React.lazy(() =>
@@ -103,9 +104,11 @@ export function App() {
           {currentView === 'privacy' && <PrivacyView />}
           {currentView === 'terms' && <TermsView />}
           {currentView === 'dashboard' && (
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[60vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
-              <DashboardView />
-            </Suspense>
+            <ErrorBoundary>
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[60vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
+                <DashboardView />
+              </Suspense>
+            </ErrorBoundary>
           )}
 
         </main>

@@ -12,6 +12,9 @@ import { EVENT_TICKET_PRICE } from '../../shared/constants/app';
 import { downloadTicketPDF } from '../../shared/utils/pdf';
 import { signIn, getMyProfile } from '../../lib/supabase';
 import { CardData, validateCardData, formatCardNumber } from '../../lib/cardUtils';
+import { SessionRestoredNotification } from './SessionRestoredNotification';
+import { CreditCardForm } from './CreditCardForm';
+import type { PaymentMethod } from '../../types';
 
 export function CheckoutModal() {
   const [cardData, setCardData] = useState<CardData>({
@@ -24,12 +27,12 @@ export function CheckoutModal() {
   });
 
   const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
+  const [localPaymentMethod, setLocalPaymentMethod] = useState<PaymentMethod | null>(null);
 
   const {
     isCheckoutOpen, setIsCheckoutOpen,
     checkoutStep, setCheckoutStep,
     paymentStatus, setPaymentStatus,
-    paymentMethod, setPaymentMethod,
     guestData, setGuestData,
     selectedTables, singleTickets, maleTickets, femaleTickets,
     grandTotal, subTotal, taxAmount, ticketsTotal, tablesTotal,
@@ -232,13 +235,13 @@ export function CheckoutModal() {
                     {/* PIX - DESTAQUE */}
                     <button 
                       onClick={() => {
-                        setPaymentMethod('pix');
+                        setLocalPaymentMethod('pix');
                         setErrors(prev => ({ ...prev, payment: '' }));
                       }}
-                      className={`w-full p-3 md:p-4 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${paymentMethod === 'pix' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
+                      className={`w-full p-3 md:p-4 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${localPaymentMethod === 'pix' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
                     >
                       <div className="flex items-center gap-3 md:gap-4">
-                        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition ${paymentMethod === 'pix' ? 'bg-[#d4af37] text-black' : 'bg-white/10 text-white'}`}>
+                        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition ${localPaymentMethod === 'pix' ? 'bg-[#d4af37] text-black' : 'bg-white/10 text-white'}`}>
                           <Smartphone className="w-5 h-5 md:w-6 md:h-6" />
                         </div>
                         <div className="text-left">
@@ -249,8 +252,8 @@ export function CheckoutModal() {
                           <p className="text-[9px] md:text-[10px] opacity-40">Aprovação instantânea 24/7</p>
                         </div>
                       </div>
-                      <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center ${paymentMethod === 'pix' ? 'border-[#d4af37] bg-[#d4af37]' : 'border-white/10'}`}>
-                        {paymentMethod === 'pix' && <Check className="w-3 h-3 text-black" />}
+                      <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center ${localPaymentMethod === 'pix' ? 'border-[#d4af37] bg-[#d4af37]' : 'border-white/10'}`}>
+                        {localPaymentMethod === 'pix' && <Check className="w-3 h-3 text-black" />}
                       </div>
                     </button>
 
@@ -258,13 +261,13 @@ export function CheckoutModal() {
                     <AnimatePresence>
                       <button 
                         onClick={() => {
-                          setPaymentMethod('credit_card');
+                          setLocalPaymentMethod('credit_card');
                           setErrors(prev => ({ ...prev, payment: '' }));
                         }}
-                        className={`w-full p-3 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${paymentMethod === 'credit_card' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
+                        className={`w-full p-3 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${localPaymentMethod === 'credit_card' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
                       >
                         <div className="flex items-center gap-3 md:gap-4">
-                          <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center transition ${paymentMethod === 'credit_card' ? 'bg-[#d4af37] text-black' : 'bg-white/10 text-white'}`}>
+                          <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center transition ${localPaymentMethod === 'credit_card' ? 'bg-[#d4af37] text-black' : 'bg-white/10 text-white'}`}>
                             <CreditCard className="w-4 h-4 md:w-5 md:h-5" />
                           </div>
                           <div className="text-left">
@@ -272,108 +275,30 @@ export function CheckoutModal() {
                             <p className="text-[9px] md:text-[10px] opacity-40">Até 12x no cartão</p>
                           </div>
                         </div>
-                        <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${paymentMethod === 'credit_card' ? 'border-[#d4af37] bg-[#d4af37]' : 'border-white/10'}`}>
-                          {paymentMethod === 'credit_card' && <Check className="w-3 h-3 text-black" />}
+                        <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${localPaymentMethod === 'credit_card' ? 'border-[#d4af37] bg-[#d4af37]' : 'border-white/10'}`}>
+                          {localPaymentMethod === 'credit_card' && <Check className="w-3 h-3 text-black" />}
                         </div>
                       </button>
 
-                      {paymentMethod === 'credit_card' && (
+                      {localPaymentMethod === 'credit_card' && (
                         <motion.div 
                           initial={{ opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: 'auto' }}
                           exit={{ opacity: 0, height: 0 }}
                           className="px-2 pb-2 overflow-hidden"
                         >
-                          <div className="pt-4 border-t border-white/5 mt-4 space-y-4">
-                             <div className="space-y-4">
-                               <div className="relative">
-                                 <input 
-                                   type="text" 
-                                   placeholder="Número do Cartão" 
-                                   value={cardData.number}
-                                   onChange={(e) => {
-                                     const formatted = formatCardNumber(e.target.value.replace(/\D/g, ''));
-                                     setCardData(prev => ({ ...prev, number: formatted }));
-                                     if (cardErrors.number) setCardErrors(prev => ({ ...prev, number: '' }));
-                                   }}
-                                   maxLength={23}
-                                   className={`w-full bg-[#111] border rounded-xl p-3 md:p-4 text-[11px] md:text-sm focus:outline-none transition font-mono tracking-widest ${
-                                     cardErrors.number ? 'border-red-500 text-red-400' : 'border-white/10 focus:border-[#d4af37] text-[#d4af37]'
-                                   }`}
-                                 />
-                                 <CreditCard className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                               </div>
-                               {cardErrors.number && <p className="text-xs text-red-400">{cardErrors.number}</p>}
-
-                               <input 
-                                 type="text" 
-                                 placeholder="Nome Impresso no Cartão" 
-                                 value={cardData.holderName}
-                                 onChange={(e) => {
-                                   setCardData(prev => ({ ...prev, holderName: e.target.value.toUpperCase() }));
-                                   if (cardErrors.holderName) setCardErrors(prev => ({ ...prev, holderName: '' }));
-                                 }}
-                                 className={`w-full bg-[#111] border rounded-xl p-3 md:p-4 text-[11px] md:text-sm focus:outline-none transition uppercase ${
-                                   cardErrors.holderName ? 'border-red-500 text-red-400' : 'border-white/10 focus:border-[#d4af37]'
-                                 }`}
-                               />
-                               {cardErrors.holderName && <p className="text-xs text-red-400">{cardErrors.holderName}</p>}
-
-                               <div className="flex gap-4">
-                                  <div className="w-1/2">
-                                    <input 
-                                      type="text" 
-                                      placeholder="Validade (MM/AA)" 
-                                      value={
-                                        cardData.expiryMonth && cardData.expiryYear 
-                                          ? `${cardData.expiryMonth}/${cardData.expiryYear}` 
-                                          : ''
-                                      }
-                                      onChange={(e) => {
-                                        const val = e.target.value.replace(/\D/g, '');
-                                        if (val.length <= 2) {
-                                          setCardData(prev => ({ ...prev, expiryMonth: val }));
-                                        } else if (val.length <= 4) {
-                                          setCardData(prev => ({ ...prev, expiryMonth: val.slice(0, 2), expiryYear: val.slice(2) }));
-                                        }
-                                        if (cardErrors.expiryMonth) setCardErrors(prev => ({ ...prev, expiryMonth: '' }));
-                                      }}
-                                      maxLength={5}
-                                      className={`w-full bg-[#111] border rounded-xl p-3 md:p-4 text-[11px] md:text-sm focus:outline-none transition font-mono ${
-                                        cardErrors.expiryMonth ? 'border-red-500 text-red-400' : 'border-white/10 focus:border-[#d4af37]'
-                                      }`}
-                                    />
-                                  </div>
-                                  <div className="w-1/2">
-                                    <input 
-                                      type="text" 
-                                      placeholder="CVV" 
-                                      value={cardData.cvv}
-                                      onChange={(e) => {
-                                        setCardData(prev => ({ ...prev, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) }));
-                                        if (cardErrors.cvv) setCardErrors(prev => ({ ...prev, cvv: '' }));
-                                      }}
-                                      maxLength={4}
-                                      className={`w-full bg-[#111] border rounded-xl p-3 md:p-4 text-[11px] md:text-sm focus:outline-none transition font-mono ${
-                                        cardErrors.cvv ? 'border-red-500 text-red-400' : 'border-white/10 focus:border-[#d4af37]'
-                                      }`}
-                                    />
-                                  </div>
-                               </div>
-                               {cardErrors.expiryMonth && <p className="text-xs text-red-400">{cardErrors.expiryMonth}</p>}
-                               {cardErrors.cvv && <p className="text-xs text-red-400">{cardErrors.cvv}</p>}
-
-                               <select 
-                                 value={cardData.installments}
-                                 onChange={(e) => setCardData(prev => ({ ...prev, installments: e.target.value }))}
-                                 className="w-full select-field text-[11px] md:text-sm"
-                               >
-                                  <option value="1">1x de R$ {grandTotal.toFixed(2)} sem juros</option>
-                                  <option value="2">2x de R$ {(grandTotal / 2).toFixed(2)} sem juros</option>
-                                  <option value="3">3x de R$ {(grandTotal / 3).toFixed(2)} sem juros</option>
-                               </select>
-                             </div>
-                          </div>
+                          <CreditCardForm 
+                            cardData={cardData}
+                            onCardDataChange={(newCardData) => {
+                              setCardData(newCardData);
+                              // Clear errors when user starts typing
+                              if (Object.keys(cardErrors).length > 0) {
+                                setCardErrors({});
+                              }
+                            }}
+                            cardErrors={cardErrors}
+                            grandTotal={grandTotal}
+                          />
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -381,13 +306,13 @@ export function CheckoutModal() {
                     {/* Cartão de Débito */}
                     <button 
                       onClick={() => {
-                        setPaymentMethod('debit_card');
+                        setLocalPaymentMethod('debit_card');
                         setErrors(prev => ({ ...prev, payment: '' }));
                       }}
-                      className={`w-full p-3 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${paymentMethod === 'debit_card' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
+                      className={`w-full p-3 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${localPaymentMethod === 'debit_card' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
                     >
                       <div className="flex items-center gap-3 md:gap-4">
-                        <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center transition ${paymentMethod === 'debit_card' ? 'bg-[#d4af37] text-black' : 'bg-white/10 text-white'}`}>
+                        <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center transition ${localPaymentMethod === 'debit_card' ? 'bg-[#d4af37] text-black' : 'bg-white/10 text-white'}`}>
                           <CreditCard className="w-4 h-4 md:w-5 md:h-5" />
                         </div>
                         <div className="text-left">
@@ -395,8 +320,8 @@ export function CheckoutModal() {
                           <p className="text-[9px] md:text-[10px] opacity-40">Débito à vista</p>
                         </div>
                       </div>
-                      <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center ${paymentMethod === 'debit_card' ? 'border-[#d4af37] bg-[#d4af37]' : 'border-white/10'}`}>
-                        {paymentMethod === 'debit_card' && <Check className="w-3 h-3 text-black" />}
+                      <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center ${localPaymentMethod === 'debit_card' ? 'border-[#d4af37] bg-[#d4af37]' : 'border-white/10'}`}>
+                        {localPaymentMethod === 'debit_card' && <Check className="w-3 h-3 text-black" />}
                       </div>
                     </button>
 
@@ -404,7 +329,7 @@ export function CheckoutModal() {
 
                   <button 
                     onClick={() => {
-                      if (paymentMethod === 'credit_card') {
+                      if (localPaymentMethod === 'credit_card') {
                         // Validar dados do cartão
                         const validation = validateCardData(cardData);
                         if (!validation.isValid) {
@@ -414,9 +339,9 @@ export function CheckoutModal() {
                         }
                         setCardErrors({});
                       }
-                      handleConfirmReservation();
+                      handleConfirmReservation(localPaymentMethod === 'credit_card' ? cardData : undefined, localPaymentMethod);
                     }}
-                    disabled={!paymentMethod || isProcessingPayment}
+                    disabled={!localPaymentMethod || isProcessingPayment}
                     className="w-full py-3 md:py-4 mt-2 text-[10px] md:text-[11px] font-bold tracking-[0.2em] uppercase text-[#0a0a0a] bg-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.2)] rounded-full hover:brightness-110 transition flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     Confirmar e Pagar <ChevronRight className="w-4 h-4" />
@@ -838,7 +763,7 @@ export function CheckoutModal() {
                   animate={{ opacity: 1, scale: 1 }}
                   className="flex flex-col items-center justify-center py-6"
                 >
-                  {paymentMethod === 'pix' && pixData ? (
+                  {localPaymentMethod === 'pix' && pixData ? (
                     <div className="text-center w-full">
                       <div className="bg-white p-4 rounded-2xl inline-block mb-6 shadow-xl">
                         <img src={pixData.qrCode} alt="PIX QR Code" className="w-48 h-48 mx-auto" />
@@ -888,7 +813,7 @@ export function CheckoutModal() {
                           <CreditCard className="w-6 h-6 text-[#d4af37] animate-pulse" />
                         </div>
                       </div>
-                      <h3 className="text-xl font-serif text-[#d4af37] mb-2">Processando {paymentMethod?.replace('_', ' ')}</h3>
+                      <h3 className="text-xl font-serif text-[#d4af37] mb-2">Processando {localPaymentMethod?.replace('_', ' ')}</h3>
                       <p className="text-[10px] uppercase tracking-widest opacity-50">Por favor aguarde...</p>
                     </div>
                   )}
@@ -1186,42 +1111,17 @@ export function CheckoutModal() {
         )}
       </AnimatePresence>
 
-      {/* Session Restored / Conflict Notification */}
+      {/* Session Restored / Conflict Notification - FIX: Auto-dismiss and proper cleanup */}
       <AnimatePresence>
         {(sessionRestored || sessionConflict.length > 0) && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50, x: '-50%' }}
-            animate={{ opacity: 1, y: 0, x: '-50%' }}
-            exit={{ opacity: 0, y: 20, x: '-50%' }}
-            className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-md"
-          >
-            <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 shadow-2xl shadow-black/50 backdrop-blur-xl">
-              <div className="flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${sessionConflict.length > 0 ? 'bg-amber-500/10 text-amber-500' : 'bg-green-500/10 text-green-500'}`}>
-                  {sessionConflict.length > 0 ? <ShieldAlert className="w-5 h-5" /> : <RefreshCcw className="w-5 h-5" />}
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-[#d4af37]">
-                    {sessionConflict.length > 0 ? 'Conflito de Disponibilidade' : 'Sessão Restaurada'}
-                  </h4>
-                  <p className="text-[10px] opacity-60 leading-relaxed mt-0.5">
-                    {sessionConflict.length > 0 
-                      ? `Notamos que ${sessionConflict.join(', ')} não estão mais disponíveis e foram removidos.` 
-                      : 'Recuperamos o seu checkout anterior para sua conveniência.'}
-                  </p>
-                </div>
-                <button 
-                  onClick={() => {
-                    setSessionRestored(false);
-                    setSessionConflict([]);
-                  }}
-                  className="w-8 h-8 rounded-full hover:bg-white/5 flex items-center justify-center transition opacity-40 hover:opacity-100"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </motion.div>
+          <SessionRestoredNotification 
+            isVisible={sessionRestored || sessionConflict.length > 0}
+            sessionConflict={sessionConflict}
+            onClose={() => {
+              setSessionRestored(false);
+              setSessionConflict([]);
+            }}
+          />
         )}
       </AnimatePresence>
     </>

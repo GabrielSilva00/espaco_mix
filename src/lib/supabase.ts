@@ -463,23 +463,74 @@ export async function getEvents(): Promise<Event[]> {
   const { data, error } = await supabase
     .from('events')
     .select(`
-      *,
-      batches (
-        *,
-        sectors ( * )
-      )
+      id,
+      title,
+      description,
+      date,
+      end_date,
+      time,
+      end_time,
+      location,
+      status,
+      img,
+      price_type,
+      has_tables,
+      age_rating,
+      important_notes,
+      entry_rules,
+      additional_info,
+      pos_locations,
+      category,
+      capacity,
+      is_recurring,
+      custom_url,
+      refund_policy,
+      social_instagram,
+      social_spotify,
+      table_total,
+      table_seats,
+      table_rows,
+      table_cols,
+      table_layout,
+      created_by,
+      assigned_staff,
+      updated_at
     `)
-    .order('date', { ascending: true });
+    .order('date', { ascending: true })
+    .limit(100);
 
   if (error) throw error;
   return (data ?? []) as Event[];
+}
+
+/** Carregar batches e sectors de um evento sob demanda */
+export async function getEventBatches(eventId: number): Promise<Batch[]> {
+  const { data, error } = await supabase
+    .from('batches')
+    .select(`
+      *,
+      sectors ( * )
+    `)
+    .eq('event_id', eventId)
+    .order('sort_order', { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as Batch[];
 }
 
 /** Buscar eventos do usuário logado (criadores de eventos) */
 export async function getMyEvents(userId: string): Promise<Event[]> {
   const { data, error } = await supabase
     .from('events')
-    .select(`*, batches(*, sectors(*))`)
+    .select(`
+      id, title, description, date, end_date, time, end_time,
+      location, status, img, price_type, has_tables, age_rating,
+      important_notes, entry_rules, additional_info, pos_locations,
+      category, capacity, is_recurring, custom_url, refund_policy,
+      social_instagram, social_spotify, table_total, table_seats,
+      table_rows, table_cols, table_layout, created_by, assigned_staff,
+      updated_at
+    `)
     .eq('created_by', userId)
     .order('date', { ascending: true });
 
@@ -884,14 +935,53 @@ export async function updateSystemConfig(
 
 /** Ouvir mudanças nos eventos em tempo real */
 export function subscribeToEvents(callback: (events: Event[]) => void) {
+  let cachedEvents: Event[] = [];
+  
+  // Carrega os eventos iniciais
+  getEvents().then(events => {
+    cachedEvents = events;
+    callback(events);
+  });
+
   const channel = supabase
     .channel('events-changes')
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'events' },
-      async () => {
-        const events = await getEvents();
-        callback(events);
+      async (payload) => {
+        // Ao invés de recarregar TODOS os eventos, apenas atualiza/insere/deleta o evento modificado
+        const eventId = payload.new?.id || payload.old?.id;
+        
+        if (payload.eventType === 'DELETE') {
+          cachedEvents = cachedEvents.filter(e => e.id !== eventId);
+        } else {
+          // Para INSERT ou UPDATE, recarrega apenas o evento específico
+          const { data: updatedEvent } = await supabase
+            .from('events')
+            .select(`
+              id, title, description, date, end_date, time, end_time,
+              location, status, img, price_type, has_tables, age_rating,
+              important_notes, entry_rules, additional_info, pos_locations,
+              category, capacity, is_recurring, custom_url, refund_policy,
+              social_instagram, social_spotify, table_total, table_seats,
+              table_rows, table_cols, table_layout, created_by, assigned_staff,
+              updated_at
+            `)
+            .eq('id', eventId)
+            .maybeSingle();
+          
+          if (updatedEvent) {
+            const index = cachedEvents.findIndex(e => e.id === eventId);
+            if (index >= 0) {
+              cachedEvents[index] = updatedEvent as Event;
+            } else {
+              cachedEvents.push(updatedEvent as Event);
+            }
+            cachedEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          }
+        }
+        
+        callback(cachedEvents);
       }
     )
     .subscribe();

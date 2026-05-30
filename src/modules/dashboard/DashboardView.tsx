@@ -22,6 +22,7 @@ import { AdminSettings } from '../../components/AdminSettings';
 import { DeveloperPanel } from '../../components/DeveloperPanel';
 import { TableLayoutEditor } from '../../components/TableLayoutEditor';
 import { downloadPDFList } from '../../shared/utils/pdf';
+import { generateDefaultLayout, getLayoutViewBox } from '../../shared/utils/defaultLayout';
 import type { Event, Buyer, Reservation } from '../../types';
 
 // ─── Admin Overview ────────────────────────────────────────────

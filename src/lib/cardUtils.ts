@@ -115,16 +115,16 @@ export function detectCardBrand(cardNumber: string): 'visa' | 'mastercard' | 'am
   return 'unknown';
 }
 
-// Tokenizar cartão com Mercado Pago (necessita do SDK carregado)
+// Tokenizar cartão com Mercado Pago SDK
 export async function tokenizeCard(cardData: CardData): Promise<string | null> {
-  const publicKey = localStorage.getItem('mp_public_key');
+  const publicKey = localStorage.getItem('mp_public_key')
+    || (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_MERCADOPAGO_PUBLIC_KEY : null);
 
   if (!publicKey) {
     console.error('[CardTokenizer] Public Key do Mercado Pago não configurada');
     return null;
   }
 
-  // Validar dados antes de tokenizar
   const validation = validateCardData(cardData);
   if (!validation.isValid) {
     console.error('[CardTokenizer] Dados do cartão inválidos:', validation.errors);
@@ -132,14 +132,25 @@ export async function tokenizeCard(cardData: CardData): Promise<string | null> {
   }
 
   try {
-    // Aqui você chamaria a API de tokenização do Mercado Pago
-    // Por enquanto, retornamos um mock token
-    // Em produção, use: mp.createCardToken({...cardData})
+    const { loadMercadoPago } = await import('@mercadopago/sdk-js');
+    const MercadoPagoConstructor = await loadMercadoPago() as any;
+    if (!MercadoPagoConstructor) throw new Error('SDK do Mercado Pago não disponível');
 
-    const mockToken = `tok_${Math.random().toString(36).substring(2, 15)}_${cardData.number.slice(-4)}`;
-    console.log('[CardTokenizer] Mock Token gerado:', mockToken);
+    const mp = new MercadoPagoConstructor(publicKey);
+    const expiryYear = cardData.expiryYear.length === 2
+      ? `20${cardData.expiryYear}`
+      : cardData.expiryYear;
 
-    return mockToken;
+    const result = await mp.createCardToken({
+      cardNumber: cardData.number.replace(/\s/g, ''),
+      cardholderName: cardData.holderName,
+      cardExpirationMonth: cardData.expiryMonth.padStart(2, '0'),
+      cardExpirationYear: expiryYear,
+      securityCode: cardData.cvv,
+    });
+
+    console.log('[CardTokenizer] Token gerado:', result.id);
+    return result.id ?? null;
   } catch (error) {
     console.error('[CardTokenizer] Erro ao tokenizar:', error);
     return null;

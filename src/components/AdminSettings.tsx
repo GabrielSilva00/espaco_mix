@@ -297,8 +297,8 @@ export function AdminSettings({
         </div>
       </div>
 
-      {/* Abas */}
-      <div className="flex gap-2 sticky top-16 bg-[#0a0a0a]/90 backdrop-blur-xl z-20 py-4 border-b border-white/5">
+      {/* Abas - FIXO NO TOPO */}
+      <div className="sticky top-0 bg-[#0a0a0a] z-40 py-4 border-b border-white/5 flex gap-2">
         <button
           onClick={() => setActiveTab('general')}
           className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-xs uppercase tracking-widest transition ${

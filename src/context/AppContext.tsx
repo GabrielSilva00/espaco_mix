@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import {
   supabase,
   signIn, signOut, signUp, getMyProfile,
-  getEvents, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
+  getEvents, getEventBatches, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations,
   getStaffAccounts, createStaffAccount,
   getSystemConfig, updateSystemConfig,
@@ -13,6 +13,7 @@ import {
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { mapDbEventToApp, mapAppEventToDb } from '../shared/utils/eventMapper';
 import { validateGuestData as validateGuestDataUtil } from '../shared/utils/validators';
+import { type CardData, tokenizeCard } from '../lib/cardUtils';
 import { mockTables, MOCK_BUYERS, EVENT_TICKET_PRICE, CART_EXPIRATION_MS } from '../shared/constants/app';
 import type {
   Event, Buyer, Reservation, StaffAccount, SessionUser, SiteConfig,
@@ -263,7 +264,7 @@ interface AppContextValue {
   handleLogout: () => Promise<void>;
   handleRegister: (e: React.FormEvent) => void;
   handleVerifyCode: () => Promise<void>;
-  handleEditEvent: (evt: Event) => void;
+  handleEditEvent: (evt: Event) => Promise<void>;
   handleCreateEvent: () => void;
   handleSaveEvent: (isDraft?: boolean) => Promise<void>;
   handleUpdateEventStatus: (eventId: number, newStatus: Event['status']) => Promise<void>;
@@ -275,7 +276,7 @@ interface AppContextValue {
   toggleTableSelection: (tableId: number, status: 'available' | 'reserved') => void;
   getTableStatus: (tableId: number, baseStatus: 'available' | 'reserved') => TableStatus;
   handleCheckout: () => void;
-  handleConfirmReservation: () => Promise<void>;
+  handleConfirmReservation: (cardData?: CardData, selectedPaymentMethod?: PaymentMethod | null) => Promise<void>;
   handleCreateReservation: (
     reservationData: Parameters<typeof createReservationInDb>[0],
     ticketItems: Parameters<typeof createReservationInDb>[1]
@@ -447,6 +448,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Refs
   const adminScrollRef = useRef<HTMLDivElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const lenisRef = useRef<Lenis | null>(null);
 
   // ─── Computed values ─────────────────────────────────────────────────────
 
@@ -656,11 +658,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         touchMultiplier: 2,
         infinite: false,
       });
+      lenisRef.current = lenis;
       function raf(time: number) { lenis.raf(time); requestAnimationFrame(raf); }
       requestAnimationFrame(raf);
-      return () => { lenis.destroy(); };
+      return () => { lenis.destroy(); lenisRef.current = null; };
     }
   }, []);
+
+  useEffect(() => {
+    if (isCheckoutOpen) {
+      lenisRef.current?.stop();
+    } else {
+      lenisRef.current?.start();
+    }
+  }, [isCheckoutOpen]);
 
   useEffect(() => {
     if (currentView === 'admin-login') {
@@ -681,20 +692,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
-    let changed = false;
-    const updatedEvents = events.map((e: Event) => {
-      if (e.date < today && e.status !== 'Finalizado') { changed = true; return { ...e, status: 'Finalizado' as const }; }
-      return e;
+    let firstLoad = true;
+    const unsubscribe = subscribeToEvents(data => {
+      setEvents(data.map(mapDbEventToApp).map(e =>
+        e.date < today && e.status !== 'Finalizado' ? { ...e, status: 'Finalizado' as const } : e
+      ));
+      if (firstLoad) { firstLoad = false; setLoadingEvents(false); }
     });
-    if (changed) setEvents(updatedEvents);
-  }, [events]);
-
-  useEffect(() => {
-    getEvents()
-      .then(data => setEvents(data.map(mapDbEventToApp)))
-      .catch(e => console.error('[Context] Erro ao carregar eventos:', (e as Error)?.message))
-      .finally(() => setLoadingEvents(false));
-    const unsubscribe = subscribeToEvents(data => setEvents(data.map(mapDbEventToApp)));
     return () => { unsubscribe(); };
   }, []);
 
@@ -743,11 +747,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const conflictList: string[] = [];
         if (session.singleTickets) { setSingleTickets(session.singleTickets); restoredAnything = true; }
         if (session.guestData) { setGuestData(session.guestData); restoredAnything = true; }
-        if (session.paymentMethod) { setPaymentMethod(session.paymentMethod); restoredAnything = true; }
-        if (session.isCheckoutOpen) {
-          setIsCheckoutOpen(true); restoredAnything = true;
-          if (['selection', 'identification', 'guest-form', 'payment-method'].includes(session.checkoutStep)) setCheckoutStep(session.checkoutStep);
-        }
+        // Checkout nunca é reaberto automaticamente — apenas o carrinho é restaurado
         if (Array.isArray(session.selectedTables) && session.selectedTables.length > 0) {
           const availableRestored = session.selectedTables.filter((id: number) => {
             const table = tables.find(t => t.id === id);
@@ -774,9 +774,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // CPF não é persistido no localStorage — dados sensíveis ficam apenas em memória
     const { cpf: _cpf, ...guestDataSafe } = guestData;
-    const session = { selectedTables, singleTickets, guestData: guestDataSafe, paymentMethod, isCheckoutOpen, checkoutStep };
+    const session = { selectedTables, singleTickets, guestData: guestDataSafe };
     localStorage.setItem('eventix-session', JSON.stringify(session));
-  }, [selectedTables, singleTickets, guestData, paymentMethod, isCheckoutOpen, checkoutStep]);
+  }, [selectedTables, singleTickets, guestData]);
 
   useEffect(() => {
     if (userRole !== 'admin' && userRole !== 'developer') return;
@@ -853,10 +853,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleEditEvent = (evt: Event) => {
-    setFormEvent({ ...evt });
+  const handleEditEvent = async (evt: Event) => {
+    setFormEvent({ ...evt, batches: [] });
     setSelectedDashboardEvent(evt.id);
     setDashboardMode('edit');
+    try {
+      const rawBatches = await getEventBatches(evt.id);
+      const mapped = mapDbEventToApp({ batches: rawBatches });
+      setFormEvent(prev => ({ ...prev, batches: mapped.batches }));
+    } catch (e) {
+      console.error('[handleEditEvent] Erro ao carregar batches:', e);
+    }
   };
 
   const handleCreateEvent = () => {
@@ -1066,7 +1073,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCheckoutStep('selection');
   };
 
-  const handleConfirmReservation = async () => {
+  const handleConfirmReservation = async (cardData?: CardData, selectedPaymentMethod?: PaymentMethod | null) => {
     if (isProcessingPayment) return;
     if (!role) {
       const errs = validateGuestDataUtil(guestData);
@@ -1075,75 +1082,107 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsProcessingPayment(true);
     setPaymentStatus('processing');
     setPixData(null);
-    try {
-      if (paymentMethod === 'pix') {
-        setPixData({
-          qrCode: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=00020101021226850014br.gov.bcb.pix0123yourkeyhere520400005303986540510.005802BR5913EVENTIX_PIX6009SAO_PAULO62070503***6304ABCD',
-          copyPaste: '00020101021226850014br.gov.bcb.pix0123yourkeyhere520400005303986540510.005802BR5913EVENTIX_PIX6009SAO_PAULO62070503***6304ABCD',
-        });
-        setCheckoutStep('processing');
-      }
-      setTimeout(() => {
-        const generatedTickets: TicketItem[] = [];
-        const getOwnerData = (isFirst: boolean) => {
-          if (identificationOption === 'same_as_buyer') return { ownerName: guestData.name, ownerCpf: guestData.cpf, ownerEmail: guestData.email };
-          if (isFirst) return { ownerName: guestData.name, ownerCpf: guestData.cpf, ownerEmail: guestData.email };
-          return { ownerName: '', ownerCpf: '', ownerEmail: '' };
-        };
-        let tIndex = 0;
-        selectedTables.forEach((tableId) => {
-          const tbl = derivedTables.find(t => t.id === tableId);
-          const seats = tbl?.capacity ?? 4;
-          for (let i = 0; i < seats; i++) {
-            const isFirst = tIndex === 0;
-            generatedTickets.push({
-              id: `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-              name: `Mesa #${tableId} — Assento ${i + 1}`,
-              isTable: true,
-              tableNumber: tableId,
-              occupantIndex: i,
-              status: 'active',
-              ...getOwnerData(isFirst),
-            });
-            tIndex++;
-          }
-        });
-        const ticketCount = singleTickets + maleTickets + femaleTickets;
-        for (let i = 0; i < ticketCount; i++) {
-          const isFirst = tIndex === 0;
+
+    const finalizeSuccess = () => {
+      const generatedTickets: TicketItem[] = [];
+      const getOwnerData = (isFirst: boolean) => {
+        if (identificationOption === 'same_as_buyer') return { ownerName: guestData.name, ownerCpf: guestData.cpf, ownerEmail: guestData.email };
+        if (isFirst) return { ownerName: guestData.name, ownerCpf: guestData.cpf, ownerEmail: guestData.email };
+        return { ownerName: '', ownerCpf: '', ownerEmail: '' };
+      };
+      let tIndex = 0;
+      selectedTables.forEach((tableId) => {
+        const tbl = derivedTables.find(t => t.id === tableId);
+        const seats = tbl?.capacity ?? 4;
+        for (let i = 0; i < seats; i++) {
           generatedTickets.push({
             id: `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-            name: `Ingresso Individual`,
-            isTable: false,
+            name: `Mesa #${tableId} — Assento ${i + 1}`,
+            isTable: true,
+            tableNumber: tableId,
+            occupantIndex: i,
             status: 'active',
-            ...getOwnerData(isFirst),
+            ...getOwnerData(tIndex === 0),
           });
           tIndex++;
         }
-        const newRes: Reservation = {
-          id: `RES-${Date.now()}`,
-          date: new Date().toISOString(),
-          tables: [...selectedTables],
-          singleTickets,
-          ticketsObj: generatedTickets,
-          total: grandTotal,
-          eventId: 1,
-          buyerName: guestData.name,
-          paymentStatus: 'approved',
-          paymentMethod: paymentMethod || 'credit_card',
-          platformFee: taxAmount,
-          netAmount: subTotal,
-          createdAt: new Date().toISOString(),
-        };
-        setReservations([newRes, ...reservations]);
-        setPaymentStatus('success');
+      });
+      const ticketCount = singleTickets + maleTickets + femaleTickets;
+      for (let i = 0; i < ticketCount; i++) {
+        generatedTickets.push({
+          id: `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+          name: `Ingresso Individual`,
+          isTable: false,
+          status: 'active',
+          ...getOwnerData(tIndex === 0),
+        });
+        tIndex++;
+      }
+      const newRes: Reservation = {
+        id: `RES-${Date.now()}`,
+        date: new Date().toISOString(),
+        tables: [...selectedTables],
+        singleTickets,
+        ticketsObj: generatedTickets,
+        total: grandTotal,
+        eventId: activeEvent?.id ?? 1,
+        buyerName: guestData.name,
+        paymentStatus: 'approved',
+        paymentMethod: selectedPaymentMethod || 'credit_card',
+        platformFee: taxAmount,
+        netAmount: subTotal,
+        createdAt: new Date().toISOString(),
+      };
+      setReservations([newRes, ...reservations]);
+      setPaymentStatus('success');
+      setIsProcessingPayment(false);
+      setCartExpiresAt(null);
+      setSelectedTables([]);
+      setSingleTickets(0);
+      setMaleTickets(0);
+      setFemaleTickets(0);
+    };
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
+      if (selectedPaymentMethod === 'pix') {
+        const res = await fetch('/api/payment/pix', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({ amount: grandTotal, description: activeEvent?.title || 'Ingresso', guestData }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Erro ao gerar PIX');
+        setPixData({ qrCode: data.qrCodeUrl, copyPaste: data.qrCode });
+        setCheckoutStep('processing');
+        // Mostra QR code; pagamento confirmado via webhook. isProcessingPayment liberado para interação.
         setIsProcessingPayment(false);
-        setCartExpiresAt(null);
-        setSelectedTables([]);
-        setSingleTickets(0);
-        setMaleTickets(0);
-        setFemaleTickets(0);
-      }, 2000);
+      } else {
+        if (!cardData) throw new Error('Dados do cartão não informados');
+        const cardToken = await tokenizeCard(cardData);
+        if (!cardToken) throw new Error('Falha ao tokenizar cartão. Verifique os dados e tente novamente.');
+        const res = await fetch('/api/payment/mercadopago', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            cardToken,
+            amount: grandTotal,
+            description: activeEvent?.title || 'Ingresso',
+            paymentMethod: selectedPaymentMethod,
+            installments: cardData.installments,
+            guestData,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Erro ao processar pagamento');
+        finalizeSuccess();
+      }
     } catch (err: any) {
       console.error('[Payment] Erro na transação:', err?.message ?? 'Erro desconhecido');
       setErrors({ payment: err.message || 'Falha na transação de segurança.' });

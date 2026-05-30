@@ -525,15 +525,88 @@ async function startServer() {
     }
   });
 
-  // ── Mercado Pago - Webhook ────────────────────────────────────────────────
-  app.post("/api/webhook/mercadopago", express.json(), (req, res) => {
-    const { type, data } = req.body as { type?: string; data?: { id?: string } };
+  // ── Mercado Pago - PIX ────────────────────────────────────────────────────
+  app.post("/api/payment/pix", paymentLimiter, requireAuth, async (req, res) => {
+    const { amount, description, guestData } = req.body as {
+      amount?: number;
+      description?: string;
+      guestData?: { name?: string; email?: string; cpf?: string };
+    };
 
-    console.log(`[WEBHOOK MERCADOPAGO] Evento: ${type} | ID: ${data?.id}`);
+    if (!amount || amount <= 0) {
+      res.status(400).json({ error: "Valor inválido para pagamento PIX." });
+      return;
+    }
 
-    // Aqui você processaria notificações de pagamento
-    // Por enquanto, apenas registramos e retornamos sucesso
+    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+    if (!accessToken) {
+      res.status(503).json({ error: "Mercado Pago não configurado no servidor." });
+      return;
+    }
 
+    try {
+      const response = await fetch("https://api.mercadopago.com/v1/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+          "X-Idempotency-Key": `pix-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        },
+        body: JSON.stringify({
+          payment_method_id: "pix",
+          transaction_amount: Math.round(amount * 100) / 100,
+          description: (description || "Ingresso").slice(0, 255),
+          payer: {
+            email: guestData?.email || "comprador@email.com",
+            first_name: (guestData?.name || "").split(" ")[0] || "Comprador",
+            last_name: (guestData?.name || "").split(" ").slice(1).join(" ") || "Eventix",
+            identification: {
+              type: "CPF",
+              number: (guestData?.cpf || "").replace(/\D/g, ""),
+            },
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("[PIX] Erro Mercado Pago:", data);
+        res.status(response.status).json({ error: data.message || "Erro ao gerar PIX" });
+        return;
+      }
+
+      const qrCode = data.point_of_interaction?.transaction_data?.qr_code ?? "";
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCode)}&size=250x250`;
+
+      console.log(`[PIX] Gerado paymentId=${data.id} status=${data.status}`);
+      res.json({
+        paymentId: data.id,
+        status: data.status,
+        qrCode,
+        qrCodeUrl,
+      });
+    } catch (error) {
+      console.error("[PIX] Erro interno:", error);
+      res.status(500).json({ error: "Erro interno ao gerar PIX." });
+    }
+  });
+
+  // ── Mercado Pago - Webhook (SEM AUTENTICAÇÃO, SEM CORS, ACEITA QUALQUER CONTENT-TYPE) ──
+  app.post("/api/webhook/mercadopago", (req, res, next) => {
+    // Aceita JSON, x-www-form-urlencoded, ou texto puro
+    if (req.is('application/json')) {
+      express.json()(req, res, next);
+    } else if (req.is('application/x-www-form-urlencoded')) {
+      express.urlencoded({ extended: true })(req, res, next);
+    } else {
+      express.text({ type: '*/*' })(req, res, next);
+    }
+  }, (req, res) => {
+    // Loga tudo para debug
+    console.log('[WEBHOOK MERCADOPAGO] Headers:', req.headers);
+    console.log('[WEBHOOK MERCADOPAGO] Body:', req.body);
+    // Sempre responde 200 para evitar retries
     res.status(200).json({ received: true });
   });
 

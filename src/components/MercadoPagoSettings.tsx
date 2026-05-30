@@ -4,6 +4,7 @@ import {
   TestTube, CheckCircle2, AlertTriangle, Info, Key, CreditCard,
   RefreshCcw
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 export function MercadoPagoSettings() {
   const [settings, setSettings] = useState({
@@ -38,9 +39,25 @@ export function MercadoPagoSettings() {
     setTestMessage('');
 
     try {
-      const response = await fetch('/api/admin/test-mercadopago', {
+      // Obter token de autenticação
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (!token) {
+        setTestStatus('error');
+        setTestMessage('❌ Erro: Token de autenticação não encontrado. Faça login novamente.');
+        return;
+      }
+
+      // Detectar a URL do servidor (pode estar em porta diferente)
+      const serverUrl = window.location.origin.replace(':5173', ':3000');
+      
+      const response = await fetch(`${serverUrl}/api/admin/test-mercadopago`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify({
           accessToken: settings.accessToken,
           publicKey: settings.publicKey,
@@ -58,7 +75,8 @@ export function MercadoPagoSettings() {
       }
     } catch (err) {
       setTestStatus('error');
-      setTestMessage('Erro ao testar conexão. Verifique a rede.');
+      setTestMessage('❌ Erro ao conectar. Verifique se o servidor backend está rodando (npm run dev:server)');
+      console.error('[MercadoPagoSettings] Erro:', err);
     }
 
     setTimeout(() => setTestStatus('idle'), 5000);
@@ -69,8 +87,17 @@ export function MercadoPagoSettings() {
   };
 
   const generateWebhookUrl = () => {
-    const url = `${window.location.origin}/api/webhook/mercadopago`;
-    setSettings(prev => ({ ...prev, webhookUrl: url }));
+    // Detectar a URL do servidor (substitui porta 5173 pela 3000)
+    let serverUrl = window.location.origin;
+    
+    if (serverUrl.includes('localhost:5173')) {
+      serverUrl = serverUrl.replace(':5173', ':3000');
+      setSettings(prev => ({ ...prev, webhookUrl: `${serverUrl}/api/webhook/mercadopago` }));
+      alert('✓ URL gerada para TESTE LOCAL.\n\n⚠️ Para teste com Mercado Pago, use ngrok:\n\n1. Terminal: ngrok http 3000\n2. Copie a URL gerada\n3. Use no Mercado Pago');
+    } else {
+      // Em produção, usar o domínio real
+      setSettings(prev => ({ ...prev, webhookUrl: `${serverUrl}/api/webhook/mercadopago` }));
+    }
   };
 
   return (
@@ -207,7 +234,10 @@ export function MercadoPagoSettings() {
           </button>
           {settings.webhookUrl && (
             <button
-              onClick={() => handleCopy(settings.webhookUrl)}
+              onClick={() => {
+                navigator.clipboard.writeText(settings.webhookUrl);
+                alert('✓ URL copiada!');
+              }}
               className="px-3 py-2 hover:bg-white/5 rounded-lg transition text-white/40 hover:text-white"
               title="Copiar webhook"
             >
@@ -218,6 +248,17 @@ export function MercadoPagoSettings() {
         <p className="text-xs text-white/40 mt-3">
           📍 Registre esta URL em: Suas integrações → Webhooks → Adicionar Webhook
         </p>
+        
+        {settings.webhookUrl && settings.webhookUrl.includes('localhost') && (
+          <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+            <p className="text-xs text-yellow-400 font-bold mb-2">⚠️ TESTE LOCAL - Use ngrok:</p>
+            <ol className="text-xs text-yellow-400/80 space-y-1 ml-2 list-decimal">
+              <li>Terminal: <code className="bg-black/50 px-1">ngrok http 3000</code></li>
+              <li>Copie a URL gerada (ex: https://abc123.ngrok.io)</li>
+              <li>Use no Mercado Pago: <code className="bg-black/50 px-1">https://abc123.ngrok.io/api/webhook/mercadopago</code></li>
+            </ol>
+          </div>
+        )}
       </div>
 
       {/* Test Connection */}
