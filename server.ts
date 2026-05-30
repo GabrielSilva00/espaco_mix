@@ -121,10 +121,10 @@ async function startServer() {
         ? {
             directives: {
               defaultSrc: ["'self'"],
-              scriptSrc: ["'self'"],
+              scriptSrc: ["'self'", "https://secure.mlstatic.com"],
               styleSrc: ["'self'", "'unsafe-inline'"],
               imgSrc: ["'self'", "data:", "https:"],
-              connectSrc: ["'self'", "https://*.supabase.co"],
+              connectSrc: ["'self'", "https://*.supabase.co", "https://*.mercadopago.com", "https://*.mercadolibre.com"],
               fontSrc: ["'self'", "data:"],
               objectSrc: ["'none'"],
               upgradeInsecureRequests: [],
@@ -222,6 +222,21 @@ async function startServer() {
 
     next();
   };
+
+  // ── Dev TOTP Verify (server-side — segredo nunca vai ao frontend) ─────────
+  app.post("/api/auth/dev-verify", authLimiter, (req, res) => {
+    const { token } = req.body as { token?: string };
+    if (!token || typeof token !== "string") {
+      res.status(400).json({ valid: false });
+      return;
+    }
+    const devSecret = process.env.DEV_TOTP;
+    if (!devSecret) {
+      res.status(403).json({ valid: false, error: "Dev login desabilitado." });
+      return;
+    }
+    res.json({ valid: token === devSecret });
+  });
 
   // ── Health ────────────────────────────────────────────────────────────────
   app.get("/api/health", (_req, res) => {
@@ -603,10 +618,7 @@ async function startServer() {
       express.text({ type: '*/*' })(req, res, next);
     }
   }, (req, res) => {
-    // Loga tudo para debug
-    console.log('[WEBHOOK MERCADOPAGO] Headers:', req.headers);
-    console.log('[WEBHOOK MERCADOPAGO] Body:', req.body);
-    // Sempre responde 200 para evitar retries
+    // Sempre responde 200 para evitar retries do Mercado Pago
     res.status(200).json({ received: true });
   });
 

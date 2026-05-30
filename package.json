@@ -3,15 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
+    "start": "tsx server.ts",
     "lint": "tsc --noEmit",
     "seed:admin": "tsx scripts/seed-admin.ts",
-    "test": "node --require dotenv/config meus-testes/teste.ts",
-    "test:tsx": "tsx meus-testes/teste.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
@@ -57,20 +59,11 @@
     "vite": "^6.2.0",
     "vite-plugin-pwa": "^1.3.0"
   },
-  "description": "<div align=\"center\"> <img width=\"1200\" height=\"475\" alt=\"GHBanner\" src=\"https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6\" /> </div>",
-  "main": "fix1.js",
-  "directories": {
-    "doc": "docs"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/GabrielSilva00/espaco_mix.git"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/GabrielSilva00/espaco_mix/issues"
-  },
-  "homepage": "https://github.com/GabrielSilva00/espaco_mix#readme"
+  "license": "ISC"
 }

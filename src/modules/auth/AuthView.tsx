@@ -83,26 +83,35 @@ export function AuthView() {
             />
             {adminError && <p className="text-red-400 text-[10px] uppercase tracking-widest">{adminError}</p>}
             <button
-              onClick={() => {
-                const TOTP_SECRET = import.meta.env.VITE_DEV_TOTP ?? '123456';
-                if (totpInput === TOTP_SECRET) {
-                  setUserRole('developer');
-                  setIsApprovedEventCreator(true);
-                  setSessionUser({
-                    id: 'dev',
-                    email: adminForm.username,
-                    name: 'Admin / Dev',
-                    role: 'developer',
-                    isApprovedEventCreator: true
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/auth/dev-verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: totpInput }),
                   });
-                  setLoggedInUserId('dev');
-                  setCurrentView('dashboard');
-                  setDashboardMode('list');
-                  setAdminError('');
-                  setTotpPending(false);
-                  setTotpInput('');
-                } else {
-                  setAdminError('Token 2FA inválido');
+                  const data = await res.json();
+                  if (data.valid) {
+                    setUserRole('developer');
+                    setIsApprovedEventCreator(true);
+                    setSessionUser({
+                      id: 'dev',
+                      email: adminForm.username,
+                      name: 'Admin / Dev',
+                      role: 'developer',
+                      isApprovedEventCreator: true
+                    });
+                    setLoggedInUserId('dev');
+                    setCurrentView('dashboard');
+                    setDashboardMode('list');
+                    setAdminError('');
+                    setTotpPending(false);
+                    setTotpInput('');
+                  } else {
+                    setAdminError('Token 2FA inválido');
+                  }
+                } catch {
+                  setAdminError('Erro ao verificar token. Tente novamente.');
                 }
               }}
               className="w-full bg-[#d4af37] text-black py-4 rounded-xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 transition"

@@ -1,6 +1,7 @@
 node_modules/
 build/
 dist/
+dev-dist/
 coverage/
 .DS_Store
 *.log
@@ -17,3 +18,4 @@ firebase-applet-config.json
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+tests/.screenshots/
