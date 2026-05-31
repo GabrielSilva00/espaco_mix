@@ -24,7 +24,6 @@ type ActivePanel = 'tickets' | 'tables' | null;
 export function BookingView() {
   const {
     activeEvent,
-    isPreviewingEvent,
     previewSectors,
     expandedSectorId, setExpandedSectorId,
     singleTickets, setSingleTickets,
@@ -62,8 +61,7 @@ export function BookingView() {
   })();
 
   const isEventActive = activeEvent?.status === 'Vendas liberadas'
-    || activeEvent?.status === 'Ativo'
-    || isPreviewingEvent;
+    || activeEvent?.status === 'Ativo';
 
   const hasTickets = (activeEvent?.batches?.length ?? 0) > 0;
   const hasTables = activeEvent?.hasTables ?? false;
@@ -184,7 +182,7 @@ export function BookingView() {
           <div className="lg:col-span-8 flex flex-col gap-10 md:gap-16">
 
             {/* Em breve */}
-            {activeEvent?.status === 'Em breve' && !isPreviewingEvent && (
+            {activeEvent?.status === 'Em breve' && (
               <section className="bg-blue-500/10 border border-blue-500/20 rounded-3xl p-8 text-center">
                 <div className="w-14 h-14 rounded-full bg-blue-500/20 flex items-center justify-center mx-auto mb-4">
                   <Calendar className="w-7 h-7 text-blue-400" />
@@ -781,7 +779,7 @@ export function BookingView() {
           </div>
 
           {/* Right Column: Resumo */}
-          <div className={`lg:col-span-4 flex flex-col ${activeEvent?.status === 'Em breve' && !isPreviewingEvent ? 'hidden' : ''} order-3 lg:order-none`}>
+          <div className={`lg:col-span-4 flex flex-col ${activeEvent?.status === 'Em breve' ? 'hidden' : ''} order-3 lg:order-none`}>
             <div className="sticky top-24 flex flex-col gap-8">
               <div className="flex-1 flex flex-col">
                 <h2 className="text-[10px] tracking-[0.2em] uppercase text-[#d4af37] mb-6">Detalhes do Pedido</h2>

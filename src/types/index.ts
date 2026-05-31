@@ -60,18 +60,11 @@ export interface Reservation {
   createdAt?: string;
 }
 
-export interface StaffAccount {
-  id: string;
-  name: string;
-  username: string;
-  password: string;
-}
-
 export interface ProducerProfile {
   [key: string]: unknown;
 }
 
-export type UserRole = 'client' | 'admin' | 'developer' | null;
+export type UserRole = 'client' | null;
 
 export interface SessionUser {
   id: string;
@@ -186,7 +179,6 @@ export type CurrentView =
   | 'reservations'
   | 'contact'
   | 'admin-login'
-  | 'dashboard'
   | 'profile'
   | 'privacy'
   | 'terms'
@@ -200,20 +192,6 @@ export interface ConsentData {
   grantedAt: string;
   version: string;
 }
-
-export type DashboardMode =
-  | 'list'
-  | 'details'
-  | 'staff'
-  | 'check-in'
-  | 'edit'
-  | 'settings'
-  | 'approval-queue'
-  | 'producer-onboarding'
-  | 'producer-dashboard'
-  | 'developer-panel'
-  | 'admin-overview'
-  | 'dev-overview';
 
 export type ToastType = 'info' | 'success' | 'error' | 'warning';
 

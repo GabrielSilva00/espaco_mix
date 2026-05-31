@@ -118,10 +118,7 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
 
   const siteName = config.trade_name || config.site_name || 'Espaço Mix';
   const instagram = config.social_instagram?.replace('@', '');
-  const whatsappRaw = config.contact_phone?.replace(/\D/g, '');
-  const whatsappLink = whatsappRaw ? `https://wa.me/55${whatsappRaw}` : null;
   const instagramLink = instagram ? `https://instagram.com/${instagram}` : null;
-  const contactEmail = config.contact_email || config.support_email || 'contato@eventix.com.br';
 
   // Navega normalmente para rotas públicas; redireciona ao login para rotas protegidas
   const navigateProtected = (view: CurrentView) => {
@@ -215,30 +212,16 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
               Contato
             </h4>
 
-            <a
-              href={`mailto:${contactEmail}`}
-              className="flex items-start gap-2.5 group w-fit"
+            <p className="text-[11px] text-white/40 leading-relaxed">
+              Dúvidas sobre eventos, ingressos ou reservas? Nossa equipe está pronta para ajudar.
+            </p>
+
+            <button
+              onClick={() => onNavigate('contact')}
+              className="w-fit flex items-center gap-2 border border-[#B5E254]/40 text-[#B5E254]/80 text-[10px] font-bold uppercase tracking-widest rounded-full px-4 py-2 hover:bg-[#B5E254]/[0.08] hover:border-[#B5E254]/60 hover:text-[#B5E254] transition-all duration-200"
             >
-              <span className="text-[9px] font-bold uppercase tracking-widest border border-[#B5E254]/30 text-[#B5E254]/70 rounded px-1.5 py-0.5 mt-0.5 shrink-0 group-hover:bg-[#B5E254]/10 transition-colors duration-200">
-                Email
-              </span>
-              <span className="text-[11px] text-white/50 group-hover:text-white transition-colors duration-200 break-all">
-                {contactEmail}
-              </span>
-            </a>
-
-            {whatsappLink && (
-              <a
-                href={whatsappLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2.5 text-[11px] text-white/50 hover:text-[#25D366] transition-colors duration-200 group w-fit"
-              >
-                <IconWhatsApp className="w-3.5 h-3.5 text-white/20 group-hover:text-[#25D366] transition-colors duration-200 shrink-0" />
-                {config.contact_phone}
-              </a>
-            )}
-
+              Fale Conosco
+            </button>
           </div>
 
           {/* Coluna 4 — Redes Sociais */}
@@ -289,20 +272,21 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
         </div>
       </div>
 
-      {/* ── Separador ──────────────────────────────────────────────────── */}
-      <div className="border-t border-white/[0.06]" />
+      {/* ── Barra legal inferior ───────────────────────────────────────── */}
+      <div className="bg-[#0c0c0c] border-t border-white/[0.05]">
+        <div className="max-w-7xl mx-auto px-6 md:px-10 py-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-4">
 
-      {/* ── Barra inferior ─────────────────────────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-6 md:px-10 py-4">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-
-          {/* Esquerda — copyright + crédito */}
-          <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-4 text-center sm:text-left">
-            <p className="text-[9px] text-white/25 uppercase tracking-widest whitespace-nowrap">
-              © 2026 {siteName}. Todos os direitos reservados.
+            {/* Esquerda — dados legais */}
+            <p className="text-[10px] text-white/30 leading-relaxed">
+              © 2026{' '}
+              {config.company_name || '[A PREENCHER]'}
+              {' — CNPJ: '}
+              {config.document || '[A PREENCHER]'}
             </p>
-            <span className="hidden sm:block text-white/10 text-xs">·</span>
-            <p className="text-[9px] text-white/20 uppercase tracking-widest whitespace-nowrap">
+
+            {/* Direita — crédito */}
+            <p className="text-[9px] text-white/20 uppercase tracking-widest whitespace-nowrap shrink-0">
               Desenvolvido por{' '}
               <a
                 href="https://nexosolucoes.com.br"
@@ -313,19 +297,8 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
                 Nexo Soluções Digitais
               </a>
             </p>
-          </div>
 
-          {/* Direita — status de reservas */}
-          <div className="flex items-center gap-2.5">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-60" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-            </span>
-            <span className="text-[9px] text-white/45 uppercase tracking-[0.2em] whitespace-nowrap">
-              Reservas Ativas
-            </span>
           </div>
-
         </div>
       </div>
 

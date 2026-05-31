@@ -2,6 +2,27 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Shield, Cookie, FileText, ChevronUp, ArrowLeft, ExternalLink } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { getSystemConfig, SystemConfig } from '../../lib/supabase';
+
+const PLACEHOLDER = '[A PREENCHER]';
+
+interface LegalData {
+  companyName: string;
+  cnpj: string;
+  dpoName: string;
+  dpoEmail: string;
+  legalCity: string;
+}
+
+function buildLegalData(c: Partial<SystemConfig>): LegalData {
+  return {
+    companyName: c.company_name || PLACEHOLDER,
+    cnpj:        c.document     || PLACEHOLDER,
+    dpoName:     c.dpo_name     || PLACEHOLDER,
+    dpoEmail:    c.dpo_email    || PLACEHOLDER,
+    legalCity:   c.legal_city   || PLACEHOLDER,
+  };
+}
 
 type TabId = 'privacy' | 'cookies' | 'terms';
 
@@ -109,13 +130,13 @@ const SIDEBAR: Record<TabId, { id: string; title: string }[]> = {
 };
 
 // ─── Conteúdo: POLÍTICA DE PRIVACIDADE ───────────────────────────────────────
-function PrivacySections({ onTab }: { onTab: (t: TabId) => void }) {
+function PrivacySections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalData }) {
   return (
     <>
       <SectionBlock id="pp-01" number={1} title="Introdução">
         <p>
-          A <T>Guichê Web Comercialização de Ingressos Ltda.</T>, inscrita no CNPJ sob o nº{' '}
-          <T>18.797.249/0001-35</T>, opera a plataforma <T>Espaço Mix</T> e está comprometida
+          A <T>{ld.companyName}</T>, inscrita no CNPJ sob o nº{' '}
+          <T>{ld.cnpj}</T>, opera a plataforma <T>Espaço Mix</T> e está comprometida
           com a proteção dos dados pessoais de seus usuários, em conformidade com a{' '}
           <T>Lei Geral de Proteção de Dados Pessoais (LGPD — Lei nº 13.709/2018)</T> e demais
           legislações aplicáveis.
@@ -131,9 +152,9 @@ function PrivacySections({ onTab }: { onTab: (t: TabId) => void }) {
         </p>
         <InfoBox>
           Nosso Encarregado pelo Tratamento de Dados (DPO) é{' '}
-          <T>Márcio da Silva Garcia</T>, acessível pelo e-mail{' '}
-          <a href="mailto:dados@guicheweb.com.br" className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
-            dados@guicheweb.com.br
+          <T>{ld.dpoName}</T>, acessível pelo e-mail{' '}
+          <a href={ld.dpoEmail !== PLACEHOLDER ? `mailto:${ld.dpoEmail}` : undefined} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
+            {ld.dpoEmail}
           </a>.
         </InfoBox>
       </SectionBlock>
@@ -150,9 +171,9 @@ function PrivacySections({ onTab }: { onTab: (t: TabId) => void }) {
           <GlossaryItem term="Participante">Titular de ingresso para evento específico, podendo ou não ser o Consumidor.</GlossaryItem>
           <GlossaryItem term="Usuário">Toda pessoa que acessa ou utiliza a Plataforma, independentemente de ter efetuado compras.</GlossaryItem>
           <GlossaryItem term="Titularidade">Qualidade de titular de um ingresso, conferindo direito de acesso ao evento correspondente.</GlossaryItem>
-          <GlossaryItem term="Controlador">A Guichê Web, que determina as finalidades e meios do tratamento dos dados pessoais.</GlossaryItem>
+          <GlossaryItem term="Controlador">A {ld.companyName}, que determina as finalidades e meios do tratamento dos dados pessoais.</GlossaryItem>
           <GlossaryItem term="Operador">Pessoa natural ou jurídica que realiza o tratamento de dados em nome do Controlador.</GlossaryItem>
-          <GlossaryItem term="Encarregado (DPO)">Responsável pela comunicação entre Controlador, titulares de dados e a ANPD: Márcio da Silva Garcia.</GlossaryItem>
+          <GlossaryItem term="Encarregado (DPO)">Responsável pela comunicação entre Controlador, titulares de dados e a ANPD: {ld.dpoName}.</GlossaryItem>
           <GlossaryItem term="Tratamento">Toda operação realizada com dados pessoais, como coleta, armazenamento, uso e exclusão.</GlossaryItem>
           <GlossaryItem term="Consentimento">Manifestação livre, informada e inequívoca do titular concordando com o tratamento de seus dados.</GlossaryItem>
           <GlossaryItem term="Anonimização">Processo que impossibilita a associação dos dados a um titular específico, de forma irreversível.</GlossaryItem>
@@ -207,7 +228,7 @@ function PrivacySections({ onTab }: { onTab: (t: TabId) => void }) {
 
       <SectionBlock id="pp-05" number={5} title="Compartilhamento de Dados Pessoais">
         <p>
-          A Guichê Web <T>não vende dados pessoais</T> a terceiros. O compartilhamento
+          A {ld.companyName} <T>não vende dados pessoais</T> a terceiros. O compartilhamento
           poderá ocorrer nas seguintes hipóteses:
         </p>
         <ul className="mt-3 space-y-2">
@@ -259,7 +280,7 @@ function PrivacySections({ onTab }: { onTab: (t: TabId) => void }) {
       <SectionBlock id="pp-07" number={7} title="Transferência Internacional de Dados">
         <p>
           Quando houver necessidade de transferir dados pessoais a países estrangeiros,
-          a Guichê Web assegurará que as transferências observem os requisitos da LGPD,
+          a {ld.companyName} assegurará que as transferências observem os requisitos da LGPD,
           mediante adoção de:
         </p>
         <ul className="mt-3 space-y-1.5">
@@ -331,15 +352,15 @@ function PrivacySections({ onTab }: { onTab: (t: TabId) => void }) {
         </div>
         <p className="mt-4">
           Para exercer seus direitos, entre em contato com nosso DPO pelo e-mail{' '}
-          <a href="mailto:dados@guicheweb.com.br" className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
-            dados@guicheweb.com.br
+          <a href={ld.dpoEmail !== PLACEHOLDER ? `mailto:${ld.dpoEmail}` : undefined} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
+            {ld.dpoEmail}
           </a>.
         </p>
       </SectionBlock>
 
       <SectionBlock id="pp-11" number={11} title="Disposições Gerais">
         <p>
-          Esta Política se aplica a todos os usuários da Plataforma Espaço Mix. A Guichê Web
+          Esta Política se aplica a todos os usuários da Plataforma Espaço Mix. A {ld.companyName}
           pode compartilhar, ceder ou transferir direitos e obrigações decorrentes desta
           Política a terceiros, desde que assegurada a continuidade da proteção dos dados
           pessoais nos mesmos termos aqui estabelecidos.
@@ -372,24 +393,24 @@ function PrivacySections({ onTab }: { onTab: (t: TabId) => void }) {
           <T>Marco Civil da Internet (Lei nº 12.965/2014)</T>.
         </p>
         <p>
-          Fica eleito o <T>Foro da Comarca de Votuporanga/SP</T> como competente para
+          Fica eleito o <T>Foro da Comarca de {ld.legalCity}</T> como competente para
           dirimir quaisquer controvérsias oriundas desta Política, com renúncia expressa a
           qualquer outro, por mais privilegiado que seja.
         </p>
       </SectionBlock>
 
-      <SectionBlock id="pp-14" number={14} title="Contato com a Guichê Web">
+      <SectionBlock id="pp-14" number={14} title="Contato">
         <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 space-y-2.5 text-[14px]">
-          <p><T>Razão Social:</T> Guichê Web Comercialização de Ingressos Ltda.</p>
-          <p><T>CNPJ:</T> 18.797.249/0001-35</p>
-          <p><T>Encarregado (DPO):</T> Márcio da Silva Garcia</p>
+          <p><T>Razão Social:</T> {ld.companyName}</p>
+          <p><T>CNPJ:</T> {ld.cnpj}</p>
+          <p><T>Encarregado (DPO):</T> {ld.dpoName}</p>
           <p>
             <T>E-mail DPO:</T>{' '}
-            <a href="mailto:dados@guicheweb.com.br" className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
-              dados@guicheweb.com.br
+            <a href={ld.dpoEmail !== PLACEHOLDER ? `mailto:${ld.dpoEmail}` : undefined} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
+              {ld.dpoEmail}
             </a>
           </p>
-          <p><T>Foro:</T> Comarca de Votuporanga / SP</p>
+          <p><T>Foro:</T> Comarca de {ld.legalCity}</p>
         </div>
       </SectionBlock>
     </>
@@ -397,12 +418,12 @@ function PrivacySections({ onTab }: { onTab: (t: TabId) => void }) {
 }
 
 // ─── Conteúdo: POLÍTICA DE COOKIES ───────────────────────────────────────────
-function CookiesSections({ onTab }: { onTab: (t: TabId) => void }) {
+function CookiesSections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalData }) {
   return (
     <>
       <SectionBlock id="ck-01" number={1} title="Introdução">
         <p>
-          A <T>Guichê Web Comercialização de Ingressos Ltda.</T> utiliza cookies e
+          A <T>{ld.companyName}</T> utiliza cookies e
           tecnologias similares na Plataforma <T>Espaço Mix</T> para garantir o
           funcionamento adequado dos serviços, melhorar a experiência do usuário e
           analisar o desempenho da Plataforma.
@@ -575,7 +596,7 @@ function CookiesSections({ onTab }: { onTab: (t: TabId) => void }) {
           <T>Marco Civil da Internet (Lei nº 12.965/2014)</T>.
         </p>
         <p>
-          Fica eleito o <T>Foro da Comarca de Votuporanga/SP</T> para dirimir
+          Fica eleito o <T>Foro da Comarca de {ld.legalCity}</T> para dirimir
           quaisquer controvérsias oriundas desta Política.
         </p>
       </SectionBlock>
@@ -586,11 +607,11 @@ function CookiesSections({ onTab }: { onTab: (t: TabId) => void }) {
           nosso Encarregado de Dados (DPO):
         </p>
         <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 space-y-2 text-[14px] mt-3">
-          <p><T>DPO:</T> Márcio da Silva Garcia</p>
+          <p><T>DPO:</T> {ld.dpoName}</p>
           <p>
             <T>E-mail:</T>{' '}
-            <a href="mailto:dados@guicheweb.com.br" className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
-              dados@guicheweb.com.br
+            <a href={ld.dpoEmail !== PLACEHOLDER ? `mailto:${ld.dpoEmail}` : undefined} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
+              {ld.dpoEmail}
             </a>
           </p>
         </div>
@@ -600,14 +621,14 @@ function CookiesSections({ onTab }: { onTab: (t: TabId) => void }) {
 }
 
 // ─── Conteúdo: TERMOS DE USO ─────────────────────────────────────────────────
-function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
+function TermsSections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalData }) {
   return (
     <>
       <SectionBlock id="tu-01" number={1} title="Introdução">
         <p>
           Os presentes <T>Termos de Uso</T> regulam a utilização da plataforma{' '}
-          <T>Espaço Mix</T>, operada pela <T>Guichê Web Comercialização de Ingressos Ltda.</T>,
-          CNPJ nº 18.797.249/0001-35, e estabelecem os direitos e obrigações dos usuários
+          <T>Espaço Mix</T>, operada pela <T>{ld.companyName}</T>,
+          CNPJ nº {ld.cnpj}, e estabelecem os direitos e obrigações dos usuários
           e da empresa no contexto da comercialização de ingressos para eventos.
         </p>
         <p>
@@ -645,7 +666,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
       <SectionBlock id="tu-03" number={3} title="Informações Gerais">
         <p>
           A Plataforma Espaço Mix é um sistema de <T>comercialização de ingressos</T> para
-          eventos culturais, festivos e de entretenimento. A Guichê Web atua como
+          eventos culturais, festivos e de entretenimento. A {ld.companyName} atua como
           intermediária entre Organizadores e Consumidores, não sendo responsável pelo
           conteúdo, qualidade ou realização dos eventos.
         </p>
@@ -654,7 +675,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
           gestão de reservas, transferência de titularidade e comunicações sobre eventos.
         </p>
         <p>
-          A Guichê Web se reserva o direito de alterar, suspender ou encerrar qualquer
+          A {ld.companyName} se reserva o direito de alterar, suspender ou encerrar qualquer
           funcionalidade da Plataforma a qualquer tempo, sem obrigação de aviso prévio,
           salvo quando exigido por lei.
         </p>
@@ -682,7 +703,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
           ))}
         </ul>
         <p className="mt-4">
-          A Guichê Web pode, a seu exclusivo critério, recusar, suspender ou cancelar
+          A {ld.companyName} pode, a seu exclusivo critério, recusar, suspender ou cancelar
           contas que violem estes Termos ou que apresentem suspeita de fraude.
         </p>
       </SectionBlock>
@@ -690,7 +711,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
       <SectionBlock id="tu-05" number={5} title="Acesso à Plataforma">
         <p>
           O acesso à Plataforma requer conexão com a internet e dispositivo compatível.
-          A Guichê Web não garante disponibilidade ininterrupta dos serviços, podendo
+          A {ld.companyName} não garante disponibilidade ininterrupta dos serviços, podendo
           ocorrer interrupções para manutenção, atualizações ou por força maior.
         </p>
         <p>
@@ -752,7 +773,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
           sujeita à aprovação do meio de pagamento utilizado.
         </p>
         <p>
-          A Guichê Web não se responsabiliza por falhas nos sistemas de pagamento
+          A {ld.companyName} não se responsabiliza por falhas nos sistemas de pagamento
           de terceiros (operadoras de cartão, bancos) que impeçam a conclusão da compra.
         </p>
       </SectionBlock>
@@ -791,7 +812,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
             'A transferência deve ser realizada por meio dos recursos da própria Plataforma;',
             'O beneficiário da transferência deve possuir cadastro ativo na Plataforma;',
             'A transferência deve ser concluída antes do prazo definido pelo Organizador;',
-            'A Guichê Web não se responsabiliza por transferências realizadas fora da Plataforma.',
+            `A ${ld.companyName} não se responsabiliza por transferências realizadas fora da Plataforma.`,
           ].map(item => (
             <li key={item} className="flex gap-2 text-[14px]">
               <span className="text-[#d4af37]/40 shrink-0 mt-1.5">▸</span>
@@ -804,7 +825,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
       <SectionBlock id="tu-11" number={11} title="Contestações e Estornos">
         <p>
           O <T>chargeback</T> (contestação junto à operadora do cartão) deve ser
-          precedido de comunicação à Guichê Web, que tomará as medidas necessárias
+          precedido de comunicação à {ld.companyName}, que tomará as medidas necessárias
           para solucionar a questão diretamente com o consumidor.
         </p>
         <p>
@@ -816,7 +837,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
 
       <SectionBlock id="tu-12" number={12} title="Taxas Aplicáveis">
         <p>
-          A Guichê Web pode cobrar <T>taxa de serviço</T> sobre as transações realizadas
+          A {ld.companyName} pode cobrar <T>taxa de serviço</T> sobre as transações realizadas
           na Plataforma. O valor da taxa, quando aplicável, será exibido de forma clara
           e discriminada durante o processo de compra, antes da confirmação.
         </p>
@@ -831,18 +852,18 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
         <p>
           Todo o conteúdo da Plataforma — incluindo marca, logotipos, layout, textos,
           imagens, software e demais elementos — é de propriedade exclusiva da
-          Guichê Web ou licenciado a ela, sendo protegido pela legislação de
+          {ld.companyName} ou licenciado a ela, sendo protegido pela legislação de
           propriedade intelectual.
         </p>
         <p>
           É vedada a reprodução, distribuição, modificação ou uso comercial de qualquer
-          elemento da Plataforma sem autorização prévia e expressa da Guichê Web.
+          elemento da Plataforma sem autorização prévia e expressa da {ld.companyName}.
         </p>
       </SectionBlock>
 
       <SectionBlock id="tu-14" number={14} title="Segurança da Plataforma">
         <p>
-          A Guichê Web adota medidas técnicas e organizacionais para proteger a
+          A {ld.companyName} adota medidas técnicas e organizacionais para proteger a
           integridade e disponibilidade da Plataforma. É vedado ao usuário qualquer
           tentativa de:
         </p>
@@ -876,7 +897,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
       <SectionBlock id="tu-16" number={16} title="Proteção de Registros">
         <p>
           Em conformidade com o <T>Art. 15 do Marco Civil da Internet (Lei nº 12.965/2014)</T>,
-          a Guichê Web mantém registros de acesso à aplicação pelo prazo de{' '}
+          a {ld.companyName} mantém registros de acesso à aplicação pelo prazo de{' '}
           <T>6 (seis) meses</T>, podendo ser estendido mediante ordem judicial ou
           requerimento de autoridade competente.
         </p>
@@ -888,7 +909,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
 
       <SectionBlock id="tu-17" number={17} title="Limitação de Responsabilidade">
         <p>
-          A Guichê Web não se responsabiliza por:
+          A {ld.companyName} não se responsabiliza por:
         </p>
         <ul className="mt-3 space-y-1.5">
           {[
@@ -905,19 +926,19 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
           ))}
         </ul>
         <p className="mt-4">
-          Em qualquer hipótese, a responsabilidade da Guichê Web limita-se ao valor
+          Em qualquer hipótese, a responsabilidade da {ld.companyName} limita-se ao valor
           pago pelo usuário na transação que originou o dano.
         </p>
       </SectionBlock>
 
       <SectionBlock id="tu-18" number={18} title="Disposições Finais">
         <p>
-          A tolerância da Guichê Web quanto ao descumprimento de qualquer disposição
+          A tolerância da {ld.companyName} quanto ao descumprimento de qualquer disposição
           destes Termos não constituirá renúncia ou novação. Se qualquer disposição
           for considerada inválida ou inaplicável, as demais permanecerão vigentes.
         </p>
         <p>
-          A Guichê Web poderá atualizar estes Termos a qualquer tempo, mediante aviso
+          A {ld.companyName} poderá atualizar estes Termos a qualquer tempo, mediante aviso
           prévio aos usuários. A continuidade do uso da Plataforma após as alterações
           constitui aceitação das novas condições.
         </p>
@@ -931,7 +952,7 @@ function TermsSections({ onTab }: { onTab: (t: TabId) => void }) {
           <T>LGPD (Lei nº 13.709/2018)</T>.
         </p>
         <p>
-          Fica eleito o <T>Foro da Comarca de Votuporanga / SP</T>, com exclusão de
+          Fica eleito o <T>Foro da Comarca de {ld.legalCity}</T>, com exclusão de
           qualquer outro, por mais privilegiado que seja, para dirimir quaisquer
           controvérsias oriundas destes Termos ou da utilização da Plataforma.
         </p>
@@ -964,6 +985,11 @@ export function LegalView({ initialTab = 'privacy' }: LegalViewProps) {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [activeSection, setActiveSection] = useState<string>('');
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [legalData, setLegalData] = useState<LegalData>(buildLegalData({}));
+
+  useEffect(() => {
+    getSystemConfig().then(c => setLegalData(buildLegalData(c))).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -1114,9 +1140,9 @@ export function LegalView({ initialTab = 'privacy' }: LegalViewProps) {
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.2 }}
               >
-                {activeTab === 'privacy' && <PrivacySections onTab={setActiveTab} />}
-                {activeTab === 'cookies' && <CookiesSections onTab={setActiveTab} />}
-                {activeTab === 'terms' && <TermsSections onTab={setActiveTab} />}
+                {activeTab === 'privacy' && <PrivacySections onTab={setActiveTab} ld={legalData} />}
+                {activeTab === 'cookies' && <CookiesSections onTab={setActiveTab} ld={legalData} />}
+                {activeTab === 'terms' && <TermsSections onTab={setActiveTab} ld={legalData} />}
               </motion.div>
             </AnimatePresence>
 
@@ -1144,10 +1170,10 @@ export function LegalView({ initialTab = 'privacy' }: LegalViewProps) {
                   <span>LGPD — Lei nº 13.709/2018</span>
                 </div>
                 <a
-                  href="mailto:dados@guicheweb.com.br"
+                  href={legalData.dpoEmail !== PLACEHOLDER ? `mailto:${legalData.dpoEmail}` : undefined}
                   className="text-[#d4af37]/50 hover:text-[#d4af37] transition-colors"
                 >
-                  dados@guicheweb.com.br
+                  {legalData.dpoEmail}
                 </a>
               </div>
             </div>

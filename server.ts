@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import helmet from "helmet";
 import cors from "cors";
 import path from "path";
@@ -88,15 +87,17 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   return crypto.timingSafeEqual(hash, storedHash);
 }
 
-// ─── Server ─────────────────────────────────────────────────────────────────
+// ─── Config (module-level para ser compartilhado entre dev e serverless) ─────
 
-async function startServer() {
+const isProduction = process.env.NODE_ENV === "production";
+const appUrl = process.env.APP_URL;
+const paymentProvider = process.env.PAYMENT_PROVIDER ?? (isProduction ? "disabled" : "mock");
+const allowMockPayments = process.env.ALLOW_MOCK_PAYMENTS === "true";
+
+// ─── Express app factory ─────────────────────────────────────────────────────
+
+export async function createExpressApp() {
   const app = express();
-  const isProduction = process.env.NODE_ENV === "production";
-  const PORT = Number(process.env.PORT ?? 3000);
-  const appUrl = process.env.APP_URL;
-  const paymentProvider = process.env.PAYMENT_PROVIDER ?? (isProduction ? "disabled" : "mock");
-  const allowMockPayments = process.env.ALLOW_MOCK_PAYMENTS === "true";
 
   if (isProduction && !appUrl) {
     throw new Error("APP_URL é obrigatória em produção para configurar CORS.");
@@ -622,33 +623,6 @@ async function startServer() {
     res.status(200).json({ received: true });
   });
 
-  // ── Admin Routes ──────────────────────────────────────────────────────────
-  app.get("/api/admin/settings", requireAuth, (req, res) => {
-    const user = (req as any).user;
-    // Role check must be done server-side after verifying the Firebase token.
-    // In production, store the user role in Firestore and check it here.
-    console.log(`[ADMIN] Settings accessed by ${user?.uid}`);
-    res.json({ message: "Admin settings fetched." });
-  });
-
-  app.post("/api/producer/rejection-email", requireAuth, (req, res) => {
-    const { userId, email, name, reason } = req.body as {
-      userId?: string;
-      email?: string;
-      name?: string;
-      reason?: string;
-    };
-
-    if (!userId || !email || !reason || reason.trim().length < 20) {
-      res.status(400).json({ error: "Dados invalidos para envio de rejeicao." });
-      return;
-    }
-
-    const safeEmail = String(email).replace(/(^.).*(@.*$)/, "$1***$2");
-    console.log(`[APPROVAL] Rejection email queued for ${safeEmail} (${name ?? userId})`);
-    res.status(202).json({ success: true });
-  });
-
   // ── Profile Sensitive Data (encrypts CPF / phone / birth_date) ──────────────
   app.put("/api/profile/sensitive", requireAuth, async (req, res) => {
     const user = (req as any).user;
@@ -719,65 +693,6 @@ async function startServer() {
       }
       console.error("[PROFILE] Erro ao atualizar perfil:", err.message);
       res.status(500).json({ error: "Erro ao atualizar perfil." });
-    }
-  });
-
-  // ── Staff Login (senha verificada server-side com scrypt) ────────────────────
-  app.post("/api/staff/login", authLimiter, async (req, res) => {
-    const { username, password } = req.body as { username?: string; password?: string };
-
-    if (!username || !password) {
-      res.status(400).json({ error: "Username e senha são obrigatórios." });
-      return;
-    }
-
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      // Dev fallback sem Supabase configurado
-      res.status(401).json({ error: "Usuário ou senha incorretos." });
-      return;
-    }
-
-    try {
-      const { createClient } = await import("@supabase/supabase-js");
-      const adminClient = createClient(supabaseUrl, serviceRoleKey);
-
-      const { data: staff, error } = await adminClient
-        .from("staff_accounts")
-        .select("*")
-        .eq("username", username)
-        .eq("is_active", true)
-        .single();
-
-      if (error || !staff) {
-        res.status(401).json({ error: "Usuário ou senha incorretos." });
-        return;
-      }
-
-      const isValid = await verifyPassword(password, staff.password);
-      if (!isValid) {
-        res.status(401).json({ error: "Usuário ou senha incorretos." });
-        return;
-      }
-
-      // Auto-upgrade: se a senha estava em plaintext, salva o hash
-      if (!staff.password.startsWith("scrypt:")) {
-        const hashed = await hashPassword(password);
-        await adminClient
-          .from("staff_accounts")
-          .update({ password: hashed })
-          .eq("id", staff.id);
-        console.log(`[STAFF] Senha de ${username} migrada para scrypt.`);
-      }
-
-      const { password: _pw, ...safeStaff } = staff;
-      console.log(`[STAFF] Login bem-sucedido: ${username}`);
-      res.json({ staff: safeStaff });
-    } catch (err: any) {
-      console.error("[STAFF] Erro no login:", err.message);
-      res.status(500).json({ error: "Erro interno ao verificar credenciais." });
     }
   });
 
@@ -858,13 +773,22 @@ async function startServer() {
   });
 
   // Rotas /api/* não encontradas — deve vir ANTES do middleware Vite
-  // (em dev, o Vite intercepta rotas desconhecidas e retorna 200 com index.html)
   app.all("/api/*", (_req, res) => {
     res.status(404).json({ error: "API endpoint not found" });
   });
 
+  return app;
+}
+
+// ─── Servidor local (dev + produção standalone) ──────────────────────────────
+
+async function startServer() {
+  const app = await createExpressApp();
+  const PORT = Number(process.env.PORT ?? 3000);
+
   // ── Frontend ──────────────────────────────────────────────────────────────
   if (!isProduction) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

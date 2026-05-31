@@ -30,10 +30,13 @@ const USERS = {
 export async function aceitarLGPD(page: Page): Promise<void> {
   try {
     const btn = page.getByRole('button', { name: 'Aceitar e Continuar' });
-    await btn.waitFor({ state: 'visible', timeout: 2500 });
-    await btn.click();
+    await btn.waitFor({ state: 'visible', timeout: 8000 });
+    await btn.click({ force: true });
+    // Aguarda o banner desaparecer para não bloquear cliques subsequentes
+    await btn.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(300);
   } catch {
-    // Banner não exibido — nada a fazer
+    // Banner não exibido ou já aceito
   }
 }
 
@@ -44,7 +47,10 @@ export async function aceitarLGPD(page: Page): Promise<void> {
 export async function abrirModalLogin(page: Page): Promise<void> {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await aceitarLGPD(page);
-  await page.getByRole('button', { name: 'Entrar', exact: true }).first().click();
+  // Desktop: "Entrar" | Mobile: "Entrar na Conta"
+  const entrarBtn = page.getByRole('button', { name: 'Entrar', exact: true }).first()
+    .or(page.getByRole('button', { name: 'Entrar na Conta', exact: true }).first());
+  await entrarBtn.click({ force: true });
   await expect(page.getByText('Bem-vindo de volta')).toBeVisible({ timeout: 8000 });
 }
 

@@ -181,4 +181,5 @@ export const TEST_CPFS = {
   invalido_sequencial: '111.111.111-11',
   invalido_zeros: '000.000.000-00',
   invalido_formato: '123.456.789',
+  invalido_digitos: '529.982.247-26',
 } as const;

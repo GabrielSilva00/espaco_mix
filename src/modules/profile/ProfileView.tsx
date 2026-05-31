@@ -69,8 +69,6 @@ export function ProfileView() {
   };
 
   const roleLabelMap: Record<string, string> = {
-    admin: 'Administrador',
-    developer: 'Desenvolvedor',
     client: 'Cliente',
   };
 
