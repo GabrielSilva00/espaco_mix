@@ -14,42 +14,76 @@ const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-async function seedAdmin() {
-  const ADMIN_EMAIL = 'admin@espacomix.internal';
-  const ADMIN_PASSWORD = 'admin';
+async function createOrUpdateUser(
+  email: string,
+  password: string,
+  name: string,
+  role: 'admin' | 'developer'
+) {
+  let userId: string | undefined;
 
-  // 1. Criar (ou reutilizar) o usuário no Supabase Auth
-  const { data: authData, error: authError } = await (supabase.auth as any).admin.createUser({
-    email: ADMIN_EMAIL,
-    password: ADMIN_PASSWORD,
-    email_confirm: true,
-    user_metadata: { name: 'Administrador' },
-  });
-
-  if (authError && !authError.message.toLowerCase().includes('already registered')) {
-    throw authError;
+  try {
+    const { data: authData } = await (supabase.auth as any).admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name },
+    });
+    userId = authData?.user?.id;
+  } catch (err: any) {
+    const alreadyExists =
+      err.code === 'email_exists' ||
+      err.message?.toLowerCase().includes('already registered');
+    if (!alreadyExists) throw err;
+    // Usuário já existe no Auth — atualiza somente o perfil pelo email
   }
 
-  const userId: string | undefined = authData?.user?.id;
-
-  // 2. Upsert do perfil admin na tabela profiles
   if (userId) {
-    const { error: profileError } = await supabase.from('profiles').upsert({
+    // Usuário recém-criado: upsert completo com id
+    const { error } = await supabase.from('profiles').upsert({
       id: userId,
-      email: ADMIN_EMAIL,
-      name: 'Administrador',
-      role: 'admin',
+      email,
+      name,
+      role,
       is_approved_event_creator: true,
       created_at: new Date().toISOString(),
     });
-
-    if (profileError) throw profileError;
+    if (error) throw error;
+  } else {
+    // Usuário já existia: garante role correto pelo email
+    const { error } = await supabase
+      .from('profiles')
+      .update({ role, is_approved_event_creator: true })
+      .eq('email', email);
+    if (error) throw error;
   }
 
-  console.log('Seed concluído. Login: admin / admin (username via signInWithUsername)');
+  console.log(`✓ ${role.toUpperCase()} | ${email} | senha: ${password}`);
 }
 
-seedAdmin().catch((err) => {
-  console.error('Falha ao seedar admin:', err);
+async function seed() {
+  console.log('Criando/atualizando usuários especiais...\n');
+
+  await createOrUpdateUser(
+    'admin@espacomix.internal',
+    'admin',
+    'Administrador',
+    'admin'
+  );
+
+  await createOrUpdateUser(
+    'dev@espacomix.com',
+    'dev123',
+    'Developer',
+    'developer'
+  );
+
+  console.log('\nSeed concluído!');
+  console.log('Login admin: usuário "admin" | senha "admin"');
+  console.log('Login dev:   usuário "dev@espacomix.com" | senha "dev123"');
+}
+
+seed().catch((err) => {
+  console.error('Falha ao seedar:', err);
   process.exit(1);
 });

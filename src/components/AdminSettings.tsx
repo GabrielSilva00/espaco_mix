@@ -3,7 +3,7 @@ import {
   Settings, Image as ImageIcon, Save, Check, Filter,
   Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, CreditCard
 } from 'lucide-react';
-import { getSystemConfig, updateSystemConfig } from '../lib/supabase';
+import { getSystemConfig, updateSystemConfig, updateMyCredentials } from '../lib/supabase';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { MercadoPagoSettings } from './MercadoPagoSettings';
 
@@ -17,7 +17,10 @@ export function AdminSettings({
   const { can } = usePermissions(userRole);
   const [isSaved, setIsSaved] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'general' | 'payments'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'payments' | 'conta'>('general');
+  const [credForm, setCredForm] = useState({ email: '', password: '', confirmPassword: '' });
+  const [credStatus, setCredStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [credError, setCredError] = useState('');
 
   const defaultSettings = {
     // General
@@ -323,6 +326,17 @@ export function AdminSettings({
         >
           <CreditCard className="w-4 h-4" />
           Pagamentos
+        </button>
+        <button
+          onClick={() => setActiveTab('conta')}
+          className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-xs uppercase tracking-widest transition ${
+            activeTab === 'conta'
+              ? 'bg-[#d4af37] text-black shadow-[0_0_20px_rgba(212,175,55,0.2)]'
+              : 'hover:bg-white/5 text-white/60 hover:text-white'
+          }`}
+        >
+          <Shield className="w-4 h-4" />
+          Minha Conta
         </button>
       </div>
 
@@ -795,9 +809,93 @@ export function AdminSettings({
            </div>
         </section>
           </>
-        ) : (
+        ) : activeTab === 'payments' ? (
           // ABA DE PAGAMENTOS
           <MercadoPagoSettings />
+        ) : (
+          // ABA MINHA CONTA
+          <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8 max-w-lg">
+            <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] mb-8 flex items-center gap-3">
+              <span className="p-2 bg-[#d4af37]/10 rounded-lg"><Shield className="w-4 h-4" /></span>
+              Alterar Credenciais de Acesso
+            </h3>
+            <div className="space-y-5">
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Novo E-mail / Usuário</label>
+                <input
+                  type="email"
+                  placeholder="Deixe em branco para não alterar"
+                  value={credForm.email}
+                  onChange={e => setCredForm(f => ({ ...f, email: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Nova Senha</label>
+                <input
+                  type="password"
+                  placeholder="Deixe em branco para não alterar"
+                  value={credForm.password}
+                  onChange={e => setCredForm(f => ({ ...f, password: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Confirmar Nova Senha</label>
+                <input
+                  type="password"
+                  placeholder="Repita a nova senha"
+                  value={credForm.confirmPassword}
+                  onChange={e => setCredForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
+                />
+              </div>
+
+              {credError && (
+                <p className="text-red-400 text-xs">{credError}</p>
+              )}
+
+              <button
+                disabled={credStatus === 'saving'}
+                onClick={async () => {
+                  setCredError('');
+                  const updates: { email?: string; password?: string } = {};
+                  if (credForm.email.trim()) updates.email = credForm.email.trim();
+                  if (credForm.password) {
+                    if (credForm.password.length < 6) { setCredError('A senha deve ter no mínimo 6 caracteres.'); return; }
+                    if (credForm.password !== credForm.confirmPassword) { setCredError('As senhas não coincidem.'); return; }
+                    updates.password = credForm.password;
+                  }
+                  if (!Object.keys(updates).length) { setCredError('Preencha ao menos um campo para alterar.'); return; }
+                  setCredStatus('saving');
+                  try {
+                    await updateMyCredentials(updates);
+                    setCredStatus('saved');
+                    setCredForm({ email: '', password: '', confirmPassword: '' });
+                    setTimeout(() => setCredStatus('idle'), 3000);
+                  } catch (err: any) {
+                    setCredError(err.message || 'Erro ao atualizar credenciais.');
+                    setCredStatus('error');
+                    setTimeout(() => setCredStatus('idle'), 3000);
+                  }
+                }}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest bg-[#d4af37] text-black hover:brightness-110 disabled:opacity-50 transition"
+              >
+                {credStatus === 'saving' ? (
+                  <RefreshCcw className="w-4 h-4 animate-spin" />
+                ) : credStatus === 'saved' ? (
+                  <Check className="w-4 h-4" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {credStatus === 'saved' ? 'Salvo!' : 'Salvar Credenciais'}
+              </button>
+
+              <p className="text-white/30 text-[11px]">
+                Se alterar o e-mail, você precisará fazer login novamente com o novo endereço.
+              </p>
+            </div>
+          </section>
         )}
       </div>
     </div>

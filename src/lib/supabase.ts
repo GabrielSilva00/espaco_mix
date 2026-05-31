@@ -211,6 +211,9 @@ export interface SystemConfig {
   contact_email?: string;
   contact_phone?: string;
   social_instagram?: string;
+  dpo_name?: string;
+  dpo_email?: string;
+  legal_city?: string;
 }
 
 export interface BankingDetails {
@@ -930,6 +933,14 @@ export async function updateSystemConfig(
   if (error) throw error;
 }
 
+export async function updateMyCredentials(updates: {
+  email?: string;
+  password?: string;
+}): Promise<void> {
+  const { error } = await supabase.auth.updateUser(updates);
+  if (error) throw error;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // REAL-TIME — Ouvintes de mudanças ao vivo
 // ═══════════════════════════════════════════════════════════════
@@ -951,7 +962,7 @@ export function subscribeToEvents(callback: (events: Event[]) => void) {
       { event: '*', schema: 'public', table: 'events' },
       async (payload) => {
         // Ao invés de recarregar TODOS os eventos, apenas atualiza/insere/deleta o evento modificado
-        const eventId = payload.new?.id || payload.old?.id;
+        const eventId = (payload.new as any)?.id || (payload.old as any)?.id;
         
         if (payload.eventType === 'DELETE') {
           cachedEvents = cachedEvents.filter(e => e.id !== eventId);
