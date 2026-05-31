@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Shield, Cookie, BarChart3, Megaphone, Lock,
-  Download, Trash2, Check, AlertTriangle, X, RefreshCw, Eye,
+  Trash2, Check, AlertTriangle, X, RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase';
@@ -72,7 +72,6 @@ export function PrivacySettingsView() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deletingAccount, setDeletingAccount] = useState(false);
-  const [exportingData, setExportingData] = useState(false);
 
   const handleSaveConsent = () => {
     saveConsent({
@@ -83,54 +82,6 @@ export function PrivacySettingsView() {
     });
     setEditingConsent(false);
     showToast('Preferências de privacidade atualizadas.', 'success');
-  };
-
-  const handleExportData = async () => {
-    setExportingData(true);
-    try {
-      const exportPayload = {
-        exportedAt: new Date().toISOString(),
-        platform: 'Espaço Mix Eventos',
-        user: {
-          id: sessionUser?.id,
-          name: sessionUser?.name,
-          email: sessionUser?.email,
-          role: sessionUser?.role,
-        },
-        consent: consentData,
-        reservations: reservations.map(r => ({
-          id: r.id,
-          date: r.date,
-          total: r.total,
-          paymentStatus: r.paymentStatus,
-          paymentMethod: r.paymentMethod,
-          eventId: r.eventId,
-          tables: r.tables,
-          singleTickets: r.singleTickets,
-          tickets: r.ticketsObj?.map(t => ({
-            id: t.id,
-            name: t.name,
-            ownerName: t.ownerName,
-            ownerCpf: t.ownerCpf,
-            status: t.status,
-          })),
-        })),
-      };
-      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `meus-dados-espacomix-${Date.now()}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showToast('Seus dados foram exportados com sucesso.', 'success');
-    } catch {
-      showToast('Erro ao exportar dados. Tente novamente.', 'error');
-    } finally {
-      setExportingData(false);
-    }
   };
 
   const handleDeleteAccount = async () => {
@@ -278,45 +229,6 @@ export function PrivacySettingsView() {
               <span>Versão da política: <strong className="text-white/40">{consentData.version}</strong></span>
             </div>
           )}
-        </section>
-
-        {/* Seção: Meus Dados */}
-        <section className="mb-8">
-          <h2 className="text-[11px] font-black uppercase tracking-widest text-[#d4af37] mb-4">Meus Dados</h2>
-
-          <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-5 space-y-3">
-            <div className="flex items-start gap-3">
-              <Eye className="w-4 h-4 text-white/30 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-[11px] font-bold text-white/70 mb-0.5">Dados que armazenamos sobre você</p>
-                <p className="text-[10px] text-white/40 leading-relaxed">
-                  Nome, e-mail, CPF (quando informado), telefone, data de nascimento, histórico de reservas, preferências e logs de acesso.
-                  Consulte nossa{' '}
-                  <button onClick={() => setCurrentView('privacy')} className="text-[#d4af37]/70 underline">Política de Privacidade</button>
-                  {' '}para detalhes completos.
-                </p>
-              </div>
-            </div>
-
-            <div className="border-t border-white/5 pt-3 flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold text-white/70">Exportar Meus Dados</p>
-                <p className="text-[10px] text-white/30">Baixar todos os seus dados em formato JSON (LGPD, Art. 18, V)</p>
-              </div>
-              <button
-                onClick={handleExportData}
-                disabled={exportingData}
-                className="flex items-center gap-2 px-4 py-2 border border-[#d4af37]/30 text-[#d4af37]/70 rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-[#d4af37]/5 transition disabled:opacity-40"
-              >
-                {exportingData ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Download className="w-3.5 h-3.5" />
-                )}
-                Exportar
-              </button>
-            </div>
-          </div>
         </section>
 
         {/* Seção: Excluir Conta */}

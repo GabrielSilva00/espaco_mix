@@ -17,8 +17,7 @@ import { ContactView } from './modules/contact/ContactView';
 import { AuthView } from './modules/auth/AuthView';
 import { ProfileView } from './modules/profile/ProfileView';
 import { PrivacySettingsView } from './modules/profile/PrivacySettingsView';
-import { PrivacyView } from './modules/privacy/PrivacyView';
-import { TermsView } from './modules/terms/TermsView';
+import { LegalView } from './modules/legal/LegalView';
 import { InstallPrompt } from './components/InstallPrompt';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
 
@@ -102,8 +101,8 @@ export function App() {
           {currentView === 'admin-login' && <AuthView />}
           {currentView === 'profile' && userRole !== 'admin' && userRole !== 'developer' && <ProfileView />}
           {currentView === 'profile-privacy' && <PrivacySettingsView />}
-          {currentView === 'privacy' && <PrivacyView />}
-          {currentView === 'terms' && <TermsView />}
+          {currentView === 'privacy' && <LegalView initialTab="privacy" />}
+          {currentView === 'terms' && <LegalView initialTab="terms" />}
           {currentView === 'dashboard' && (
             <ErrorBoundary>
               <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[60vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
@@ -114,7 +113,7 @@ export function App() {
 
         </main>
 
-        <Footer onNavigate={setCurrentView} showCookies={!!consentData} />
+        <Footer onNavigate={setCurrentView} showCookies={!!consentData} isAuthenticated={!!userRole} />
       </div>
 
       <ConsentBanner />
