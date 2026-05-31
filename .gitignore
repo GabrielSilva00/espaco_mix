@@ -11,6 +11,7 @@ firebase-applet-config.json
 .env
 .env.local
 .env.production
+.env.teste
 
 # Playwright
 /test-results/

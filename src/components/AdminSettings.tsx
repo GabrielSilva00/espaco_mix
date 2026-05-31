@@ -34,6 +34,7 @@ export function AdminSettings({
     document: '',
     contactEmail: '',
     contactPhone: '',
+    socialInstagram: '',
 
     // Payment
     paymentMode: 'split',
@@ -144,6 +145,7 @@ export function AdminSettings({
           document:             c.document               ?? prev.document,
           contactEmail:         c.contact_email          ?? prev.contactEmail,
           contactPhone:         c.contact_phone          ?? prev.contactPhone,
+          socialInstagram:      c.social_instagram       ?? prev.socialInstagram,
         }));
       })
       .catch((err) => console.error('[AdminSettings] Erro ao carregar config:', (err as Error)?.message));
@@ -217,6 +219,7 @@ export function AdminSettings({
         document:                 settings.document || undefined,
         contact_email:            settings.contactEmail || undefined,
         contact_phone:            settings.contactPhone || undefined,
+        social_instagram:         settings.socialInstagram || undefined,
       });
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
@@ -477,6 +480,17 @@ export function AdminSettings({
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition"
                 />
                 <p className="text-[9px] opacity-30 mt-1.5">Este endereço será sugerido como localização padrão ao criar novos eventos.</p>
+              </div>
+
+              {/* Instagram */}
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Instagram do Espaço</label>
+                <input
+                  type="text" name="socialInstagram" value={settings.socialInstagram} onChange={handleChange}
+                  placeholder="@espacomix"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition"
+                />
+                <p className="text-[9px] opacity-30 mt-1.5">Será exibido no rodapé do site. Use o formato @usuario ou o handle completo.</p>
               </div>
             </div>
 

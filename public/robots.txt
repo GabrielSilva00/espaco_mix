@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Bloquear rotas de API e admin
+Disallow: /api/
+Disallow: /api/admin/
+Disallow: /api/webhook/
+
+Sitemap: https://espacomix.com.br/sitemap.xml

@@ -10,6 +10,7 @@ import { Navbar } from './shared/components/Navbar';
 import { Toast } from './shared/components/Toast';
 import { ConsentBanner } from './shared/components/ConsentBanner';
 import { Home } from './components/Home';
+import { Footer } from './components/Footer';
 import { BookingView } from './modules/booking/BookingView';
 import { ReservationsView } from './modules/reservations/ReservationsView';
 import { ContactView } from './modules/contact/ContactView';
@@ -113,37 +114,7 @@ export function App() {
 
         </main>
 
-        <footer className="px-6 md:px-10 py-8 md:py-6 border-t border-[#ffffff1a] flex flex-col md:flex-row justify-between items-center gap-6 bg-[#0a0a0a]/50 backdrop-blur-sm relative z-40">
-          <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-6 text-center md:text-left">
-            <p className="text-[9px] md:text-[10px] opacity-40 uppercase tracking-widest">© 2026 Espaço Mix Eventos</p>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setCurrentView('privacy')}
-                className="text-[9px] opacity-30 hover:opacity-60 uppercase tracking-widest transition"
-              >
-                Privacidade
-              </button>
-              <button
-                onClick={() => setCurrentView('terms')}
-                className="text-[9px] opacity-30 hover:opacity-60 uppercase tracking-widest transition"
-              >
-                Termos de Uso
-              </button>
-              {consentData && (
-                <button
-                  onClick={() => setCurrentView('profile-privacy')}
-                  className="text-[9px] opacity-30 hover:opacity-60 uppercase tracking-widest transition"
-                >
-                  Cookies
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
-            <span className="text-[9px] md:text-[10px] opacity-60 uppercase tracking-[0.2em]">Reservas Ativas</span>
-          </div>
-        </footer>
+        <Footer onNavigate={setCurrentView} showCookies={!!consentData} />
       </div>
 
       <ConsentBanner />

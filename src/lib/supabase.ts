@@ -210,6 +210,7 @@ export interface SystemConfig {
   document?: string;
   contact_email?: string;
   contact_phone?: string;
+  social_instagram?: string;
 }
 
 export interface BankingDetails {
