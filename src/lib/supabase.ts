@@ -7,7 +7,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 // ─── Tipos ────────────────────────────────────────────────────
-export type UserRole = 'client' | null;
+export type UserRole = 'client' | 'admin' | 'developer' | null;
 
 export interface Profile {
   id: string;
@@ -127,6 +127,15 @@ export interface TicketItem {
   checked_in_at?: string;
 }
 
+export interface StaffAccount {
+  id: string;
+  name: string;
+  username: string;
+  password: string;
+  event_ids?: number[];
+  is_active?: boolean;
+}
+
 export interface ProducerApplication {
   id: string;
   user_id: string;
@@ -202,10 +211,6 @@ export interface SystemConfig {
   contact_email?: string;
   contact_phone?: string;
   social_instagram?: string;
-  // Dados legais / LGPD
-  dpo_name?: string;
-  dpo_email?: string;
-  legal_city?: string;
 }
 
 export interface BankingDetails {
@@ -345,6 +350,32 @@ export async function getMyProfile(): Promise<Profile | null> {
 
   if (error) throw error;
   return data;
+}
+
+/** Login especial para admin/staff (por username, não e-mail) */
+export async function signInWithUsername(username: string, password: string) {
+  const adminEmail = `${username}@espacomix.internal`;
+
+  // Tenta login de admin (via Supabase Auth) primeiro
+  try {
+    const result = await signIn(adminEmail, password);
+    return result;
+  } catch {
+    // Para staff: verificação de senha no servidor (scrypt, nunca no cliente)
+    const response = await fetch('/api/staff/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error((err as any).error ?? 'Usuário ou senha incorretos');
+    }
+
+    const data = await response.json();
+    return { staff: data.staff };
+  }
 }
 
 /** Recuperar senha */
@@ -765,6 +796,110 @@ export async function getTicketById(ticketId: string): Promise<TicketItem | null
 }
 
 // ═══════════════════════════════════════════════════════════════
+// STAFF
+// ═══════════════════════════════════════════════════════════════
+
+export async function getStaffAccounts(): Promise<StaffAccount[]> {
+  const { data, error } = await supabase
+    .from('staff_accounts')
+    .select('*')
+    .eq('is_active', true);
+  if (error) throw error;
+  return (data ?? []) as StaffAccount[];
+}
+
+export async function createStaffAccount(
+  staff: Omit<StaffAccount, 'id'>
+): Promise<StaffAccount> {
+  const { data, error } = await supabase
+    .from('staff_accounts')
+    .insert(staff)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as StaffAccount;
+}
+
+export async function deleteStaffAccount(staffId: string): Promise<void> {
+  const { error } = await supabase
+    .from('staff_accounts')
+    .update({ is_active: false })
+    .eq('id', staffId);
+  if (error) throw error;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CANDIDATURAS DE PRODUTOR
+// ═══════════════════════════════════════════════════════════════
+
+export async function getPendingApplications(): Promise<ProducerApplication[]> {
+  const { data, error } = await supabase
+    .from('producer_applications')
+    .select('*, profiles!producer_applications_user_id_fkey(name, email, avatar_url)')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as ProducerApplication[];
+}
+
+export async function submitProducerApplication(
+  application: Omit<ProducerApplication, 'id' | 'status' | 'created_at'>
+): Promise<ProducerApplication> {
+  const { data, error } = await supabase
+    .from('producer_applications')
+    .insert({ ...application, status: 'pending' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ProducerApplication;
+}
+
+export async function approveProducer(
+  applicationId: string,
+  userId: string,
+  reviewerId: string
+): Promise<void> {
+  // 1. Aprovar a candidatura
+  const { error: appErr } = await supabase
+    .from('producer_applications')
+    .update({
+      status: 'approved',
+      reviewed_by: reviewerId,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', applicationId);
+
+  if (appErr) throw appErr;
+
+  // 2. Ativar flag no perfil do usuário
+  const { error: profErr } = await supabase
+    .from('profiles')
+    .update({ is_approved_event_creator: true })
+    .eq('id', userId);
+
+  if (profErr) throw profErr;
+}
+
+export async function rejectProducer(
+  applicationId: string,
+  reviewerId: string,
+  reason: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('producer_applications')
+    .update({
+      status: 'rejected',
+      rejection_reason: reason,
+      reviewed_by: reviewerId,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', applicationId);
+
+  if (error) throw error;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // CONFIGURAÇÕES GLOBAIS
 // ═══════════════════════════════════════════════════════════════
 
@@ -807,7 +942,7 @@ export function subscribeToEvents(callback: (events: Event[]) => void) {
   getEvents().then(events => {
     cachedEvents = events;
     callback(events);
-  }).catch(() => callback([]));
+  });
 
   const channel = supabase
     .channel('events-changes')
@@ -816,7 +951,7 @@ export function subscribeToEvents(callback: (events: Event[]) => void) {
       { event: '*', schema: 'public', table: 'events' },
       async (payload) => {
         // Ao invés de recarregar TODOS os eventos, apenas atualiza/insere/deleta o evento modificado
-        const eventId = (payload.new as any)?.id || (payload.old as any)?.id;
+        const eventId = payload.new?.id || payload.old?.id;
         
         if (payload.eventType === 'DELETE') {
           cachedEvents = cachedEvents.filter(e => e.id !== eventId);
@@ -873,6 +1008,30 @@ export function subscribeToEventReservations(
       async () => {
         const reservations = await getEventReservations(eventId);
         callback(reservations);
+      }
+    )
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
+}
+
+/** Ouvir candidaturas pendentes (painel admin) */
+export function subscribeToPendingApplications(
+  callback: (count: number) => void
+) {
+  const channel = supabase
+    .channel('pending-applications')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'producer_applications',
+        filter: `status=eq.pending`,
+      },
+      async () => {
+        const apps = await getPendingApplications();
+        callback(apps.length);
       }
     )
     .subscribe();

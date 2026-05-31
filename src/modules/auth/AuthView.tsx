@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import {
+  ShieldCheck,
   Smartphone,
   ArrowLeft,
 } from 'lucide-react';
@@ -9,12 +10,15 @@ import { GoogleIcon } from '../../components/GoogleIcon';
 export function AuthView() {
   const {
     setCurrentView,
+    setDashboardMode,
     authTab, setAuthTab,
     adminForm, setAdminForm,
     registerForm, setRegisterForm,
     adminError, setAdminError,
     verificationStep, setVerificationStep,
     verificationCode, setVerificationCode,
+    totpPending, setTotpPending,
+    totpInput, setTotpInput,
     forgotPasswordStep, setForgotPasswordStep,
     forgotPasswordData, setForgotPasswordData,
     registerStep, setRegisterStep,
@@ -22,6 +26,10 @@ export function AuthView() {
     handleRegister,
     handleVerifyCode,
     showToast,
+    setUserRole,
+    setIsApprovedEventCreator,
+    setSessionUser,
+    setLoggedInUserId,
   } = useApp();
 
   return (
@@ -33,31 +41,88 @@ export function AuthView() {
       >
         <div className="absolute top-0 right-0 w-32 h-32 bg-[#d4af37] opacity-5 blur-3xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
 
-        <div className="flex bg-white/5 p-1 rounded-xl mb-6">
-          <button
-            onClick={() => setAuthTab('login')}
-            className={`flex-1 min-h-[44px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'login' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
-          >
-            Entrar
-          </button>
-          <button
-            onClick={() => setAuthTab('register')}
-            className={`flex-1 min-h-[44px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'register' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
-          >
-            Cadastrar
-          </button>
-        </div>
+        {authTab !== 'staff' && (
+          <div className="flex bg-white/5 p-1 rounded-xl mb-6">
+            <button
+              onClick={() => setAuthTab('login')}
+              className={`flex-1 min-h-[44px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'login' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
+            >
+              Entrar
+            </button>
+            <button
+              onClick={() => setAuthTab('register')}
+              className={`flex-1 min-h-[44px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'register' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
+            >
+              Cadastrar
+            </button>
+          </div>
+        )}
 
         <div className="text-center mb-6">
           <h1 className="text-lg md:text-2xl font-serif text-[#d4af37] mb-2">
-            {authTab === 'login' ? 'Bem-vindo de volta' : 'Criar nova conta'}
+            {authTab === 'staff' ? 'Acesso Colaborador' : authTab === 'login' ? 'Bem-vindo de volta' : 'Criar nova conta'}
           </h1>
           <p className="text-[9px] md:text-[10px] uppercase tracking-widest opacity-40">
-            {authTab === 'login' ? 'Acesse sua conta para continuar' : 'Preencha os dados para se cadastrar'}
+             {authTab === 'staff' ? 'Entre com sua credencial da equipe' : authTab === 'login' ? 'Acesse sua conta para continuar' : 'Preencha os dados para se cadastrar'}
           </p>
         </div>
 
-        {verificationStep ? (
+        {totpPending ? (
+          <div className="space-y-6 text-center animate-in fade-in zoom-in duration-300">
+            <ShieldCheck className="w-12 h-12 text-[#d4af37] mx-auto opacity-80" />
+            <h2 className="text-xl font-serif text-[#d4af37]">Verificação em Dois Fatores</h2>
+            <p className="text-[10px] uppercase tracking-[0.2em] opacity-60">Insira o código do seu autenticador</p>
+            <input
+              type="text"
+              value={totpInput}
+              onChange={(e) => setTotpInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              maxLength={6}
+              autoFocus
+              placeholder="000000"
+              className="w-full text-center text-2xl font-mono tracking-[0.5em] bg-white/5 border border-white/20 rounded-xl px-4 py-4 text-white focus:border-[#d4af37] outline-none transition"
+            />
+            {adminError && <p className="text-red-400 text-[10px] uppercase tracking-widest">{adminError}</p>}
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/auth/dev-verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: totpInput }),
+                  });
+                  const data = await res.json();
+                  if (data.valid) {
+                    setUserRole('developer');
+                    setIsApprovedEventCreator(true);
+                    setSessionUser({
+                      id: 'dev',
+                      email: adminForm.username,
+                      name: 'Admin / Dev',
+                      role: 'developer',
+                      isApprovedEventCreator: true
+                    });
+                    setLoggedInUserId('dev');
+                    setCurrentView('dashboard');
+                    setDashboardMode('list');
+                    setAdminError('');
+                    setTotpPending(false);
+                    setTotpInput('');
+                  } else {
+                    setAdminError('Token 2FA inválido');
+                  }
+                } catch {
+                  setAdminError('Erro ao verificar token. Tente novamente.');
+                }
+              }}
+              className="w-full bg-[#d4af37] text-black py-4 rounded-xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 transition"
+            >
+              Confirmar
+            </button>
+            <button onClick={() => { setTotpPending(false); setTotpInput(''); setAdminError(''); }} className="text-[10px] uppercase tracking-widest text-white/40 hover:text-white transition">
+              Voltar
+            </button>
+          </div>
+        ) : verificationStep ? (
           <div className="space-y-6 text-center animate-in fade-in zoom-in duration-300">
             <Smartphone className="w-12 h-12 text-[#d4af37] mx-auto opacity-80" />
             <h2 className="text-xl font-serif text-[#d4af37]">Verificação de Celular</h2>
@@ -105,7 +170,7 @@ export function AuthView() {
           </div>
         ) : forgotPasswordStep === 'none' ? (
             <>
-              <form onSubmit={authTab === 'login' ? handleAdminLogin : handleRegister} className="space-y-4 md:space-y-5">
+              <form onSubmit={(authTab === 'login' || authTab === 'staff') ? handleAdminLogin : handleRegister} className="space-y-4 md:space-y-5">
                 {authTab === 'register' && registerStep === 1 && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 md:space-y-5">
                     <div>
@@ -181,7 +246,7 @@ export function AuthView() {
                     </div>
                   </motion.div>
                 )}
-                {authTab === 'login' && (
+                {(authTab === 'login' || authTab === 'staff') && (
                   <>
                     <div>
                       <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">E-mail / Usuário</label>
@@ -207,15 +272,17 @@ export function AuthView() {
                         placeholder="••••••••"
                       />
                     </div>
-                    <div className="flex justify-start">
-                      <button
-                        type="button"
-                        onClick={() => setForgotPasswordStep('email')}
-                        className="text-[10px] uppercase tracking-widest text-[#d4af37] hover:brightness-110 opacity-70 hover:opacity-100 transition"
-                      >
-                        Esqueci minha senha
-                      </button>
-                    </div>
+                    {authTab === 'login' && (
+                      <div className="flex justify-start">
+                        <button
+                          type="button"
+                          onClick={() => setForgotPasswordStep('email')}
+                          className="text-[10px] uppercase tracking-widest text-[#d4af37] hover:brightness-110 opacity-70 hover:opacity-100 transition"
+                        >
+                          Esqueci minha senha
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
                 {adminError && <p className="text-red-400 text-[10px] uppercase tracking-widest text-center">{adminError}</p>}
@@ -224,7 +291,7 @@ export function AuthView() {
                   type="submit"
                   className="w-full bg-[#d4af37] text-[#0a0a0a] py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:brightness-110 transition mt-2"
                 >
-                  {authTab === 'login' ? 'Entrar' : registerStep === 1 ? 'Continuar' : 'Criar Conta e Continuar'}
+                  {(authTab === 'login' || authTab === 'staff') ? 'Entrar' : registerStep === 1 ? 'Continuar' : 'Criar Conta e Continuar'}
                 </button>
 
                 {authTab === 'login' && (
