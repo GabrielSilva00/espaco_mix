@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
+import { sendConfirmationEmail, sendReminderEmails, type ConfirmationData } from "./emailService.js";
 
 dotenv.config();
 
@@ -770,6 +771,119 @@ export async function createExpressApp() {
       dpo_email: "privacidade@espacomix.com.br",
       lastUpdated: "2026-05-27",
     });
+  });
+
+  // ── OTP de verificação de e-mail no cadastro ─────────────────────────────
+  // Map: email → { code, expiresAt }
+  const otpStore = new Map<string, { code: string; expiresAt: number }>();
+
+  app.post("/api/auth/send-verify-code", authLimiter, async (req, res) => {
+    const { email } = req.body as { email?: string };
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: "E-mail inválido." });
+      return;
+    }
+
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    otpStore.set(email, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
+
+    const { Resend } = await import("resend");
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
+    try {
+      await resend.emails.send({
+        from: "Espaço Mix <onboarding@resend.dev>",
+        to: email,
+        subject: "Seu código de verificação — Espaço Mix",
+        html: `
+          <div style="background:#0a0a0a;padding:40px;font-family:serif;max-width:480px;margin:0 auto;border-radius:12px">
+            <h2 style="color:#d4af37;text-align:center;letter-spacing:4px;font-size:18px;margin-bottom:8px">ESPAÇO MIX</h2>
+            <p style="color:#fff;text-align:center;font-size:14px;opacity:0.7;margin-bottom:32px">Verificação de Cadastro</p>
+            <div style="background:#1a1a1a;border-radius:8px;padding:32px;text-align:center;border:1px solid #2a2a2a">
+              <p style="color:#aaa;font-size:13px;margin-bottom:16px">Seu código de verificação é:</p>
+              <div style="font-size:40px;font-weight:bold;color:#d4af37;letter-spacing:12px">${code}</div>
+              <p style="color:#666;font-size:11px;margin-top:16px">Válido por 10 minutos</p>
+            </div>
+            <p style="color:#666;text-align:center;font-size:11px;margin-top:24px">Se você não solicitou este código, ignore este e-mail.</p>
+          </div>
+        `,
+      });
+      res.json({ sent: true });
+    } catch (err: any) {
+      console.error("[OTP] Erro ao enviar código:", err.message);
+      res.status(500).json({ error: "Erro ao enviar e-mail de verificação." });
+    }
+  });
+
+  app.post("/api/auth/check-verify-code", authLimiter, (req, res) => {
+    const { email, code } = req.body as { email?: string; code?: string };
+    if (!email || !code) {
+      res.status(400).json({ valid: false, error: "Dados ausentes." });
+      return;
+    }
+
+    const entry = otpStore.get(email);
+    if (!entry || Date.now() > entry.expiresAt) {
+      otpStore.delete(email);
+      res.status(400).json({ valid: false, error: "Código expirado ou inexistente. Solicite um novo." });
+      return;
+    }
+
+    if (entry.code !== code) {
+      res.status(400).json({ valid: false, error: "Código incorreto." });
+      return;
+    }
+
+    otpStore.delete(email);
+    res.json({ valid: true });
+  });
+
+  // ── Email - Confirmação de Compra ─────────────────────────────────────────
+  app.post("/api/email/send-confirmation", async (req, res) => {
+    const { buyerName, buyerEmail, reservationId, eventTitle, eventDate, eventTime, eventLocation, total, paymentMethod } =
+      req.body as Partial<ConfirmationData>;
+
+    if (!buyerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyerEmail)) {
+      res.status(400).json({ error: "E-mail inválido." });
+      return;
+    }
+    if (!buyerName || !reservationId || !eventTitle || !eventDate || !eventLocation) {
+      res.status(400).json({ error: "Dados incompletos." });
+      return;
+    }
+    if (typeof total !== "number" || total < 0) {
+      res.status(400).json({ error: "Valor inválido." });
+      return;
+    }
+
+    try {
+      await sendConfirmationEmail({
+        buyerName, buyerEmail, reservationId, eventTitle, eventDate,
+        eventTime, eventLocation, total, paymentMethod: paymentMethod ?? "credit_card",
+      });
+      res.json({ sent: true });
+    } catch (err: any) {
+      console.error("[EMAIL] Erro ao enviar confirmação:", err.message);
+      res.status(500).json({ error: "Erro ao enviar e-mail." });
+    }
+  });
+
+  // ── Email - Lembretes Automáticos (endpoint para cron externo) ────────────
+  app.post("/api/email/send-reminders", async (req, res) => {
+    const cronKey = process.env.CRON_SECRET;
+    const provided = req.headers["x-cron-key"];
+    if (!cronKey || provided !== cronKey) {
+      res.status(401).json({ error: "Não autorizado." });
+      return;
+    }
+
+    try {
+      const result = await sendReminderEmails();
+      res.json(result);
+    } catch (err: any) {
+      console.error("[EMAIL] Erro ao enviar lembretes:", err.message);
+      res.status(500).json({ error: "Erro ao enviar lembretes." });
+    }
   });
 
   // Rotas /api/* não encontradas — deve vir ANTES do middleware Vite

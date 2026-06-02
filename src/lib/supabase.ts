@@ -105,6 +105,7 @@ export interface Reservation {
   pix_qr_code?: string;
   pix_copy_paste?: string;
   checked_in?: boolean;
+  reminder_sent?: boolean;
   created_at: string;
   updated_at?: string;
   ticket_items?: TicketItem[];
@@ -214,6 +215,13 @@ export interface SystemConfig {
   dpo_name?: string;
   dpo_email?: string;
   legal_city?: string;
+  // Email
+  email_sender_name?: string;
+  email_sender_address?: string;
+  email_purchase_subject?: string;
+  email_purchase_body?: string;
+  email_reminder_subject?: string;
+  email_reminder_body?: string;
 }
 
 export interface BankingDetails {

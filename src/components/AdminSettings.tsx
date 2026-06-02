@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Settings, Image as ImageIcon, Save, Check, Filter,
-  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, CreditCard
+  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, CreditCard, Mail
 } from 'lucide-react';
 import { getSystemConfig, updateSystemConfig, updateMyCredentials } from '../lib/supabase';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
@@ -92,7 +92,15 @@ export function AdminSettings({
     // Admin
     enableReports: true,
     allowExport: true,
-    showSensitiveData: false
+    showSensitiveData: false,
+
+    // Email
+    emailSenderName: 'Espaço Mix',
+    emailSenderAddress: '',
+    emailPurchaseSubject: 'Confirmação: seu ingresso para {{event_title}}',
+    emailPurchaseBody: '',
+    emailReminderSubject: 'Lembrete: {{event_title}} é amanhã!',
+    emailReminderBody: '',
   };
 
   const [settings, setSettings] = useState(defaultSettings);
@@ -149,6 +157,12 @@ export function AdminSettings({
           contactEmail:         c.contact_email          ?? prev.contactEmail,
           contactPhone:         c.contact_phone          ?? prev.contactPhone,
           socialInstagram:      c.social_instagram       ?? prev.socialInstagram,
+          emailSenderName:      c.email_sender_name      ?? prev.emailSenderName,
+          emailSenderAddress:   c.email_sender_address   ?? prev.emailSenderAddress,
+          emailPurchaseSubject: c.email_purchase_subject ?? prev.emailPurchaseSubject,
+          emailPurchaseBody:    c.email_purchase_body    ?? prev.emailPurchaseBody,
+          emailReminderSubject: c.email_reminder_subject ?? prev.emailReminderSubject,
+          emailReminderBody:    c.email_reminder_body    ?? prev.emailReminderBody,
         }));
       })
       .catch((err) => console.error('[AdminSettings] Erro ao carregar config:', (err as Error)?.message));
@@ -223,6 +237,13 @@ export function AdminSettings({
         contact_email:            settings.contactEmail || undefined,
         contact_phone:            settings.contactPhone || undefined,
         social_instagram:         settings.socialInstagram || undefined,
+        // Email
+        email_sender_name:        settings.emailSenderName || undefined,
+        email_sender_address:     settings.emailSenderAddress || undefined,
+        email_purchase_subject:   settings.emailPurchaseSubject || undefined,
+        email_purchase_body:      settings.emailPurchaseBody || undefined,
+        email_reminder_subject:   settings.emailReminderSubject || undefined,
+        email_reminder_body:      settings.emailReminderBody || undefined,
       });
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
@@ -794,7 +815,110 @@ export function AdminSettings({
            </div>
         </section>
 
-        {/* 9. Relatórios (Admin) */}
+        {/* 9. Templates de Email */}
+        <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8">
+          <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] mb-8 flex items-center gap-3">
+            <span className="p-2 bg-[#d4af37]/10 rounded-lg"><Mail className="w-4 h-4" /></span>
+            Templates de Email
+          </h3>
+
+          {/* Remetente */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            <div>
+              <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Nome do Remetente</label>
+              <input
+                type="text"
+                name="emailSenderName"
+                value={settings.emailSenderName}
+                onChange={handleChange}
+                placeholder="Ex: Espaço Mix"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">E-mail do Remetente</label>
+              <input
+                type="email"
+                name="emailSenderAddress"
+                value={settings.emailSenderAddress}
+                onChange={handleChange}
+                placeholder="onboarding@resend.dev (padrão dev)"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
+              />
+              <p className="text-[11px] text-white/30 mt-1.5">Para produção, verifique seu domínio em resend.com.</p>
+            </div>
+          </div>
+
+          {/* Variáveis disponíveis */}
+          <div className="mb-8 p-4 bg-white/5 rounded-xl border border-white/10">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-white/40 mb-3">Variáveis disponíveis nos templates</p>
+            <div className="flex flex-wrap gap-2">
+              {['{{buyer_name}}','{{event_title}}','{{event_date}}','{{event_time}}','{{event_location}}','{{reservation_id}}','{{total}}','{{payment_method}}'].map(v => (
+                <code key={v} className="text-[11px] bg-white/10 text-[#d4af37] px-2 py-1 rounded-md font-mono">{v}</code>
+              ))}
+            </div>
+          </div>
+
+          {/* Email de confirmação */}
+          <div className="mb-8 p-5 border border-white/10 rounded-2xl">
+            <h4 className="text-xs uppercase tracking-widest font-bold text-white/50 mb-5">Email de Confirmação de Compra</h4>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Assunto</label>
+                <input
+                  type="text"
+                  name="emailPurchaseSubject"
+                  value={settings.emailPurchaseSubject}
+                  onChange={handleChange}
+                  placeholder="Confirmação: seu ingresso para {{event_title}}"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Corpo do Email (HTML — deixe vazio para usar template padrão)</label>
+                <textarea
+                  name="emailPurchaseBody"
+                  value={settings.emailPurchaseBody}
+                  onChange={e => setSettings(prev => ({ ...prev, emailPurchaseBody: e.target.value }))}
+                  placeholder="Cole seu HTML personalizado aqui..."
+                  rows={7}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20 resize-y font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Email de lembrete */}
+          <div className="p-5 border border-white/10 rounded-2xl">
+            <h4 className="text-xs uppercase tracking-widest font-bold text-white/50 mb-5">Lembrete do Evento (24h antes)</h4>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Assunto</label>
+                <input
+                  type="text"
+                  name="emailReminderSubject"
+                  value={settings.emailReminderSubject}
+                  onChange={handleChange}
+                  placeholder="Lembrete: {{event_title}} é amanhã!"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Corpo do Email (HTML — deixe vazio para usar template padrão)</label>
+                <textarea
+                  name="emailReminderBody"
+                  value={settings.emailReminderBody}
+                  onChange={e => setSettings(prev => ({ ...prev, emailReminderBody: e.target.value }))}
+                  placeholder="Cole seu HTML personalizado aqui..."
+                  rows={7}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20 resize-y font-mono"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 10. Relatórios (Admin) */}
         <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8">
            <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] mb-8 flex items-center gap-3">
                <span className="p-2 bg-[#d4af37]/10 rounded-lg"><BarChart2 className="w-4 h-4" /></span>

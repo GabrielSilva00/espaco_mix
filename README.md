@@ -19,7 +19,7 @@
 
 5. Instalar dontenv
    npm install dotenv
-
+w
 
 GITS
 1. git pull:  Puxar projeto atualizado

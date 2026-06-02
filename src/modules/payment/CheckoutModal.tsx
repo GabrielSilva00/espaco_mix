@@ -395,10 +395,10 @@ export function CheckoutModal() {
 
                   {verificationStep ? (
                     <div className="space-y-6 text-center animate-in fade-in zoom-in duration-300">
-                      <Smartphone className="w-12 h-12 text-[#d4af37] mx-auto opacity-80" />
-                      <h2 className="text-xl font-serif text-[#d4af37]">Verificação de Celular</h2>
+                      <Mail className="w-12 h-12 text-[#d4af37] mx-auto opacity-80" />
+                      <h2 className="text-xl font-serif text-[#d4af37]">Verificação de E-mail</h2>
                       <p className="text-[10px] uppercase tracking-[0.2em] opacity-60">
-                        Enviamos um código de 4 dígitos para<br/><span className="text-[#d4af37] mt-2 block">{registerForm.phone}</span>
+                        Enviamos um código de 4 dígitos para<br/><span className="text-[#d4af37] mt-2 block">{registerForm.email}</span>
                       </p>
                       
                       <div className="flex justify-center gap-4 py-4">

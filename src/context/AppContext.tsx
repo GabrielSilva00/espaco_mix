@@ -823,7 +823,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.location.href = '/';
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (registerStep === 1) {
       if (!registerForm.name || !registerForm.email || !registerForm.password) { setAdminError('Preencha nome, e-mail e senha para continuar'); return; }
@@ -832,14 +832,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } else {
       if (!registerForm.phone || !registerForm.cpf || !registerForm.birthDate) { setAdminError('Preencha celular, CPF e data de nascimento'); return; }
       setAdminError('');
-      setVerificationStep(true);
+      try {
+        const resp = await fetch('/api/auth/send-verify-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: registerForm.email }),
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          setAdminError((data as any).error ?? 'Erro ao enviar código. Tente novamente.');
+          return;
+        }
+        setVerificationStep(true);
+      } catch {
+        setAdminError('Erro de conexão. Verifique sua internet.');
+      }
     }
   };
 
   const handleVerifyCode = async () => {
-    if (verificationCode.join('').length < 4) { setAdminError('Preencha o código completo (4 dígitos)'); return; }
+    const code = verificationCode.join('');
+    if (code.length < 4) { setAdminError('Preencha o código completo (4 dígitos)'); return; }
     setAdminError('');
     try {
+      const checkResp = await fetch('/api/auth/check-verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: registerForm.email, code }),
+      });
+      const checkData = await checkResp.json().catch(() => ({}));
+      if (!checkResp.ok || !(checkData as any).valid) {
+        setAdminError((checkData as any).error ?? 'Código inválido.');
+        return;
+      }
       await signUp(registerForm.email, registerForm.password, registerForm.name, { phone: registerForm.phone, cpf: registerForm.cpf, birth_date: registerForm.birthDate } as any);
       setVerificationStep(false);
       setRegisterForm({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
@@ -1083,7 +1108,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPaymentStatus('processing');
     setPixData(null);
 
-    const finalizeSuccess = () => {
+    const finalizeSuccess = (resId = `RES-${Date.now()}`) => {
       const generatedTickets: TicketItem[] = [];
       const getOwnerData = (isFirst: boolean) => {
         if (identificationOption === 'same_as_buyer') return { ownerName: guestData.name, ownerCpf: guestData.cpf, ownerEmail: guestData.email };
@@ -1119,7 +1144,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tIndex++;
       }
       const newRes: Reservation = {
-        id: `RES-${Date.now()}`,
+        id: resId,
         date: new Date().toISOString(),
         tables: [...selectedTables],
         singleTickets,
@@ -1181,7 +1206,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Erro ao processar pagamento');
-        finalizeSuccess();
+        const resId = `RES-${Date.now()}`;
+        finalizeSuccess(resId);
+        // Fire-and-forget: notificação de email ao comprador
+        fetch('/api/email/send-confirmation', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            buyerName: guestData.name,
+            buyerEmail: guestData.email,
+            reservationId: resId,
+            eventTitle: activeEvent?.title ?? '',
+            eventDate: activeEvent?.date ?? '',
+            eventTime: activeEvent?.time ?? '',
+            eventLocation: activeEvent?.location ?? '',
+            total: grandTotal,
+            paymentMethod: selectedPaymentMethod ?? 'credit_card',
+          }),
+        }).catch(() => {});
       }
     } catch (err: any) {
       console.error('[Payment] Erro na transação:', err?.message ?? 'Erro desconhecido');
