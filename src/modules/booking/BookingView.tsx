@@ -207,14 +207,14 @@ export function BookingView() {
                   {hasTickets && (
                     <button
                       onClick={() => togglePanel('tickets')}
-                      className={`group relative text-left rounded-2xl border p-4 transition-all duration-300 flex flex-col gap-2 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
+                      className={`group relative text-left rounded-2xl border p-3 transition-all duration-300 flex flex-col gap-1.5 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
                         ${activePanel === 'tickets'
                           ? 'border-[#d4af37]/60 bg-[#d4af37]/5 shadow-[0_0_24px_rgba(212,175,55,0.08)]'
                           : 'border-white/10 bg-[#111] hover:border-[#d4af37]/30 hover:bg-[#d4af37]/[0.02]'
                         }`}
                     >
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${activePanel === 'tickets' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
-                        <Ticket className={`w-5 h-5 transition-colors ${activePanel === 'tickets' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${activePanel === 'tickets' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
+                        <Ticket className={`w-4 h-4 transition-colors ${activePanel === 'tickets' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
                       </div>
                       <div>
                         <h3 className="text-base font-bold text-white tracking-wide mb-1">Ingressos</h3>
@@ -249,17 +249,17 @@ export function BookingView() {
                   {hasTables && (
                     <button
                       onClick={() => togglePanel('tables')}
-                      className={`group relative text-left rounded-2xl border p-4 transition-all duration-300 flex flex-col gap-2 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
+                      className={`group relative text-left rounded-2xl border p-3 transition-all duration-300 flex flex-col gap-1.5 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
                         ${activePanel === 'tables'
                           ? 'border-[#d4af37]/60 bg-[#d4af37]/5 shadow-[0_0_24px_rgba(212,175,55,0.08)]'
                           : 'border-white/10 bg-[#111] hover:border-[#d4af37]/30 hover:bg-[#d4af37]/[0.02]'
                         }`}
                     >
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${activePanel === 'tables' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${activePanel === 'tables' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
                         {hasBistro ? (
-                          <Coffee className={`w-5 h-5 transition-colors ${activePanel === 'tables' ? 'text-amber-400' : 'text-white/50 group-hover:text-amber-400'}`} />
+                          <Coffee className={`w-4 h-4 transition-colors ${activePanel === 'tables' ? 'text-amber-400' : 'text-white/50 group-hover:text-amber-400'}`} />
                         ) : (
-                          <Armchair className={`w-5 h-5 transition-colors ${activePanel === 'tables' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
+                          <Armchair className={`w-4 h-4 transition-colors ${activePanel === 'tables' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
                         )}
                       </div>
                       <div>
@@ -503,7 +503,7 @@ export function BookingView() {
                               className="relative w-full max-w-3xl mx-auto bg-[#111111] rounded-2xl border border-[#2a2a2a] overflow-x-hidden"
                               style={{ minHeight: 300 }}
                             >
-                              <div className="overflow-x-auto overflow-y-auto w-full" style={{ maxHeight: 520 }}>
+                              <div className="overflow-x-auto overflow-y-auto w-full" style={{ maxHeight: 400 }}>
                                 <svg
                                   viewBox={viewBox}
                                   style={{ display: 'block', width: '100%', minWidth: 320, minHeight: 300 }}
@@ -513,6 +513,9 @@ export function BookingView() {
                                     <pattern id="mapGrid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
                                       <circle cx="1" cy="1" r="0.8" fill="rgba(255,255,255,0.03)" />
                                     </pattern>
+                                    <filter id="selectedGlow" x="-30%" y="-30%" width="160%" height="160%">
+                                      <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#d4af37" floodOpacity="0.8" />
+                                    </filter>
                                   </defs>
                                   <rect width={vbW} height={vbH} fill="#111111" />
                                   <rect width={vbW} height={vbH} fill="url(#mapGrid)" />
@@ -563,8 +566,9 @@ export function BookingView() {
                                       <g
                                         key={el.id}
                                         onClick={() => { if (!isReserved && tableData) toggleTableSelection(tableNum, tableData.status); }}
-                                        style={{ cursor: isReserved ? 'not-allowed' : 'pointer' }}
+                                        style={{ cursor: isReserved ? 'not-allowed' : 'pointer', filter: isSelected ? 'url(#selectedGlow)' : undefined }}
                                         opacity={isReserved ? 0.6 : 1}
+                                        transform={isSelected ? `translate(${cx},${cy}) scale(1.12) translate(${-cx},${-cy})` : undefined}
                                       >
                                         <title>
                                           {isBistro ? 'Bistrô' : 'Mesa'} {labelNum} • {tableData?.capacity ?? el.capacity ?? (isBistro ? 2 : 4)} pessoas • R$ {(tableData?.price ?? 0).toFixed(2)}{isReserved ? ' • Reservada' : isSelected ? ' • Selecionada' : ' • Livre'}

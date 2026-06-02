@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { GoogleIcon } from '../../components/GoogleIcon';
+import { supabase } from '../../lib/supabase';
 
 export function AuthView() {
   const {
@@ -33,11 +34,11 @@ export function AuthView() {
   } = useApp();
 
   return (
-    <div className="max-w-md mx-auto px-4 md:px-6 py-6 md:py-12 flex flex-col items-center justify-center min-h-[60vh]">
+    <div className="max-w-sm mx-auto px-4 md:px-6 py-6 md:py-12 flex flex-col items-center justify-center min-h-[60vh]">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full bg-[#0d0d0d] border border-white/10 p-6 md:p-8 rounded-2xl md:rounded-3xl relative overflow-hidden shadow-2xl"
+        className="w-full bg-[#0d0d0d] border border-white/10 p-5 md:p-6 rounded-2xl md:rounded-3xl relative overflow-hidden shadow-2xl"
       >
         <div className="absolute top-0 right-0 w-32 h-32 bg-[#d4af37] opacity-5 blur-3xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
 
@@ -303,6 +304,7 @@ export function AuthView() {
                     </div>
                     <button
                       type="button"
+                      onClick={() => supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } })}
                       className="w-full bg-white text-black py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-neutral-200 transition flex justify-center items-center gap-2"
                     >
                       <GoogleIcon className="w-4 h-4" /> Entrar com Google
@@ -319,6 +321,7 @@ export function AuthView() {
                     </div>
                     <button
                       type="button"
+                      onClick={() => supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } })}
                       className="w-full bg-white text-black py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-neutral-200 transition flex justify-center items-center gap-2"
                     >
                       <GoogleIcon className="w-4 h-4" /> Cadastrar com Google

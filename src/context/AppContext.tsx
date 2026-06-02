@@ -340,7 +340,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const clearSystemLogs = () => setSystemLogs([]);
 
   // Buyers / reservations
-  const [buyers, setBuyers] = useState<Buyer[]>(MOCK_BUYERS);
+  const [buyers, setBuyers] = useState<Buyer[]>(import.meta.env.DEV ? MOCK_BUYERS : []);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [selectedBuyerForDetails, setSelectedBuyerForDetails] = useState<Buyer | null>(null);
 
@@ -923,10 +923,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const handleSaveEvent = async (isDraft = false) => {
     if (!formEvent) return;
-    if (!formEvent.title || !formEvent.date || !formEvent.location) {
-      setErrors({ form: 'Por favor, preencha os campos obrigatórios (Nome, Data, Local).' });
+    if (!formEvent.title || !formEvent.date) {
+      setErrors({ form: 'Por favor, preencha os campos obrigatórios (Nome e Data).' });
       return;
     }
+    const location = formEvent.location || siteConfig.address || '';
     const cap = formEvent.capacity ?? 0;
     if (cap > 0) {
       const totalQty = (formEvent.batches ?? []).reduce((sum, b) => sum + (b.sectors ?? []).reduce((s2, sec) => s2 + (sec.quantity ?? 0), 0), 0);
@@ -935,7 +936,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const isNew = !events.some(e => e.id === formEvent.id);
       const statusToSave = isNew ? 'Rascunho' : (isDraft ? 'Rascunho' : formEvent.status);
-      const eventToSave = { ...mapAppEventToDb({ ...formEvent, status: statusToSave }), batches: formEvent.batches, created_by: loggedInUserId || undefined };
+      const eventToSave = { ...mapAppEventToDb({ ...formEvent, status: statusToSave, location }), batches: formEvent.batches, created_by: loggedInUserId || undefined };
       const saved = await saveEventToDb(eventToSave as any);
       const mappedSaved = mapDbEventToApp(saved);
       const savedWithBatches = {

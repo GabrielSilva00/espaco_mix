@@ -1,6 +1,11 @@
 import type { Event } from '../../types';
 import { STATUS_FROM_DB, STATUS_TO_DB } from '../constants/app';
 
+export function isEventPast(event: Event): boolean {
+  const today = new Date().toISOString().split('T')[0];
+  return event.date < today || event.status === 'Finalizado';
+}
+
 export function mapDbEventToApp(db: any): Event {
   return {
     id: db.id,

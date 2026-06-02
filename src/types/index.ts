@@ -167,6 +167,11 @@ export interface SiteConfig {
   venueMaxCapacity: number | null;
   platformName: string;
   platformLogo: string | null;
+  address?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  socialInstagram?: string;
+  companyName?: string;
 }
 
 export type CheckoutStep =

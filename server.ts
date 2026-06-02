@@ -886,6 +886,58 @@ export async function createExpressApp() {
     }
   });
 
+  // ─── Broadcast de mensagens para compradores de um evento ─────────────────
+  app.post("/api/messages/broadcast", async (req, res) => {
+    const { eventId, message, subject } = req.body as { eventId?: number; message?: string; subject?: string };
+    if (!eventId || !message?.trim()) {
+      res.status(400).json({ error: "eventId e message são obrigatórios." });
+      return;
+    }
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const adminClient = createClient(
+        process.env.VITE_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      const { data: reservations, error } = await adminClient
+        .from("reservations")
+        .select("buyer_name, buyer_email, event_id")
+        .eq("event_id", eventId)
+        .eq("payment_status", "approved");
+
+      if (error) throw error;
+
+      let sent = 0;
+      let errors = 0;
+      const broadcastSubject = subject || "Aviso importante sobre o seu evento";
+
+      for (const r of reservations ?? []) {
+        try {
+          const { Resend } = await import("resend");
+          const resend = new Resend(process.env.RESEND_API_KEY);
+          await resend.emails.send({
+            from: `${process.env.EMAIL_SENDER_NAME || "Espaço Mix"} <${process.env.EMAIL_SENDER_ADDRESS || "noreply@espacomix.com.br"}>`,
+            to: r.buyer_email,
+            subject: broadcastSubject,
+            html: `<div style="font-family:sans-serif;max-width:600px;margin:auto;padding:32px;background:#0d0d0d;color:#fff;border-radius:12px">
+              <h2 style="color:#d4af37;margin-bottom:16px">${broadcastSubject}</h2>
+              <p style="color:#ccc;line-height:1.6;white-space:pre-wrap">${message}</p>
+              <hr style="border-color:#333;margin:24px 0"/>
+              <p style="color:#666;font-size:12px">Este é um aviso enviado pelo organizador do evento.</p>
+            </div>`,
+          });
+          sent++;
+        } catch {
+          errors++;
+        }
+      }
+      res.json({ sent, errors, total: reservations?.length ?? 0 });
+    } catch (err: any) {
+      console.error("[BROADCAST] Erro:", err.message);
+      res.status(500).json({ error: "Erro ao enviar mensagens." });
+    }
+  });
+
   // Rotas /api/* não encontradas — deve vir ANTES do middleware Vite
   app.all("/api/*", (_req, res) => {
     res.status(404).json({ error: "API endpoint not found" });

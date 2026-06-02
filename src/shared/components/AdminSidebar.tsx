@@ -97,7 +97,7 @@ export function AdminSidebar() {
                 >
                   <ActivePill active={currentView === 'dashboard' && dashboardMode === 'admin-overview'} />
                   <LayoutDashboard className={iconClass(currentView === 'dashboard' && dashboardMode === 'admin-overview')} />
-                  {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dashboard Admin</span>}
+                  {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dashboard</span>}
                 </button>
                 {userRole === 'developer' && (
                   <button

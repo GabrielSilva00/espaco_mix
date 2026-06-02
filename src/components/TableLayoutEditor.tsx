@@ -95,6 +95,8 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
   requiredTables,
   requiredBistros,
 }) => {
+  const [savedInitialLayout] = useState<TableLayoutElement[]>(() => [...initialLayout]);
+  const [confirmRestore, setConfirmRestore] = useState(false);
   const [elements, setElements] = useState<TableLayoutElement[]>(initialLayout);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -493,6 +495,27 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
               <div>A: {selectedElement.height}px</div>
             </div>
 
+            {(selectedElement.type === 'rect-table' || selectedElement.type === 'bistro-table') && (
+              <button
+                onClick={() => {
+                  const isMesa = selectedElement.type === 'rect-table';
+                  const newType: LayoutElementType = isMesa ? 'bistro-table' : 'rect-table';
+                  const newSize = isMesa ? BISTRO_SIZE : MESA_SIZE;
+                  setElements(prev => {
+                    let next = prev.map(el => el.id === selectedElement.id
+                      ? { ...el, type: newType, width: newSize, height: newSize }
+                      : el
+                    );
+                    next = reorderMesaLabels(next);
+                    next = reorderBistroLabels(next);
+                    return next;
+                  });
+                }}
+                className="w-full py-2 rounded-lg border border-[#d4af37]/30 text-[#d4af37]/70 hover:bg-[#d4af37]/10 text-xs uppercase tracking-widest font-bold transition"
+              >
+                Converter para {selectedElement.type === 'rect-table' ? 'Bistrô' : 'Mesa'}
+              </button>
+            )}
             <button
               onClick={() => {
                 const removedType = selectedElement.type;
@@ -535,6 +558,13 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
             Salvar Layout
           </button>
           <button
+            onClick={() => setConfirmRestore(true)}
+            disabled={savedInitialLayout.length === 0}
+            className="w-full py-2.5 border border-[#d4af37]/20 rounded-lg text-xs uppercase tracking-widest font-bold hover:bg-[#d4af37]/5 transition text-[#d4af37]/60 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Restaurar
+          </button>
+          <button
             onClick={() => setConfirmClear(true)}
             className="w-full py-2.5 border border-white/15 rounded-lg text-xs uppercase tracking-widest font-bold hover:bg-white/5 transition text-white/40"
           >
@@ -551,6 +581,18 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
             <div className="flex gap-3 justify-end">
               <button onClick={() => setConfirmClear(false)} className="px-4 py-2 rounded-lg border border-white/10 text-sm hover:bg-white/5 transition text-white/70">Cancelar</button>
               <button onClick={() => { setElements([]); setSelectedId(null); setConfirmClear(false); }} className="px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-bold hover:bg-red-500/30 transition">Limpar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmRestore && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#111] border border-white/10 rounded-2xl p-6 max-w-sm w-full mx-4 space-y-4 shadow-2xl">
+            <h3 className="text-base font-serif text-[#d4af37]">Restaurar layout?</h3>
+            <p className="text-sm text-white/50">O layout voltará ao estado inicial salvo. As alterações atuais serão perdidas.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirmRestore(false)} className="px-4 py-2 rounded-lg border border-white/10 text-sm hover:bg-white/5 transition text-white/70">Cancelar</button>
+              <button onClick={() => { setElements([...savedInitialLayout]); setSelectedId(null); setConfirmRestore(false); }} className="px-4 py-2 rounded-lg bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#d4af37] text-sm font-bold hover:bg-[#d4af37]/30 transition">Restaurar</button>
             </div>
           </div>
         </div>

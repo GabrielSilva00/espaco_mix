@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
-import { Search, MapPin, Calendar, ChevronRight, ChevronLeft, ArrowRight } from 'lucide-react';
+import { Search, MapPin, Calendar, ChevronRight, ChevronLeft } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface Event {
@@ -111,8 +111,9 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
                   <img
                     src={event.img || "https://picsum.photos/seed/event/1920/1080"}
                     alt={event.title}
-                    className="w-full h-full object-cover transition-transform duration-[10s] ease-out group-hover:scale-105 will-change-transform"
+                    className="w-full h-full object-cover will-change-transform"
                     loading="eager"
+                    draggable={false}
                   />
                   {/* Overlay gradiente */}
                   <div className="absolute inset-0 bg-gradient-to-t from-[#111111] via-[#111111]/60 to-transparent" />
@@ -215,47 +216,6 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
                 const allSectors = event.batches?.flatMap((b: any) => b.sectors ?? []) ?? [];
                 const isSoldOut = allSectors.length > 0 && allSectors.every((s: any) => (s.sold ?? 0) >= s.quantity);
 
-                // Coleta todos os preços disponíveis do evento
-                const priceCandidates: number[] = [];
-
-                // 1. Ingressos por setor
-                for (const s of allSectors) {
-                  if (event.priceType === 'gender') {
-                    if (s.priceMale != null && s.priceMale > 0) priceCandidates.push(s.priceMale);
-                    if (s.priceFemale != null && s.priceFemale > 0) priceCandidates.push(s.priceFemale);
-                  } else {
-                    if (s.price != null && s.price > 0) priceCandidates.push(s.price);
-                  }
-                }
-
-                // 2. Mesas e Bistrôs via tableLayout (onde os preços reais ficam armazenados)
-                if (event.hasTables) {
-                  const tableEls = (event.tableLayout ?? []).filter(
-                    (el: any) => el.type === 'round-table' || el.type === 'rect-table' || el.type === 'bistro-table'
-                  );
-                  const layoutHasPrices = tableEls.some((el: any) => el.price != null && el.price > 0);
-
-                  if (layoutHasPrices) {
-                    // Bistrôs (mais baratos) ficam disponíveis primeiro
-                    const bistroPrices = tableEls
-                      .filter((el: any) => el.type === 'bistro-table' && el.price > 0)
-                      .map((el: any) => el.price as number);
-                    const tablePrices = tableEls
-                      .filter((el: any) => el.type !== 'bistro-table' && el.price > 0)
-                      .map((el: any) => el.price as number);
-
-                    if (bistroPrices.length > 0) priceCandidates.push(Math.min(...bistroPrices));
-                    if (tablePrices.length > 0) priceCandidates.push(Math.min(...tablePrices));
-                  } else {
-                    // Fallback para tableConfig (não persistido no DB, mas tenta)
-                    const tc = event.tableConfig as any;
-                    if (tc?.bistroPrice > 0 && (tc?.totalBistros ?? 0) > 0) priceCandidates.push(tc.bistroPrice);
-                    if (tc?.tablePrice > 0) priceCandidates.push(tc.tablePrice);
-                  }
-                }
-
-                const minPrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 0;
-
                 return (
                   <motion.div
                     key={event.id}
@@ -299,17 +259,6 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
                       <div className="flex items-center gap-1 text-[11px] text-white/50 max-w-full">
                         <MapPin className="w-3 h-3 shrink-0" />
                         <span className="truncate">{event.location}</span>
-                      </div>
-                      <div className="flex items-center justify-between pt-1.5 border-t border-white/5">
-                        <div className="flex flex-col">
-                          <span className="text-[9px] uppercase tracking-widest text-white/40">A partir de</span>
-                          <span className="text-xs font-bold text-white">
-                            {`R$ ${minPrice.toFixed(2).replace('.', ',')}`}
-                          </span>
-                        </div>
-                        <div className="w-7 h-7 rounded-full bg-[#111] group-hover:bg-[#d4af37] group-hover:text-black text-white/40 border border-white/10 flex items-center justify-center transition-colors">
-                          <ArrowRight className="w-3 h-3" />
-                        </div>
                       </div>
                     </div>
                   </motion.div>

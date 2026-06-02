@@ -23,13 +23,20 @@ import { DeveloperPanel } from '../../components/DeveloperPanel';
 import { TableLayoutEditor } from '../../components/TableLayoutEditor';
 import { downloadPDFList } from '../../shared/utils/pdf';
 import { generateDefaultLayout, getLayoutViewBox } from '../../shared/utils/defaultLayout';
+import { isEventPast } from '../../shared/utils/eventMapper';
 import type { Event, Buyer, Reservation } from '../../types';
 
 // ─── Admin Overview ────────────────────────────────────────────
 function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[]; buyers: Buyer[]; reservations: Reservation[] }) {
   const totalRevenue = reservations.reduce((s, r) => s + (r.total || 0), 0);
   const activeEvents = events.filter(e => e.status === 'Ativo' || e.status === 'Vendas liberadas').length;
-  const paidBuyers = buyers.filter(b => b.status === 'Pago').length;
+  const soldTickets = reservations.filter(r => r.paymentStatus === 'approved' || (r as any).payment_status === 'approved').length;
+  const checkedInCount = buyers.filter(b => b.checkedIn).length;
+  const occupancyRate = soldTickets > 0 ? Math.round((checkedInCount / soldTickets) * 100) : 0;
+
+  const last5Sales = [...reservations]
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+    .slice(0, 5);
 
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(); d.setMonth(d.getMonth() - (5 - i));
@@ -47,16 +54,16 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
     <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto">
       <div className="flex items-center gap-3 mb-2">
         <BarChart3 className="w-6 h-6 text-[#d4af37]" />
-        <h1 className="text-2xl font-serif text-[#d4af37]">Visão Geral Admin</h1>
+        <h1 className="text-2xl font-serif text-[#d4af37]">Dashboard</h1>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
+          { label: 'Receita Total', value: totalRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), icon: <DollarSign className="w-5 h-5" />, color: 'text-[#d4af37]' },
           { label: 'Eventos Ativos', value: activeEvents, icon: <Calendar className="w-5 h-5" />, color: 'text-blue-400' },
-          { label: 'Total Eventos', value: events.length, icon: <Layers className="w-5 h-5" />, color: 'text-purple-400' },
-          { label: 'Compradores', value: buyers.length, icon: <Users className="w-5 h-5" />, color: 'text-green-400' },
-          { label: 'Confirmados', value: paidBuyers, icon: <ShieldCheck className="w-5 h-5" />, color: 'text-[#d4af37]' },
+          { label: 'Ingressos Vendidos', value: soldTickets, icon: <Layers className="w-5 h-5" />, color: 'text-green-400' },
+          { label: 'Taxa de Ocupação', value: `${occupancyRate}%`, icon: <ShieldCheck className="w-5 h-5" />, color: 'text-purple-400' },
         ].map(kpi => (
           <div key={kpi.label} className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
             <div className={`mb-3 ${kpi.color}`}>{kpi.icon}</div>
@@ -64,17 +71,6 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
             <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">{kpi.label}</p>
           </div>
         ))}
-      </div>
-
-      {/* Receita */}
-      <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-6">
-        <div className="flex items-center gap-2 mb-2">
-          <DollarSign className="w-4 h-4 text-[#d4af37]" />
-          <span className="text-[10px] uppercase tracking-widest text-white/40">Receita Total</span>
-        </div>
-        <p className="text-4xl font-bold text-[#d4af37]">
-          {totalRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-        </p>
       </div>
 
       {/* Gráfico simples de vendas por mês */}
@@ -99,24 +95,26 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
       {/* Lista de eventos */}
       <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-white/5">
-          <p className="text-[10px] uppercase tracking-widest text-white/40">Eventos Recentes</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40">Últimas 5 Vendas</p>
         </div>
         <div className="divide-y divide-white/5">
-          {events.slice(0, 5).map(e => (
-            <div key={e.id} className="flex items-center justify-between px-6 py-4">
-              <div>
-                <p className="text-sm font-medium text-white">{e.title || 'Sem título'}</p>
-                <p className="text-[10px] text-white/30 mt-0.5">{e.date}</p>
+          {last5Sales.map(r => {
+            const evt = events.find(e => e.id === r.eventId || e.id === (r as any).event_id);
+            return (
+              <div key={r.id} className="flex items-center justify-between px-6 py-4 gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{r.buyerName || (r as any).buyer_name || '—'}</p>
+                  <p className="text-[10px] text-white/30 mt-0.5 truncate">{evt?.title || `Evento #${r.eventId || (r as any).event_id}`}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-bold text-[#d4af37]">{(r.total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                  <p className="text-[9px] text-white/30 mt-0.5">{r.createdAt ? new Date(r.createdAt).toLocaleDateString('pt-BR') : '—'}</p>
+                </div>
               </div>
-              <span className={`text-[9px] uppercase tracking-widest px-2 py-1 rounded-full border ${
-                e.status === 'Ativo' || e.status === 'Vendas liberadas' ? 'border-green-500/30 text-green-400 bg-green-500/10' :
-                e.status === 'Finalizado' ? 'border-white/10 text-white/30 bg-white/5' :
-                'border-[#d4af37]/30 text-[#d4af37] bg-[#d4af37]/10'
-              }`}>{e.status}</span>
-            </div>
-          ))}
-          {events.length === 0 && (
-            <div className="px-6 py-10 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum evento cadastrado</div>
+            );
+          })}
+          {last5Sales.length === 0 && (
+            <div className="px-6 py-10 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhuma venda registrada</div>
           )}
         </div>
       </div>
@@ -240,6 +238,7 @@ export function DashboardView() {
   const {
     dashboardMode, setDashboardMode,
     currentView,
+    siteConfig, setSiteConfig,
     events, setEvents,
     buyers,
     staffAccounts,
@@ -278,7 +277,6 @@ export function DashboardView() {
     checkInFilter, setCheckInFilter,
     checkInHistory,
     setCurrentView,
-    setSiteConfig,
     pendingApprovalsCount,
     handleImageFileChange,
     setActionTicket,
@@ -286,6 +284,9 @@ export function DashboardView() {
     setIsStaffModalOpen,
     setStaffAccounts,
   } = useApp();
+
+  const [eventFilter, setEventFilter] = React.useState<'upcoming' | 'past'>('upcoming');
+  const [pendingCheckin, setPendingCheckin] = React.useState<Buyer | null>(null);
 
   const downloadPDF = () => downloadPDFList(buyers, events.find(e => e.id === selectedDashboardEvent));
 
@@ -326,11 +327,22 @@ export function DashboardView() {
                       <h1 className="text-2xl md:text-3xl font-serif text-[#d4af37] mb-2">Painel de Controle</h1>
                       <p className="text-[9px] md:text-[10px] uppercase tracking-[0.2em] md:tracking-[0.3em] opacity-40">Gerencie seus eventos e acompanhe as vendas</p>
                     </div>
+                    <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+                      <button
+                        onClick={() => setEventFilter('upcoming')}
+                        className={`px-5 py-2 rounded-lg text-[10px] uppercase font-bold tracking-widest transition-all ${eventFilter === 'upcoming' ? 'bg-[#d4af37] text-black' : 'text-white/50 hover:text-white'}`}
+                      >Próximos</button>
+                      <button
+                        onClick={() => setEventFilter('past')}
+                        className={`px-5 py-2 rounded-lg text-[10px] uppercase font-bold tracking-widest transition-all ${eventFilter === 'past' ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white'}`}
+                      >Encerrados</button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
                     {events
                       .filter(evt => isAtLeast('admin') || evt.assignedStaffIds.includes(loggedInUserId || ''))
+                      .filter(evt => eventFilter === 'past' ? isEventPast(evt) : !isEventPast(evt))
                       .map((evt) => (
                       <motion.div 
                           key={evt.id}
@@ -395,10 +407,10 @@ export function DashboardView() {
                   <div className="flex items-center justify-between">
                     {isAtLeast('admin') && (
                       <button
-                        onClick={() => setDashboardMode('list')}
+                        onClick={() => setDashboardMode(dashboardMode === 'check-in' ? 'details' : 'list')}
                         className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#d4af37] hover:text-white transition-colors"
                       >
-                        <ArrowLeft className="w-3 h-3" /> Voltar para Lista
+                        <ArrowLeft className="w-3 h-3" /> {dashboardMode === 'check-in' ? 'Voltar para painel do evento' : 'Voltar para Lista'}
                       </button>
                     )}
                   </div>
@@ -438,14 +450,23 @@ export function DashboardView() {
                     if (!evt) return null;
                     const today = new Date().toISOString().split('T')[0];
                     const isEventPast = evt.date < today;
+                    const isActive = !isEventPast && (evt.status === 'Ativo' || evt.status === 'Vendas liberadas');
                     const statusColor = isEventPast || evt.status === 'Finalizado'
                       ? 'bg-red-500/20 text-red-400 border-red-500/30'
-                      : evt.status === 'Vendas liberadas' ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                      : isActive ? 'bg-green-500/20 text-green-400 border-green-500/30'
                       : evt.status === 'Em breve' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                       : 'bg-white/10 text-white/50 border-white/10';
+                    const statusTooltip = isEventPast || evt.status === 'Finalizado' ? 'Evento encerrado'
+                      : isActive ? 'Vendas abertas — evento ativo'
+                      : evt.status === 'Em breve' ? 'Vendas ainda não iniciadas'
+                      : 'Rascunho — não publicado';
                     return (
                       <div className="flex items-center gap-3 flex-wrap">
-                        <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold tracking-widest border ${statusColor}`}>
+                        <span
+                          title={statusTooltip}
+                          className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold tracking-widest border flex items-center gap-1.5 ${statusColor}`}
+                        >
+                          {isActive && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />}
                           {isEventPast ? 'Finalizado' : evt.status}
                         </span>
                         <button
@@ -544,7 +565,7 @@ export function DashboardView() {
                        <span className="text-[9px] uppercase tracking-widest font-bold text-green-400">+12% vs última ed.</span>
                      </div>
                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Receita Gerada</p>
-                     <h3 className="text-3xl font-serif text-white">R$ 15.450</h3>
+                     <h3 className="text-3xl font-sans font-bold text-white">R$ 15.450</h3>
                      <div className="mt-3 flex gap-4 border-t border-white/5 pt-3">
                        <div>
                          <p className="text-[9px] uppercase opacity-30">Pista</p>
@@ -567,7 +588,7 @@ export function DashboardView() {
                      </div>
                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Lotação Atual</p>
                      <div className="flex items-baseline gap-2">
-                       <h3 className="text-3xl font-serif text-white">148</h3>
+                       <h3 className="text-3xl font-sans font-bold text-white">148</h3>
                        <span className="text-sm opacity-40">/ 500 cap.</span>
                      </div>
                      <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden mt-4">
@@ -585,7 +606,7 @@ export function DashboardView() {
                      </div>
                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Check-ins Feitos</p>
                      <div className="flex items-baseline gap-2">
-                       <h3 className="text-3xl font-serif text-white">0</h3>
+                       <h3 className="text-3xl font-sans font-bold text-white">0</h3>
                        <span className="text-sm opacity-40">/ 148 previstos</span>
                      </div>
                      <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden mt-4">
@@ -601,7 +622,7 @@ export function DashboardView() {
                        </div>
                      </div>
                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Conversão Carrinho</p>
-                     <h3 className="text-3xl font-serif text-white">24.5%</h3>
+                     <h3 className="text-3xl font-sans font-bold text-white">24.5%</h3>
                      <p className="text-[9px] uppercase opacity-30 mt-3 pt-3 border-t border-white/5">25 checkouts abandonados</p>
                   </div>
                 </div>
@@ -966,7 +987,7 @@ export function DashboardView() {
 ) : dashboardMode === 'check-in' ? (
               <div className="max-w-4xl mx-auto space-y-4 px-2 sm:px-0 pb-32">
                 {/* Header KPI Check-in */}
-                <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 sm:p-6 mb-4 flex flex-col sm:flex-row justify-between items-center gap-4 sticky top-4 z-40 shadow-2xl">
+                <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 sm:p-6 mb-4 flex flex-col sm:flex-row justify-between items-center gap-4 sticky top-0 z-40 shadow-2xl">
                    <div className="flex items-center gap-4 w-full sm:w-auto">
                      <div className="w-12 h-12 rounded-full bg-[#d4af37]/10 flex items-center justify-center border border-[#d4af37]/20">
                        <ShieldCheck className="w-6 h-6 text-[#d4af37]" />
@@ -1011,7 +1032,7 @@ export function DashboardView() {
                   <div className="space-y-4">
                     {/* Scanner Area */}
                     <div className="bg-[#0d0d0d] border border-white/10 rounded-3xl overflow-hidden relative shadow-xl">
-                       <div className="relative aspect-video w-full bg-black flex items-center justify-center">
+                       <div className="relative max-w-sm mx-auto aspect-square w-full bg-black flex items-center justify-center">
                           {scannerError ? (
                             <div className="flex flex-col items-center justify-center gap-4 p-6 text-center h-full w-full">
                               <AlertCircle className="w-10 h-10 text-amber-400" />
@@ -1141,7 +1162,7 @@ export function DashboardView() {
                               
                               <div className="flex items-center">
                                 {!b.checkedIn ? (
-                                  <button onClick={() => handleCheckIn(b.id)} className="px-4 py-2.5 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-[#ffe380] active:scale-95 transition-all">
+                                  <button onClick={() => setPendingCheckin(b)} className="px-4 py-2.5 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-[#ffe380] active:scale-95 transition-all">
                                     ENTRAR
                                   </button>
                                 ) : (
@@ -1156,6 +1177,45 @@ export function DashboardView() {
                     </div>
                   </div>
                 )}
+
+                {/* Modal de confirmação de check-in */}
+                <AnimatePresence>
+                  {pendingCheckin && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4"
+                      onClick={() => setPendingCheckin(null)}
+                    >
+                      <motion.div
+                        initial={{ scale: 0.95, y: 10 }}
+                        animate={{ scale: 1, y: 0 }}
+                        exit={{ scale: 0.95, y: 10 }}
+                        className="bg-[#0d0d0d] border border-white/15 rounded-2xl p-6 max-w-sm w-full"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <h3 className="text-base font-bold text-[#d4af37] uppercase tracking-widest mb-4">Confirmar Check-in</h3>
+                        <div className="space-y-2 mb-6">
+                          <p className="text-sm font-bold text-white">{pendingCheckin.name}</p>
+                          {pendingCheckin.cpf && <p className="text-xs font-mono text-white/50">{pendingCheckin.cpf}</p>}
+                          <span className="inline-block text-[9px] px-2 py-1 bg-[#d4af37]/10 text-[#d4af37] rounded uppercase tracking-widest font-bold">{pendingCheckin.type}</span>
+                          <p className={`text-xs font-bold ${pendingCheckin.status === 'Pago' ? 'text-green-400' : 'text-amber-400'}`}>{pendingCheckin.status}</p>
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => { handleCheckIn(pendingCheckin.id); setPendingCheckin(null); }}
+                            className="flex-1 py-3 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition"
+                          >Confirmar</button>
+                          <button
+                            onClick={() => setPendingCheckin(null)}
+                            className="flex-1 py-3 bg-white/5 border border-white/10 text-white/70 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition"
+                          >Cancelar</button>
+                        </div>
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {/* Live Feed / History */}
                 <div className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6">
@@ -1291,6 +1351,9 @@ export function DashboardView() {
                               className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all"
                               placeholder="Ex: 1500"
                             />
+                            {siteConfig.venueMaxCapacity && (formEvent.capacity ?? 0) > siteConfig.venueMaxCapacity && (
+                              <p className="text-yellow-400 text-[10px] mt-1.5 ml-1">Excede a capacidade máxima do venue ({siteConfig.venueMaxCapacity})</p>
+                            )}
                           </div>
                         </div>
 
@@ -1362,39 +1425,76 @@ export function DashboardView() {
                           </div>
                         </div>
 
-                        <div className="pt-4 border-t border-white/5">
-                          <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Localização * (Busca Google Maps)</label>
-                          <div className="relative">
-                            <MapPin className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 opacity-30 text-[#d4af37]" />
-                            <input
-                              type="text"
-                              value={formEvent.location}
-                              onChange={(e) => { setFormEvent({ ...formEvent, location: e.target.value }); if(e.target.value.trim()) setReleaseValidationFields(prev => prev.filter(f => f !== 'Local')); }}
-                              placeholder="Busque o local ou digite o endereço..."
-                              className={`w-full bg-white/[0.03] border rounded-xl md:rounded-2xl pl-12 pr-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all ${releaseValidationFields.includes('Local') ? 'border-red-500/60 bg-red-500/5' : 'border-white/10'}`}
-                            />
-                            {/* Fake visual autocomplete suggestion drop if started typing */}
-                            {formEvent.location.length > 3 && !formEvent.location.includes(',') && (
-                               <div className="absolute top-full left-0 right-0 mt-2 bg-[#1a1a1a] border border-[#d4af37]/30 rounded-xl p-2 z-10 shadow-2xl">
-                                  <div className="p-3 hover:bg-white/5 cursor-pointer rounded-lg flex items-center gap-3" onClick={(e) => setFormEvent({...formEvent, location: formEvent.location + ', São Paulo - SP'})}>
-                                    <MapPin className="w-4 h-4 text-[#d4af37]" />
-                                    <span className="text-sm">{formEvent.location}, São Paulo - SP</span>
-                                  </div>
-                               </div>
-                            )}
-                          </div>
-                        </div>
 
-                        <div>
-                           <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Pontos de Venda Físicos Associados</label>
-                           <input 
-                              type="text" 
-                              value={formEvent.posLocations || ''}
-                              onChange={(e) => setFormEvent({ ...formEvent, posLocations: e.target.value })}
-                              placeholder="Ex: Bilheteria local, Loja X..."
-                              className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all placeholder:opacity-20"
-                            />
-                        </div>
+                        {(() => {
+                          let posList: { name: string; address: string; number: string }[] = [];
+                          try {
+                            const raw = formEvent.posLocations;
+                            if (raw && raw.startsWith('[')) {
+                              posList = JSON.parse(raw);
+                            } else if (raw) {
+                              posList = [{ name: raw, address: '', number: '' }];
+                            }
+                          } catch { posList = []; }
+
+                          const updatePosList = (list: { name: string; address: string; number: string }[]) => {
+                            setFormEvent({ ...formEvent, posLocations: JSON.stringify(list) });
+                          };
+
+                          return (
+                            <div>
+                              <div className="flex items-center justify-between mb-3">
+                                <label className="block text-[9px] md:text-[10px] uppercase opacity-40 font-bold tracking-[0.2em] ml-1">Pontos de Venda Físicos</label>
+                                <button
+                                  type="button"
+                                  onClick={() => updatePosList([...posList, { name: '', address: '', number: '' }])}
+                                  className="flex items-center gap-1 text-[9px] uppercase font-bold tracking-widest text-[#d4af37] hover:text-white transition"
+                                >
+                                  <Plus className="w-3 h-3" /> Adicionar
+                                </button>
+                              </div>
+                              <div className="space-y-3">
+                                {posList.map((pos, idx) => (
+                                  <div key={idx} className="bg-white/[0.02] border border-white/10 rounded-xl p-3 space-y-2">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                      <input
+                                        type="text"
+                                        value={pos.name}
+                                        onChange={e => { const l = [...posList]; l[idx] = { ...l[idx], name: e.target.value }; updatePosList(l); }}
+                                        placeholder="Ponto de Venda"
+                                        className="bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] outline-none placeholder:opacity-30"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={pos.address}
+                                        onChange={e => { const l = [...posList]; l[idx] = { ...l[idx], address: e.target.value }; updatePosList(l); }}
+                                        placeholder="Endereço"
+                                        className="bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] outline-none placeholder:opacity-30"
+                                      />
+                                      <div className="flex gap-2">
+                                        <input
+                                          type="text"
+                                          value={pos.number}
+                                          onChange={e => { const l = [...posList]; l[idx] = { ...l[idx], number: e.target.value }; updatePosList(l); }}
+                                          placeholder="Nº"
+                                          className="flex-1 bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] outline-none placeholder:opacity-30"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => updatePosList(posList.filter((_, i) => i !== idx))}
+                                          className="px-2 py-2 text-red-400 hover:bg-red-500/10 rounded-lg transition"
+                                        ><Trash className="w-4 h-4" /></button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                                {posList.length === 0 && (
+                                  <p className="text-[10px] text-white/20 italic py-2">Nenhum ponto de venda cadastrado.</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
 
@@ -1523,22 +1623,22 @@ export function DashboardView() {
                                       <div className="md:col-span-3 grid grid-cols-2 gap-2">
                                         <div>
                                           <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">Fem (R$)</label>
-                                          <input 
-                                            type="number" 
-                                            value={sector.priceFemale || ''}
+                                          <input
+                                            type="number"
+                                            value={sector.priceFemale ?? ''}
                                             onChange={(e) => {
-                                              setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, priceFemale: Number(e.target.value) } : s) } : b) });
+                                              setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, priceFemale: e.target.value === '' ? undefined : Number(e.target.value) } : s) } : b) });
                                             }}
                                             className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37]"
                                           />
                                         </div>
                                         <div>
                                           <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">Masc (R$)</label>
-                                          <input 
-                                            type="number" 
-                                            value={sector.priceMale || sector.price}
+                                          <input
+                                            type="number"
+                                            value={sector.priceMale ?? ''}
                                             onChange={(e) => {
-                                              setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, priceMale: Number(e.target.value) } : s) } : b) });
+                                              setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, priceMale: e.target.value === '' ? undefined : Number(e.target.value) } : s) } : b) });
                                             }}
                                             className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37]"
                                           />
@@ -1778,9 +1878,10 @@ export function DashboardView() {
                               <input
                                 type="number"
                                 min={0}
+                                max={30}
                                 value={formEvent.tableConfig.totalTables}
-                                onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalTables: Number(e.target.value) } })}
-                                className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37]"
+                                onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalTables: Math.min(30, Number(e.target.value)) } })}
+                                className={`w-full bg-white/[0.03] border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${formEvent.tableConfig.totalTables > 30 ? 'border-red-500/60' : 'border-white/10'}`}
                               />
                             </div>
                             <div>
@@ -1788,9 +1889,10 @@ export function DashboardView() {
                               <input
                                 type="number"
                                 min={0}
+                                max={10}
                                 value={formEvent.tableConfig.totalBistros ?? 0}
-                                onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalBistros: Number(e.target.value) } })}
-                                className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-[#d4af37]"
+                                onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalBistros: Math.min(10, Number(e.target.value)) } })}
+                                className={`w-full bg-white/[0.03] border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${(formEvent.tableConfig.totalBistros ?? 0) > 10 ? 'border-red-500/60' : 'border-white/10'}`}
                               />
                             </div>
                           </div>
@@ -2110,7 +2212,16 @@ export function DashboardView() {
             ) : dashboardMode === 'settings' && isAtLeast('admin') ? (
               <AdminSettings
                 userRole={userRole}
-                onSettingsSaved={(name, logo) => setSiteConfig(prev => ({ ...prev, platformName: name, platformLogo: logo }))}
+                onSettingsSaved={(name, logo, settings) => setSiteConfig(prev => ({
+                  ...prev,
+                  platformName: name,
+                  platformLogo: logo,
+                  address: settings?.address,
+                  contactPhone: settings?.contactPhone,
+                  contactEmail: settings?.contactEmail,
+                  socialInstagram: settings?.socialInstagram,
+                  companyName: settings?.companyName || settings?.tradeName,
+                }))}
               />
             ) : dashboardMode === 'developer-panel' && userRole === 'developer' ? (
               <DeveloperPanel />

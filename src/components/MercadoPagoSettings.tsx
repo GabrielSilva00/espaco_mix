@@ -12,6 +12,9 @@ export function MercadoPagoSettings() {
     publicKey: localStorage.getItem('mp_public_key') || '',
     webhookUrl: localStorage.getItem('mp_webhook_url') || '',
     isProduction: localStorage.getItem('mp_is_production') === 'true',
+    statementDescriptor: localStorage.getItem('mp_statement_descriptor') || '',
+    binaryMode: localStorage.getItem('mp_binary_mode') === 'true',
+    autoReturn: localStorage.getItem('mp_auto_return') === 'true',
   });
 
   const [showTokens, setShowTokens] = useState(false);
@@ -29,6 +32,9 @@ export function MercadoPagoSettings() {
     localStorage.setItem('mp_public_key', settings.publicKey);
     localStorage.setItem('mp_webhook_url', settings.webhookUrl);
     localStorage.setItem('mp_is_production', String(settings.isProduction));
+    localStorage.setItem('mp_statement_descriptor', settings.statementDescriptor);
+    localStorage.setItem('mp_binary_mode', String(settings.binaryMode));
+    localStorage.setItem('mp_auto_return', String(settings.autoReturn));
     
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
@@ -259,6 +265,50 @@ export function MercadoPagoSettings() {
             </ol>
           </div>
         )}
+      </div>
+
+      {/* Statement Descriptor + Modos Avançados */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-5">
+        <label className="block text-sm font-bold uppercase tracking-widest mb-2">Configurações Avançadas</label>
+
+        <div>
+          <label className="block text-xs uppercase tracking-widest text-white/50 mb-2">Descrição na Fatura (Statement Descriptor)</label>
+          <input
+            type="text"
+            value={settings.statementDescriptor}
+            onChange={(e) => handleChange('statementDescriptor', e.target.value)}
+            placeholder="Ex: ESPACO MIX"
+            maxLength={22}
+            className="w-full bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-[#d4af37] transition"
+          />
+          <p className="text-[10px] text-white/30 mt-1">Texto exibido na fatura do cartão (máx. 22 chars)</p>
+        </div>
+
+        <label className="flex items-start gap-4 cursor-pointer group p-3 bg-white/5 rounded-xl hover:bg-white/10 transition">
+          <div className="flex-1">
+            <span className="text-xs uppercase tracking-widest font-bold block mb-1">Modo Binário</span>
+            <span className="text-[10px] text-white/50">Aprova ou rejeita imediatamente, sem estados intermediários</span>
+          </div>
+          <div className="relative shrink-0 mt-1">
+            <input type="checkbox" checked={settings.binaryMode} onChange={(e) => handleChange('binaryMode', e.target.checked)} className="peer sr-only" />
+            <div className="w-10 h-6 bg-white/10 rounded-full peer-checked:bg-[#d4af37] transition-colors relative">
+              <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform shadow-sm ${settings.binaryMode ? 'translate-x-4' : 'translate-x-0'}`}></div>
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-4 cursor-pointer group p-3 bg-white/5 rounded-xl hover:bg-white/10 transition">
+          <div className="flex-1">
+            <span className="text-xs uppercase tracking-widest font-bold block mb-1">Retorno Automático</span>
+            <span className="text-[10px] text-white/50">Redireciona automaticamente após pagamento via redirect</span>
+          </div>
+          <div className="relative shrink-0 mt-1">
+            <input type="checkbox" checked={settings.autoReturn} onChange={(e) => handleChange('autoReturn', e.target.checked)} className="peer sr-only" />
+            <div className="w-10 h-6 bg-white/10 rounded-full peer-checked:bg-[#d4af37] transition-colors relative">
+              <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform shadow-sm ${settings.autoReturn ? 'translate-x-4' : 'translate-x-0'}`}></div>
+            </div>
+          </div>
+        </label>
       </div>
 
       {/* Test Connection */}

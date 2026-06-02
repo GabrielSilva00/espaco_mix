@@ -46,7 +46,7 @@ export function App() {
   } = useApp();
 
   return (
-    <div className={`min-h-screen bg-[#0a0a0a] text-[#e5e5e5] font-sans selection:bg-[#d4af37]/30 ${isAdminLayout ? 'flex' : ''}`}>
+    <div className={`min-h-screen bg-[#0a0a0a] text-[#e5e5e5] font-sans selection:bg-[#d4af37]/30 overflow-x-hidden ${isAdminLayout ? 'flex' : ''}`}>
 
       {/* Skip link — acessibilidade para navegação por teclado */}
       <a
@@ -516,9 +516,26 @@ export function App() {
                 </div>
               </div>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (!messageText.trim()) { showToast('Escreva uma mensagem primeiro', 'warning'); return; }
-                  showToast('Aviso sendo enviado para todos...', 'success');
+                  if (!selectedDashboardEvent) { showToast('Nenhum evento selecionado', 'error'); return; }
+                  try {
+                    showToast('Enviando mensagens...', 'info');
+                    const serverUrl = window.location.origin.replace(':5173', ':3000');
+                    const res = await fetch(`${serverUrl}/api/messages/broadcast`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ eventId: selectedDashboardEvent, message: messageText }),
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                      showToast(`Enviado para ${data.sent} compradores${data.errors > 0 ? ` (${data.errors} falhas)` : ''}`, 'success');
+                    } else {
+                      showToast(data.error || 'Erro ao enviar', 'error');
+                    }
+                  } catch {
+                    showToast('Erro de conexão com o servidor', 'error');
+                  }
                   setIsMessageModalOpen(false);
                   setMessageText('');
                 }}

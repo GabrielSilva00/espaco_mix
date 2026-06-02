@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Settings, Image as ImageIcon, Save, Check, Filter,
-  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, CreditCard, Mail
+  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, CreditCard, Mail, Loader2
 } from 'lucide-react';
 import { getSystemConfig, updateSystemConfig, updateMyCredentials } from '../lib/supabase';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
@@ -12,10 +12,12 @@ export function AdminSettings({
   onSettingsSaved,
 }: {
   userRole: UserRole;
-  onSettingsSaved?: (platformName: string, platformLogo: string | null) => void;
+  onSettingsSaved?: (platformName: string, platformLogo: string | null, settings?: any) => void;
 }) {
   const { can } = usePermissions(userRole);
   const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'payments' | 'conta'>('general');
   const [credForm, setCredForm] = useState({ email: '', password: '', confirmPassword: '' });
@@ -51,7 +53,6 @@ export function AdminSettings({
 
     // Security
     requireCPF: true,
-    limitPerCPF: '4',
     blockSimultaneous: true,
     verifyEmail: false,
 
@@ -125,7 +126,6 @@ export function AdminSettings({
           allowScheduled:       c.allow_scheduled        ?? prev.allowScheduled,
           defaultEventStatus:   c.default_event_status   ?? prev.defaultEventStatus,
           requireCPF:           c.require_cpf            ?? prev.requireCPF,
-          limitPerCPF:          String(c.limit_per_cpf   ?? prev.limitPerCPF),
           blockSimultaneous:    c.block_simultaneous     ?? prev.blockSimultaneous,
           verifyEmail:          c.verify_email           ?? prev.verifyEmail,
           lateParticipantInfo:  c.late_participant_info  ?? prev.lateParticipantInfo,
@@ -178,6 +178,8 @@ export function AdminSettings({
   };
 
   const handleSave = async () => {
+    setIsSaving(true);
+    setSaveError(null);
     try {
       await updateSystemConfig({
         // Geral
@@ -197,7 +199,6 @@ export function AdminSettings({
         payment_provider:        settings.paymentGateway as any,
         // Segurança
         require_cpf:             settings.requireCPF,
-        limit_per_cpf:           Number(settings.limitPerCPF) || undefined,
         block_simultaneous:      settings.blockSimultaneous,
         verify_email:            settings.verifyEmail,
         // Ingressos
@@ -247,9 +248,11 @@ export function AdminSettings({
       });
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-      onSettingsSaved?.(settings.platformName, logoPreview);
+      onSettingsSaved?.(settings.platformName, logoPreview, settings);
     } catch (err) {
-      console.error('[AdminSettings] Erro ao salvar:', (err as Error)?.message);
+      setSaveError((err as Error)?.message || 'Erro ao salvar configurações.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -300,8 +303,7 @@ export function AdminSettings({
             <Settings className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-2xl md:text-3xl font-serif text-[#d4af37]">Painel de Controle</h2>
-            <p className="text-xs uppercase tracking-widest opacity-40 mt-1">Configuração de regras e operação</p>
+            <h2 className="text-2xl md:text-3xl font-serif text-[#d4af37]">Configuração de regras e operação</h2>
           </div>
         </div>
 
@@ -316,13 +318,19 @@ export function AdminSettings({
 
           <button
             onClick={handleSave}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl transition duration-300 shadow-[0_0_20px_rgba(212,175,55,0.2)] ${isSaved ? 'bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'bg-[#d4af37] text-black hover:brightness-110'}`}
+            disabled={isSaving}
+            className={`flex items-center gap-2 px-6 py-3 rounded-xl transition duration-300 shadow-[0_0_20px_rgba(212,175,55,0.2)] disabled:opacity-70 disabled:cursor-not-allowed ${isSaved ? 'bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'bg-[#d4af37] text-black hover:brightness-110'}`}
           >
-            {isSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-            <span className="text-[10px] sm:text-xs uppercase tracking-widest font-bold">{isSaved ? 'Salvo' : 'Salvar Alterações'}</span>
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : isSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+            <span className="text-[10px] sm:text-xs uppercase tracking-widest font-bold">{isSaving ? 'Salvando...' : isSaved ? 'Salvo' : 'Salvar Alterações'}</span>
           </button>
         </div>
       </div>
+      {saveError && (
+        <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+          <p className="text-sm text-red-400">{saveError}</p>
+        </div>
+      )}
 
       {/* Abas - FIXO NO TOPO */}
       <div className="sticky top-0 bg-[#0a0a0a] z-40 py-4 border-b border-white/5 flex gap-2">
@@ -651,15 +659,6 @@ export function AdminSettings({
                 {renderToggle('blockSimultaneous', 'Bloquear compras simultâneas', 'Mecanismo Anti-bot: bloqueia requisições em massa do mesmo IP/Sessão.')}
                 {renderToggle('verifyEmail', 'Exigir verificação de e-mail', 'O usuário só compra se confirmar o e-mail previamente.')}
               </div>
-              <div>
-                <div className="p-6 bg-white/5 border border-white/10 rounded-xl">
-                  <label className="flex items-center gap-2 text-[10px] uppercase opacity-40 mb-3 font-bold tracking-[0.2em]">
-                    Limite Global de Compras por CPF
-                    <span title="Quantidade máxima de ingressos ou carrinhos permitidos para o mesmo CPF na plataforma."><Info className="w-3 h-3 cursor-help" /></span>
-                  </label>
-                  <input type="number" min="1" step="1" name="limitPerCPF" value={settings.limitPerCPF} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition font-mono" />
-                </div>
-              </div>
             </div>
           </div>
         </section>
@@ -795,7 +794,6 @@ export function AdminSettings({
                         <input type="number" min="0" max="100" step="1" name="cancelFee" value={settings.cancelFee} onChange={handleChange} className="w-full bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500/80 transition font-mono" />
                      </div>
                    )}
-                   {renderToggle('autoCancel', 'Aprovação Automática', 'Processar estorno via Gateway assim que solicitado (dentro do prazo).')}
                 </div>
              </div>
            )}
