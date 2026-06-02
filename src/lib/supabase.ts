@@ -503,6 +503,10 @@ export async function getEvents(): Promise<Event[]> {
       table_seats,
       table_rows,
       table_cols,
+      total_bistros,
+      table_price,
+      bistro_price,
+      table_icon_size,
       table_layout,
       created_by,
       assigned_staff,
@@ -984,7 +988,8 @@ export function subscribeToEvents(callback: (events: Event[]) => void) {
               important_notes, entry_rules, additional_info, pos_locations,
               category, capacity, is_recurring, custom_url, refund_policy,
               social_instagram, social_spotify, table_total, table_seats,
-              table_rows, table_cols, table_layout, created_by, assigned_staff,
+              table_rows, table_cols, total_bistros, table_price, bistro_price,
+              table_icon_size, table_layout, created_by, assigned_staff,
               updated_at
             `)
             .eq('id', eventId)
