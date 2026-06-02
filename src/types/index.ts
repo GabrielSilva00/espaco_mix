@@ -172,6 +172,8 @@ export interface SiteConfig {
   contactEmail?: string;
   socialInstagram?: string;
   companyName?: string;
+  tradeName?: string;
+  personType?: 'pf' | 'pj';
 }
 
 export type CheckoutStep =

@@ -434,7 +434,15 @@ export function AdminSettings({
                 <select
                   name="personType"
                   value={settings.personType}
-                  onChange={(e) => setSettings(prev => ({ ...prev, personType: e.target.value as 'pf' | 'pj', document: '' }))}
+                  onChange={(e) => {
+                    const tipo = e.target.value as 'pf' | 'pj';
+                    setSettings(prev => ({
+                      ...prev,
+                      personType: tipo,
+                      document: '',
+                      ...(tipo === 'pf' ? { companyName: '', tradeName: '' } : {}),
+                    }));
+                  }}
                   className="w-full select-field"
                 >
                   <option value="pf">Pessoa Física</option>

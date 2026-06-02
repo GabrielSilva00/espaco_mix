@@ -158,54 +158,8 @@ export function AdminSidebar() {
                 <Users className={iconClass(currentView === 'dashboard' && dashboardMode === 'staff')} />
                 {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Equipe</span>}
               </button>
-              {isAtLeast('admin') && modules.approvals_kyc && (
-                <button
-                  onClick={() => showToast('Em Desenvolvimento', 'info')}
-                  className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 hover:bg-white/5 cursor-not-allowed`}
-                  title={isAdminSidebarCollapsed ? 'Aprovações KYC' : ''}
-                >
-                  <ShieldCheck className="w-5 h-5 shrink-0 text-white/20" />
-                  {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Aprovações KYC</span>}
-                </button>
-              )}
             </div>
           </div>
-
-          {/* Gestão */}
-          {(modules.reports || modules.integrations || modules.notifications || modules.support) && (
-            <div>
-              {!isAdminSidebarCollapsed
-                ? <p className="px-2 text-[9px] font-bold tracking-[0.2em] uppercase text-white/25 mb-2">Gestão</p>
-                : <div className="w-6 h-px bg-white/10 mx-auto mb-2" />
-              }
-              <div className="space-y-0.5">
-                {modules.reports && (
-                  <button className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 cursor-not-allowed`} title={isAdminSidebarCollapsed ? 'Relatórios Financeiros' : ''}>
-                    <BarChart3 className="w-5 h-5 shrink-0 text-white/20" />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Relatórios Financeiros</span>}
-                  </button>
-                )}
-                {modules.integrations && (
-                  <button className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 cursor-not-allowed`} title={isAdminSidebarCollapsed ? 'Integrações' : ''}>
-                    <LinkIcon className="w-5 h-5 shrink-0 text-white/20" />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Integrações</span>}
-                  </button>
-                )}
-                {modules.notifications && (
-                  <button className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 cursor-not-allowed`} title={isAdminSidebarCollapsed ? 'Notificações' : ''}>
-                    <Bell className="w-5 h-5 shrink-0 text-white/20" />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Notificações</span>}
-                  </button>
-                )}
-                {modules.support && (
-                  <button className={`nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group text-white/30 cursor-not-allowed`} title={isAdminSidebarCollapsed ? 'Suporte ao Produtor' : ''}>
-                    <AlertCircle className="w-5 h-5 shrink-0 text-white/20" />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap opacity-50">Suporte ao Produtor</span>}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Desenvolvedor */}
           {userRole === 'developer' && (

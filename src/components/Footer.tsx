@@ -116,7 +116,12 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
       .catch(() => {});
   }, []);
 
-  const siteName = config.trade_name || config.site_name || 'Espaço Mix';
+  const isCompany = config.person_type === 'pj';
+  const siteName = isCompany
+    ? (config.company_name || config.site_name || 'Espaço Mix')
+    : (config.trade_name || config.site_name || 'Espaço Mix');
+  const legalName = isCompany ? config.company_name : config.trade_name;
+  const docLabel = isCompany ? 'CNPJ' : 'CPF';
   const instagram = config.social_instagram?.replace('@', '');
   const instagramLink = instagram ? `https://instagram.com/${instagram}` : null;
 
@@ -280,9 +285,8 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
             {/* Esquerda — dados legais */}
             <p className="text-[10px] text-white/30 leading-relaxed">
               © 2026{' '}
-              {config.company_name || '[A PREENCHER]'}
-              {' — CNPJ: '}
-              {config.document || '[A PREENCHER]'}
+              {legalName || '[A PREENCHER]'}
+              {' — '}{docLabel}: {config.document || '[A PREENCHER]'}
             </p>
 
             {/* Direita — crédito */}

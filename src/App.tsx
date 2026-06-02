@@ -140,15 +140,17 @@ export function App() {
               <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[50vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
               <TableLayoutEditor
                 initialLayout={formEvent.tableLayout || []}
-                requiredTables={formEvent.tableConfig?.totalTables}
-                requiredBistros={formEvent.tableConfig?.totalBistros}
+                requiredTables={undefined}
+                requiredBistros={undefined}
                 initialIconSize={formEvent.tableConfig?.globalIconSize}
                 onSave={(layout, iconSize) => {
+                  const totalTables = layout.filter(el => el.type === 'rect-table' || el.type === 'round-table').length;
+                  const totalBistros = layout.filter(el => el.type === 'bistro-table').length;
                   setFormEvent({
                     ...formEvent,
                     tableLayout: layout,
                     tableConfig: formEvent.tableConfig
-                      ? { ...formEvent.tableConfig, globalIconSize: iconSize }
+                      ? { ...formEvent.tableConfig, globalIconSize: iconSize, totalTables, totalBistros }
                       : undefined,
                   });
                   setIsTableLayoutEditorOpen(false);

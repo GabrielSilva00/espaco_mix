@@ -124,6 +124,8 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
   const mesaExceeded = requiredTables !== undefined && mesaCount > requiredTables;
   const bistroExceeded = requiredBistros !== undefined && bistroCount > requiredBistros;
   const canSave = !mesaExceeded && !bistroExceeded;
+  const hasMesas = mesaCount > 0;
+  const hasBistros = bistroCount > 0;
 
   const applySnap = useCallback((v: number) => snapEnabled ? snapTo(v) : v, [snapEnabled]);
 
@@ -549,6 +551,42 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
             <p className="text-[10px] text-red-400 text-center leading-relaxed">
               Remova {bistroCount - requiredBistros!} bistrô(s) — limite: {requiredBistros}
             </p>
+          )}
+          {hasMesas && (
+            <button
+              onClick={() => {
+                setElements(prev => {
+                  let next = prev.map(el =>
+                    (el.type === 'rect-table' || el.type === 'round-table')
+                      ? { ...el, type: 'bistro-table' as LayoutElementType, width: BISTRO_SIZE, height: BISTRO_SIZE }
+                      : el
+                  );
+                  next = reorderBistroLabels(next);
+                  return next;
+                });
+              }}
+              className="w-full py-2 border border-amber-700/30 text-amber-600/70 hover:bg-amber-700/10 rounded-lg text-[10px] uppercase tracking-widest font-bold transition"
+            >
+              Converter tudo → Bistrô
+            </button>
+          )}
+          {hasBistros && (
+            <button
+              onClick={() => {
+                setElements(prev => {
+                  let next = prev.map(el =>
+                    el.type === 'bistro-table'
+                      ? { ...el, type: 'rect-table' as LayoutElementType, width: MESA_SIZE, height: MESA_SIZE }
+                      : el
+                  );
+                  next = reorderMesaLabels(next);
+                  return next;
+                });
+              }}
+              className="w-full py-2 border border-[#C9A84C]/30 text-[#C9A84C]/70 hover:bg-[#C9A84C]/10 rounded-lg text-[10px] uppercase tracking-widest font-bold transition"
+            >
+              Converter tudo → Mesa
+            </button>
           )}
           <button
             onClick={() => onSave(elements, 80)}

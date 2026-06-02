@@ -810,7 +810,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setLoggedInUserId(profile.id);
       setIsApprovedEventCreator(profile.is_approved_event_creator);
       setSessionUser({ id: profile.id, email: profile.email, name: profile.name, role: r, isApprovedEventCreator: profile.is_approved_event_creator, avatarUrl: profile.avatar_url });
-      if (r === 'admin' || r === 'developer') { setCurrentView('dashboard'); setDashboardMode('list'); }
+      if (r === 'admin' || r === 'developer') { setCurrentView('dashboard'); setDashboardMode('admin-overview'); }
       else if (profile.is_approved_event_creator) { setCurrentView('dashboard'); setDashboardMode('producer-dashboard'); }
       else setCurrentView('booking');
     } catch (err: any) {

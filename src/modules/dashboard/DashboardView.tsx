@@ -58,12 +58,10 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         {[
-          { label: 'Receita Total', value: totalRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), icon: <DollarSign className="w-5 h-5" />, color: 'text-[#d4af37]' },
           { label: 'Eventos Ativos', value: activeEvents, icon: <Calendar className="w-5 h-5" />, color: 'text-blue-400' },
-          { label: 'Ingressos Vendidos', value: soldTickets, icon: <Layers className="w-5 h-5" />, color: 'text-green-400' },
-          { label: 'Taxa de Ocupação', value: `${occupancyRate}%`, icon: <ShieldCheck className="w-5 h-5" />, color: 'text-purple-400' },
+          { label: 'Total Eventos', value: events.length, icon: <Layers className="w-5 h-5" />, color: 'text-purple-400' },
         ].map(kpi => (
           <div key={kpi.label} className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
             <div className={`mb-3 ${kpi.color}`}>{kpi.icon}</div>
@@ -1874,25 +1872,33 @@ export function DashboardView() {
                           {/* Row 1: Mesas + Bistrôs */}
                           <div className="grid grid-cols-2 gap-4">
                             <div>
-                              <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Total de Mesas</label>
+                              <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">
+                                Total de Mesas{!!formEvent.tableLayout?.length && <span className="ml-1 text-[#d4af37]/50">(auto)</span>}
+                              </label>
                               <input
                                 type="number"
                                 min={0}
                                 max={30}
+                                disabled={!!formEvent.tableLayout?.length}
+                                title={formEvent.tableLayout?.length ? 'Definido automaticamente pelo layout' : undefined}
                                 value={formEvent.tableConfig.totalTables}
                                 onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalTables: Math.min(30, Number(e.target.value)) } })}
-                                className={`w-full bg-white/[0.03] border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${formEvent.tableConfig.totalTables > 30 ? 'border-red-500/60' : 'border-white/10'}`}
+                                className={`w-full bg-white/[0.03] border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${formEvent.tableLayout?.length ? 'opacity-40 cursor-not-allowed' : ''} ${formEvent.tableConfig.totalTables > 30 ? 'border-red-500/60' : 'border-white/10'}`}
                               />
                             </div>
                             <div>
-                              <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">Total de Bistrôs</label>
+                              <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">
+                                Total de Bistrôs{!!formEvent.tableLayout?.length && <span className="ml-1 text-[#d4af37]/50">(auto)</span>}
+                              </label>
                               <input
                                 type="number"
                                 min={0}
                                 max={10}
+                                disabled={!!formEvent.tableLayout?.length}
+                                title={formEvent.tableLayout?.length ? 'Definido automaticamente pelo layout' : undefined}
                                 value={formEvent.tableConfig.totalBistros ?? 0}
                                 onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalBistros: Math.min(10, Number(e.target.value)) } })}
-                                className={`w-full bg-white/[0.03] border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${(formEvent.tableConfig.totalBistros ?? 0) > 10 ? 'border-red-500/60' : 'border-white/10'}`}
+                                className={`w-full bg-white/[0.03] border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${formEvent.tableLayout?.length ? 'opacity-40 cursor-not-allowed' : ''} ${(formEvent.tableConfig.totalBistros ?? 0) > 10 ? 'border-red-500/60' : 'border-white/10'}`}
                               />
                             </div>
                           </div>
@@ -2220,7 +2226,9 @@ export function DashboardView() {
                   contactPhone: settings?.contactPhone,
                   contactEmail: settings?.contactEmail,
                   socialInstagram: settings?.socialInstagram,
-                  companyName: settings?.companyName || settings?.tradeName,
+                  companyName: settings?.companyName,
+                  tradeName: settings?.tradeName,
+                  personType: settings?.personType,
                 }))}
               />
             ) : dashboardMode === 'developer-panel' && userRole === 'developer' ? (
