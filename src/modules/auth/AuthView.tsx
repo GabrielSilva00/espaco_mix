@@ -34,11 +34,11 @@ export function AuthView() {
   } = useApp();
 
   return (
-    <div className="max-w-sm mx-auto px-4 md:px-6 py-6 md:py-12 flex flex-col items-center justify-center min-h-[60vh]">
+    <div className="max-w-sm mx-auto px-4 md:px-6 py-4 md:py-6 flex flex-col items-center justify-center min-h-[60vh]">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full bg-[#0d0d0d] border border-white/10 p-5 md:p-6 rounded-2xl md:rounded-3xl relative overflow-hidden shadow-2xl"
+        className="w-full bg-[#0d0d0d] border border-white/10 p-4 md:p-5 rounded-2xl md:rounded-3xl relative overflow-hidden shadow-2xl"
       >
         <div className="absolute top-0 right-0 w-32 h-32 bg-[#d4af37] opacity-5 blur-3xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
 
@@ -46,13 +46,13 @@ export function AuthView() {
           <div className="flex bg-white/5 p-1 rounded-xl mb-6">
             <button
               onClick={() => setAuthTab('login')}
-              className={`flex-1 min-h-[44px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'login' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
+              className={`flex-1 min-h-[38px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'login' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
             >
               Entrar
             </button>
             <button
               onClick={() => setAuthTab('register')}
-              className={`flex-1 min-h-[44px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'register' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
+              className={`flex-1 min-h-[38px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'register' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
             >
               Cadastrar
             </button>
@@ -60,7 +60,7 @@ export function AuthView() {
         )}
 
         <div className="text-center mb-6">
-          <h1 className="text-lg md:text-2xl font-serif text-[#d4af37] mb-2">
+          <h1 className="text-base md:text-lg font-serif text-[#d4af37] mb-2">
             {authTab === 'staff' ? 'Acesso Colaborador' : authTab === 'login' ? 'Bem-vindo de volta' : 'Criar nova conta'}
           </h1>
           <p className="text-[9px] md:text-[10px] uppercase tracking-widest opacity-40">
@@ -171,16 +171,16 @@ export function AuthView() {
           </div>
         ) : forgotPasswordStep === 'none' ? (
             <>
-              <form onSubmit={(authTab === 'login' || authTab === 'staff') ? handleAdminLogin : handleRegister} className="space-y-4 md:space-y-5">
+              <form onSubmit={(authTab === 'login' || authTab === 'staff') ? handleAdminLogin : handleRegister} className="space-y-3">
                 {authTab === 'register' && registerStep === 1 && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 md:space-y-5">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
                     <div>
                       <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">Nome Completo</label>
                       <input
                         type="text"
                         value={registerForm.name}
                         onChange={(e) => setRegisterForm({...registerForm, name: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="Seu nome"
                       />
                     </div>
@@ -190,7 +190,7 @@ export function AuthView() {
                         type="email"
                         value={registerForm.email}
                         onChange={(e) => setRegisterForm({...registerForm, email: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="contato@exemplo.com"
                       />
                     </div>
@@ -200,14 +200,14 @@ export function AuthView() {
                         type="password"
                         value={registerForm.password}
                         onChange={(e) => setRegisterForm({...registerForm, password: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="••••••••"
                       />
                     </div>
                   </motion.div>
                 )}
                 {authTab === 'register' && registerStep === 2 && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 md:space-y-5">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
                     <button
                       type="button"
                       onClick={() => setRegisterStep(1)}
@@ -221,7 +221,7 @@ export function AuthView() {
                         type="tel"
                         value={registerForm.phone}
                         onChange={(e) => setRegisterForm({...registerForm, phone: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="(11) 90000-0000"
                       />
                     </div>
@@ -231,7 +231,7 @@ export function AuthView() {
                         type="text"
                         value={registerForm.cpf}
                         onChange={(e) => setRegisterForm({...registerForm, cpf: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="000.000.000-00"
                       />
                     </div>
@@ -241,7 +241,7 @@ export function AuthView() {
                         type="date"
                         value={registerForm.birthDate}
                         onChange={(e) => setRegisterForm({...registerForm, birthDate: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition text-white"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition text-white"
                         style={{ colorScheme: 'dark' }}
                       />
                     </div>
@@ -257,7 +257,7 @@ export function AuthView() {
                         autoComplete="username"
                         value={adminForm.username}
                         onChange={(e) => setAdminForm({...adminForm, username: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="seu@email.com"
                       />
                     </div>
@@ -269,7 +269,7 @@ export function AuthView() {
                         autoComplete="current-password"
                         value={adminForm.password}
                         onChange={(e) => setAdminForm({...adminForm, password: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="••••••••"
                       />
                     </div>
@@ -387,7 +387,7 @@ export function AuthView() {
                       type="email"
                       value={forgotPasswordData.email}
                       onChange={(e) => setForgotPasswordData({...forgotPasswordData, email: e.target.value})}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
                       placeholder="contato@exemplo.com"
                     />
                   </div>
@@ -400,7 +400,7 @@ export function AuthView() {
                       type="text"
                       value={forgotPasswordData.code}
                       onChange={(e) => setForgotPasswordData({...forgotPasswordData, code: e.target.value})}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition text-center tracking-[1em]"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition text-center tracking-[1em]"
                       placeholder="0000"
                       maxLength={4}
                     />
@@ -414,7 +414,7 @@ export function AuthView() {
                       type="password"
                       value={forgotPasswordData.newPassword}
                       onChange={(e) => setForgotPasswordData({...forgotPasswordData, newPassword: e.target.value})}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
                       placeholder="••••••••"
                     />
                   </div>
@@ -435,7 +435,7 @@ export function AuthView() {
       <div className="flex flex-col gap-3 mt-8">
         <button
           onClick={() => setCurrentView('home')}
-          className="inline-flex items-center justify-center min-h-[44px] px-8 bg-white/5 border border-white/10 text-white rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 hover:border-white/20 transition-all shadow-sm"
+          className="inline-flex items-center justify-center min-h-[38px] px-8 bg-white/5 border border-white/10 text-white rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 hover:border-white/20 transition-all shadow-sm"
         >
           Voltar ao Site
         </button>

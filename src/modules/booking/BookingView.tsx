@@ -501,12 +501,12 @@ export function BookingView() {
                             return hasTables ? (
                             <div
                               className="relative w-full max-w-3xl mx-auto bg-[#111111] rounded-2xl border border-[#2a2a2a] overflow-x-hidden"
-                              style={{ minHeight: 500 }}
+                              style={{ minHeight: 300 }}
                             >
-                              <div className="overflow-x-auto overflow-y-auto w-full" style={{ maxHeight: 700 }}>
+                              <div className="overflow-x-auto overflow-y-auto w-full" style={{ maxHeight: 520 }}>
                                 <svg
                                   viewBox={viewBox}
-                                  style={{ display: 'block', width: '100%', minWidth: 320, minHeight: 500 }}
+                                  style={{ display: 'block', width: '100%', minWidth: 320, minHeight: 300, transform: 'scale(0.88)', transformOrigin: 'top center' }}
                                   preserveAspectRatio="xMidYMin meet"
                                 >
                                   <defs>

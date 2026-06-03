@@ -87,7 +87,7 @@ export function CheckoutModal() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#0f0f0f] border border-white/10 w-full max-w-md rounded-2xl md:rounded-3xl p-6 md:p-8 shadow-[0_0_50px_rgba(212,175,55,0.05)] relative mx-auto my-auto overflow-y-auto max-h-[95vh]"
+              className="bg-[#0f0f0f] border border-white/10 w-full max-w-md rounded-2xl md:rounded-3xl p-5 md:p-6 shadow-[0_0_50px_rgba(212,175,55,0.05)] relative mx-auto my-auto overflow-y-auto max-h-[95vh]"
             >
               <button 
                 onClick={() => setIsCheckoutOpen(false)}
@@ -99,7 +99,7 @@ export function CheckoutModal() {
               
               {/* Progress Indicator */}
               {paymentStatus === 'idle' && checkoutStep !== 'success' && checkoutStep !== 'processing' && (
-                <div className="flex items-center justify-between mb-8 px-2 max-w-[200px] mx-auto mt-2 relative">
+                <div className="flex items-center justify-between mb-5 px-2 max-w-[200px] mx-auto mt-2 relative">
                   <div className="absolute top-1/2 left-0 w-full h-[1px] bg-white/10 -translate-y-1/2 z-0"></div>
                   <div className="absolute top-1/2 left-0 h-[1px] bg-[#d4af37] -translate-y-1/2 z-0 transition-all duration-500" style={{ width: checkoutStep === 'selection' ? '0%' : (checkoutStep === 'login-form') ? '50%' : '100%' }}></div>
                   
@@ -121,11 +121,11 @@ export function CheckoutModal() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                 >
-                  <h2 className="text-xl md:text-2xl font-serif text-[#d4af37] mb-2 text-center">Resumo do Pedido</h2>
-                  <p className="text-[10px] md:text-[11px] uppercase opacity-50 tracking-widest text-center mb-8">Confirme seus itens antes de prosseguir</p>
+                  <h2 className="text-lg md:text-xl font-serif text-[#d4af37] mb-2 text-center">Resumo do Pedido</h2>
+                  <p className="text-[10px] md:text-[11px] uppercase opacity-50 tracking-widest text-center mb-4">Confirme seus itens antes de prosseguir</p>
                   
                   {cartTimeLeft !== null && cartTimeLeft > 0 && (
-                    <div className={`p-3 rounded-xl mb-6 flex items-center justify-center gap-3 transition-colors ${cartTimeLeft < 120000 ? 'bg-red-500/10 border border-red-500/20 text-red-400' : 'bg-white/5 border border-white/10 text-white/70'}`}>
+                    <div className={`p-3 rounded-xl mb-4 flex items-center justify-center gap-3 transition-colors ${cartTimeLeft < 120000 ? 'bg-red-500/10 border border-red-500/20 text-red-400' : 'bg-white/5 border border-white/10 text-white/70'}`}>
                       <Clock className="w-4 h-4" />
                       <span className="text-[10px] uppercase font-bold tracking-widest">
                         {cartTimeLeft < 120000 ? 'Reserva Expirando:' : 'Sua mesa está garantida por:'}
@@ -137,7 +137,7 @@ export function CheckoutModal() {
                     </div>
                   )}
 
-                  <div className="bg-white/5 border border-white/10 rounded-xl p-5 md:p-6 mb-6 space-y-4">
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4 space-y-3">
                     {selectedTablesData.length > 0 && (
                       <div className="flex justify-between items-start text-sm group">
                         <span className="opacity-60 uppercase text-[10px] tracking-widest leading-relaxed">Mesas ({selectedTablesData.length})</span>

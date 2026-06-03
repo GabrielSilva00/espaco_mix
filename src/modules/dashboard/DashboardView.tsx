@@ -23,6 +23,7 @@ import { DeveloperPanel } from '../../components/DeveloperPanel';
 import { TableLayoutEditor } from '../../components/TableLayoutEditor';
 import { downloadPDFList } from '../../shared/utils/pdf';
 import { generateDefaultLayout, getLayoutViewBox } from '../../shared/utils/defaultLayout';
+import { ReportsPanel } from './ReportsPanel';
 import { isEventPast } from '../../shared/utils/eventMapper';
 import type { Event, Buyer, Reservation } from '../../types';
 
@@ -30,9 +31,10 @@ import type { Event, Buyer, Reservation } from '../../types';
 function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[]; buyers: Buyer[]; reservations: Reservation[] }) {
   const totalRevenue = reservations.reduce((s, r) => s + (r.total || 0), 0);
   const activeEvents = events.filter(e => e.status === 'Ativo' || e.status === 'Vendas liberadas').length;
+  const encerrados = events.filter(e => e.status === 'Finalizado').length;
   const soldTickets = reservations.filter(r => r.paymentStatus === 'approved' || (r as any).payment_status === 'approved').length;
   const checkedInCount = buyers.filter(b => b.checkedIn).length;
-  const occupancyRate = soldTickets > 0 ? Math.round((checkedInCount / soldTickets) * 100) : 0;
+  const occupancyRate = buyers.length > 0 ? Math.round((checkedInCount / buyers.length) * 100) : 0;
 
   const last5Sales = [...reservations]
     .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
@@ -54,21 +56,41 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
     <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto">
       <div className="flex items-center gap-3 mb-2">
         <BarChart3 className="w-6 h-6 text-[#d4af37]" />
-        <h1 className="text-2xl font-serif text-[#d4af37]">Dashboard</h1>
+        <h1 className="text-2xl font-serif text-[#d4af37]">Painel de Controle</h1>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4">
-        {[
-          { label: 'Eventos Ativos', value: activeEvents, icon: <Calendar className="w-5 h-5" />, color: 'text-blue-400' },
-          { label: 'Total Eventos', value: events.length, icon: <Layers className="w-5 h-5" />, color: 'text-purple-400' },
-        ].map(kpi => (
-          <div key={kpi.label} className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
-            <div className={`mb-3 ${kpi.color}`}>{kpi.icon}</div>
-            <p className="text-2xl font-bold text-white">{kpi.value}</p>
-            <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">{kpi.label}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+          <div className="mb-3 text-blue-400"><Calendar className="w-5 h-5" /></div>
+          <p className="text-2xl font-bold text-white">{activeEvents}</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Eventos Ativos</p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+          <div className="mb-3 text-red-400"><Layers className="w-5 h-5" /></div>
+          <p className="text-2xl font-bold text-white">{encerrados}</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Eventos Encerrados</p>
+        </div>
+        <div className="bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-2xl p-5 col-span-2 md:col-span-1">
+          <div className="mb-3 text-[#d4af37]"><BarChart3 className="w-5 h-5" /></div>
+          <p className="text-2xl font-bold text-[#d4af37]">{totalRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+          <p className="text-[10px] uppercase tracking-widest text-[#d4af37]/60 mt-1">Receita Total</p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+          <div className="mb-3 text-green-400"><ShieldCheck className="w-5 h-5" /></div>
+          <p className="text-2xl font-bold text-white">{soldTickets}</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Ingressos Vendidos</p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+          <div className="mb-3 text-purple-400"><Users className="w-5 h-5" /></div>
+          <p className="text-2xl font-bold text-white">{checkedInCount}</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Check-ins Realizados</p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+          <div className="mb-3 text-amber-400"><TrendingUp className="w-5 h-5" /></div>
+          <p className="text-2xl font-bold text-white">{occupancyRate}%</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Taxa de Ocupação</p>
+        </div>
       </div>
 
       {/* Gráfico simples de vendas por mês */}
@@ -401,6 +423,7 @@ export function DashboardView() {
               <>
                 {/* Header Dashboard */}
                 {/* Optimized Header for Mobile & Desktop */}
+                {dashboardMode !== 'settings' && dashboardMode !== 'admin-overview' && dashboardMode !== 'dev-overview' && dashboardMode !== 'reports' && (
                 <div className="flex flex-col gap-6 mb-8 md:mb-12 px-4 sm:px-0">
                   <div className="flex items-center justify-between">
                     {isAtLeast('admin') && (
@@ -417,7 +440,7 @@ export function DashboardView() {
                     <div className="flex items-center gap-3">
                       <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shrink-0"></div>
                       <h1 className="text-lg md:text-3xl font-serif text-[#d4af37] leading-tight">
-                        {dashboardMode === 'staff' ? 'Equipe de Colaboradores' : (events.find(e => e.id === selectedDashboardEvent)?.title || 'Evento')}
+                        {dashboardMode === 'staff' ? 'Equipe de Colaboradores' : (events.find(e => e.id === selectedDashboardEvent)?.title || 'Painel de Controle')}
                       </h1>
                     </div>
                     <p className="text-[9px] md:text-xs uppercase tracking-widest opacity-40 font-medium">
@@ -427,22 +450,18 @@ export function DashboardView() {
                         <>
                           <span className="text-[#d4af37]/60 font-bold">ID: #DRK-2026-00{selectedDashboardEvent}</span>
                           <span className="mx-2 opacity-20">•</span>
-                          <span>Local: {events.find(e => e.id === selectedDashboardEvent)?.location}</span>
+                          <span>Local: {events.find(e => e.id === selectedDashboardEvent)?.location || 'Local não informado'}</span>
                         </>
                       )}
                     </p>
                   </div>
                 </div>
+                )}
 
             {dashboardMode === 'details' ? (
               <div className="px-4 xl:px-0 space-y-8 animate-in fade-in duration-500 pb-20">
                 {/* Cabeçalho do Detalhe */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-white/5 pb-6">
-                  <div>
-                    <h2 className="text-2xl font-serif text-white">
-                      {events.find(e => e.id === selectedDashboardEvent)?.title || 'Evento'}
-                    </h2>
-                  </div>
                   {(() => {
                     const evt = events.find(e => e.id === selectedDashboardEvent);
                     if (!evt) return null;
@@ -991,7 +1010,9 @@ export function DashboardView() {
                        <ShieldCheck className="w-6 h-6 text-[#d4af37]" />
                      </div>
                      <div>
-                       <h2 className="text-sm uppercase tracking-widest font-black text-[#d4af37]">Check-in Operacional</h2>
+                       <h2 className="text-sm uppercase tracking-widest font-black text-[#d4af37]">
+                         {events.find(e => e.id === selectedDashboardEvent)?.title || 'Evento'} — Controle de Portaria
+                       </h2>
                        <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] uppercase font-bold opacity-60">Operador: Gabriel</span>
                        </div>
@@ -1854,6 +1875,7 @@ export function DashboardView() {
                                 setFormEvent({
                                   ...formEvent,
                                   hasTables: true,
+                                  tableLayoutIsCustom: false,
                                   tableConfig: { totalTables: defaultTables, seatsPerTable: 4, gridRows: 8, gridCols: 5, totalBistros: defaultBistros },
                                   tableLayout: generateDefaultLayout(defaultTables, defaultBistros, 4),
                                 });
@@ -1873,32 +1895,32 @@ export function DashboardView() {
                           <div className="grid grid-cols-2 gap-4">
                             <div>
                               <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">
-                                Total de Mesas{!!formEvent.tableLayout?.length && <span className="ml-1 text-[#d4af37]/50">(auto)</span>}
+                                Total de Mesas{!!formEvent.tableLayoutIsCustom && <span className="ml-1 text-[#d4af37]/50">(auto)</span>}
                               </label>
                               <input
                                 type="number"
                                 min={0}
                                 max={30}
-                                disabled={!!formEvent.tableLayout?.length}
-                                title={formEvent.tableLayout?.length ? 'Definido automaticamente pelo layout' : undefined}
+                                disabled={!!formEvent.tableLayoutIsCustom}
+                                title={formEvent.tableLayoutIsCustom ? 'Definido automaticamente pelo layout' : undefined}
                                 value={formEvent.tableConfig.totalTables}
                                 onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalTables: Math.min(30, Number(e.target.value)) } })}
-                                className={`w-full bg-white/[0.03] border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${formEvent.tableLayout?.length ? 'opacity-40 cursor-not-allowed' : ''} ${formEvent.tableConfig.totalTables > 30 ? 'border-red-500/60' : 'border-white/10'}`}
+                                className={`w-full border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${formEvent.tableLayoutIsCustom ? 'opacity-40 cursor-not-allowed bg-white/[0.02]' : 'bg-white/[0.03]'} ${formEvent.tableConfig.totalTables > 30 ? 'border-red-500/60' : 'border-white/10'}`}
                               />
                             </div>
                             <div>
                               <label className="block text-[8px] uppercase opacity-40 mb-1 font-bold">
-                                Total de Bistrôs{!!formEvent.tableLayout?.length && <span className="ml-1 text-[#d4af37]/50">(auto)</span>}
+                                Total de Bistrôs{!!formEvent.tableLayoutIsCustom && <span className="ml-1 text-[#d4af37]/50">(auto)</span>}
                               </label>
                               <input
                                 type="number"
                                 min={0}
                                 max={10}
-                                disabled={!!formEvent.tableLayout?.length}
-                                title={formEvent.tableLayout?.length ? 'Definido automaticamente pelo layout' : undefined}
+                                disabled={!!formEvent.tableLayoutIsCustom}
+                                title={formEvent.tableLayoutIsCustom ? 'Definido automaticamente pelo layout' : undefined}
                                 value={formEvent.tableConfig.totalBistros ?? 0}
                                 onChange={(e) => setFormEvent({ ...formEvent, tableConfig: { ...formEvent.tableConfig!, totalBistros: Math.min(10, Number(e.target.value)) } })}
-                                className={`w-full bg-white/[0.03] border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${formEvent.tableLayout?.length ? 'opacity-40 cursor-not-allowed' : ''} ${(formEvent.tableConfig.totalBistros ?? 0) > 10 ? 'border-red-500/60' : 'border-white/10'}`}
+                                className={`w-full border rounded-lg px-3 py-2 text-sm focus:border-[#d4af37] ${formEvent.tableLayoutIsCustom ? 'opacity-40 cursor-not-allowed bg-white/[0.02]' : 'bg-white/[0.03]'} ${(formEvent.tableConfig.totalBistros ?? 0) > 10 ? 'border-red-500/60' : 'border-white/10'}`}
                               />
                             </div>
                           </div>
@@ -2237,6 +2259,8 @@ export function DashboardView() {
               <AdminOverviewPanel events={events} buyers={buyers} reservations={reservations} />
             ) : dashboardMode === 'dev-overview' && userRole === 'developer' ? (
               <DevOverviewPanel events={events} buyers={buyers} reservations={reservations} systemLogs={systemLogs} clearSystemLogs={clearSystemLogs} />
+            ) : dashboardMode === 'reports' && isAtLeast('admin') ? (
+              <ReportsPanel events={events} reservations={reservations} />
             ) : null}
             </>
           )}

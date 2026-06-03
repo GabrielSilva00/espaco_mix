@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Eye, Calendar as CalendarIcon, PlusCircle, Users, ShieldCheck, BarChart3,
   LinkIcon, Bell, AlertCircle, Code2, Settings, LogOut, ChevronLeft,
-  ChevronRight, LayoutDashboard, MonitorDot,
+  ChevronRight, LayoutDashboard, MonitorDot, FileText,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -98,6 +98,15 @@ export function AdminSidebar() {
                   <ActivePill active={currentView === 'dashboard' && dashboardMode === 'admin-overview'} />
                   <LayoutDashboard className={iconClass(currentView === 'dashboard' && dashboardMode === 'admin-overview')} />
                   {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dashboard</span>}
+                </button>
+                <button
+                  onClick={() => { setCurrentView('dashboard'); setDashboardMode('reports'); setIsMobileMenuOpen(false); }}
+                  className={navClass(currentView === 'dashboard' && dashboardMode === 'reports')}
+                  title={isAdminSidebarCollapsed ? 'Relatórios' : ''}
+                >
+                  <ActivePill active={currentView === 'dashboard' && dashboardMode === 'reports'} />
+                  <FileText className={iconClass(currentView === 'dashboard' && dashboardMode === 'reports')} />
+                  {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Relatórios</span>}
                 </button>
                 {userRole === 'developer' && (
                   <button

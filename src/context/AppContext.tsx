@@ -819,8 +819,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const handleLogout = async () => {
-    await signOut().catch(e => console.error('[Auth] Erro no logout:', (e as Error)?.message));
-    window.location.href = '/';
+    try {
+      await signOut();
+    } catch (e) {
+      console.error('[Auth] Erro no logout:', (e as Error)?.message);
+    } finally {
+      setUserRole(null);
+      setLoggedInUserId(null);
+      setCurrentView('home');
+      setDashboardMode('list');
+      localStorage.removeItem('eventix-session');
+      setTimeout(() => { window.location.href = '/'; }, 100);
+    }
   };
 
   const handleRegister = async (e: React.FormEvent) => {

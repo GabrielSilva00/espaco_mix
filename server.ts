@@ -938,6 +938,90 @@ export async function createExpressApp() {
     }
   });
 
+  // ─── Estorno via Mercado Pago ─────────────────────────────────────────────
+  app.post("/api/payment/refund", requireAuth, async (req, res) => {
+    const { paymentId, reservationId } = req.body as { paymentId?: string; reservationId?: string };
+    if (!paymentId || !reservationId) {
+      res.status(400).json({ error: "paymentId e reservationId são obrigatórios" });
+      return;
+    }
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const adminClient = createClient(
+        process.env.VITE_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+
+      // 1. Buscar configurações de cancelamento
+      const { data: settings } = await adminClient
+        .from("settings")
+        .select("allow_cancellation,refund_type,cancel_max_delay,auto_refund,platform_fee_percent")
+        .single();
+      if (!settings?.allow_cancellation) {
+        res.status(403).json({ error: "Cancelamento não permitido nas configurações" });
+        return;
+      }
+
+      // 2. Buscar reserva e evento para validar prazo
+      const { data: reservation } = await adminClient
+        .from("reservations")
+        .select("*, events(date)")
+        .eq("id", reservationId)
+        .single();
+      if (!reservation) {
+        res.status(404).json({ error: "Reserva não encontrada" });
+        return;
+      }
+
+      const eventDate = new Date((reservation as any).events?.date);
+      const hoursUntil = (eventDate.getTime() - Date.now()) / 3600000;
+      if (hoursUntil < (settings.cancel_max_delay ?? 0)) {
+        res.status(400).json({ error: "Prazo de cancelamento encerrado" });
+        return;
+      }
+
+      // 3. Calcular valor conforme refund_type
+      const total: number = reservation.total;
+      let refundAmount: number | undefined;
+      if (settings.refund_type === "partial") {
+        const cancelFee = settings.platform_fee_percent ?? 10;
+        refundAmount = total * (1 - cancelFee / 100);
+      } else if (settings.refund_type === "no-fee") {
+        refundAmount = total - (reservation.platform_fee ?? 0);
+      }
+
+      // 4. Chamar API do Mercado Pago
+      const mpBody = refundAmount !== undefined ? { amount: refundAmount } : {};
+      const mpRes = await fetch(
+        `https://api.mercadopago.com/v1/payments/${paymentId}/refunds`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(mpBody),
+        }
+      );
+      if (!mpRes.ok) {
+        const err = await mpRes.json();
+        res.status(502).json({ error: "Erro no Mercado Pago", details: err });
+        return;
+      }
+
+      // 5. Atualizar status da reserva
+      await adminClient
+        .from("reservations")
+        .update({ payment_status: "refunded" })
+        .eq("id", reservationId);
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[Refund] Erro:", err?.message);
+      res.status(500).json({ error: "Erro interno ao processar estorno" });
+    }
+  });
+
   // Rotas /api/* não encontradas — deve vir ANTES do middleware Vite
   app.all("/api/*", (_req, res) => {
     res.status(404).json({ error: "API endpoint not found" });

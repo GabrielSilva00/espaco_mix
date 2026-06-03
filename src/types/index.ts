@@ -134,6 +134,7 @@ export interface Event {
   hasTables: boolean;
   tableConfig?: TableConfig;
   tableLayout?: TableLayoutElement[];
+  tableLayoutIsCustom?: boolean;
   ageRating?: string;
   importantNotes?: string;
   entryRules?: string;
@@ -220,7 +221,8 @@ export type DashboardMode =
   | 'producer-dashboard'
   | 'developer-panel'
   | 'admin-overview'
-  | 'dev-overview';
+  | 'dev-overview'
+  | 'reports';
 
 export type ToastType = 'info' | 'success' | 'error' | 'warning';
 

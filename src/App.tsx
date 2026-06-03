@@ -20,6 +20,7 @@ import { PrivacySettingsView } from './modules/profile/PrivacySettingsView';
 import { LegalView } from './modules/legal/LegalView';
 import { InstallPrompt } from './components/InstallPrompt';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
+import { generateDefaultLayout } from './shared/utils/defaultLayout';
 
 // Lazy-loaded: carregados sob demanda para reduzir o bundle inicial
 const DashboardView = React.lazy(() =>
@@ -140,15 +141,27 @@ export function App() {
               <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[50vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
               <TableLayoutEditor
                 initialLayout={formEvent.tableLayout || []}
+                defaultLayout={generateDefaultLayout(
+                  formEvent.tableConfig?.totalTables ?? 30,
+                  formEvent.tableConfig?.totalBistros ?? 10,
+                  formEvent.tableConfig?.seatsPerTable ?? 4,
+                )}
                 requiredTables={undefined}
                 requiredBistros={undefined}
                 initialIconSize={formEvent.tableConfig?.globalIconSize}
                 onSave={(layout, iconSize) => {
                   const totalTables = layout.filter(el => el.type === 'rect-table' || el.type === 'round-table').length;
                   const totalBistros = layout.filter(el => el.type === 'bistro-table').length;
+                  const defLayout = generateDefaultLayout(
+                    formEvent.tableConfig?.totalTables ?? 30,
+                    formEvent.tableConfig?.totalBistros ?? 10,
+                    formEvent.tableConfig?.seatsPerTable ?? 4,
+                  );
+                  const isDefault = layout.length === defLayout.length;
                   setFormEvent({
                     ...formEvent,
                     tableLayout: layout,
+                    tableLayoutIsCustom: !isDefault,
                     tableConfig: formEvent.tableConfig
                       ? { ...formEvent.tableConfig, globalIconSize: iconSize, totalTables, totalBistros }
                       : undefined,

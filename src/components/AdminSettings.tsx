@@ -296,8 +296,8 @@ export function AdminSettings({
   );
 
   return (
-    <div className="max-w-5xl mx-auto space-y-10 px-4 sm:px-0 pb-32">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 sticky top-0 bg-[#0a0a0a]/90 backdrop-blur-xl z-20 py-4 border-b border-white/5">
+    <div className="max-w-5xl mx-auto px-4 sm:px-0 pb-32">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 sticky top-0 bg-[#0a0a0a] z-30 py-4 border-b border-white/5">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#d4af37]/10 flex items-center justify-center text-[#d4af37]">
             <Settings className="w-5 h-5" />
@@ -333,7 +333,7 @@ export function AdminSettings({
       )}
 
       {/* Abas - FIXO NO TOPO */}
-      <div className="sticky top-0 bg-[#0a0a0a] z-40 py-4 border-b border-white/5 flex gap-2">
+      <div className="sticky top-[72px] bg-[#0a0a0a] z-20 py-4 border-b border-white/5 flex gap-2">
         <button
           onClick={() => setActiveTab('general')}
           className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-xs uppercase tracking-widest transition ${
@@ -370,7 +370,7 @@ export function AdminSettings({
       </div>
 
       {/* Conteúdo de Abas */}
-      <div className="space-y-10">
+      <div className="space-y-10 pt-8">
         {activeTab === 'general' ? (
           // SEÇÕES GERAIS
           <>

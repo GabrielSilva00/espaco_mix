@@ -5,6 +5,7 @@ export type { TableLayoutElement };
 
 interface TableLayoutEditorProps {
   initialLayout: TableLayoutElement[];
+  defaultLayout?: TableLayoutElement[];
   onSave: (layout: TableLayoutElement[], iconSize: number) => void;
   requiredTables?: number;
   requiredBistros?: number;
@@ -91,6 +92,7 @@ function BistroIconSVG({ label, selected }: { label: string; selected?: boolean 
 
 export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
   initialLayout,
+  defaultLayout,
   onSave,
   requiredTables,
   requiredBistros,
@@ -105,6 +107,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [confirmClear, setConfirmClear] = useState(false);
   const [limitMsg, setLimitMsg] = useState('');
+  const [convertMode, setConvertMode] = useState<'toMesa' | 'toBistro'>('toBistro');
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasSectionRef = useRef<HTMLDivElement>(null);
 
@@ -552,9 +555,9 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
               Remova {bistroCount - requiredBistros!} bistrô(s) — limite: {requiredBistros}
             </p>
           )}
-          {hasMesas && (
-            <button
-              onClick={() => {
+          <button
+            onClick={() => {
+              if (convertMode === 'toBistro') {
                 setElements(prev => {
                   let next = prev.map(el =>
                     (el.type === 'rect-table' || el.type === 'round-table')
@@ -564,15 +567,8 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
                   next = reorderBistroLabels(next);
                   return next;
                 });
-              }}
-              className="w-full py-2 border border-amber-700/30 text-amber-600/70 hover:bg-amber-700/10 rounded-lg text-[10px] uppercase tracking-widest font-bold transition"
-            >
-              Converter tudo → Bistrô
-            </button>
-          )}
-          {hasBistros && (
-            <button
-              onClick={() => {
+                setConvertMode('toMesa');
+              } else {
                 setElements(prev => {
                   let next = prev.map(el =>
                     el.type === 'bistro-table'
@@ -582,12 +578,13 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
                   next = reorderMesaLabels(next);
                   return next;
                 });
-              }}
-              className="w-full py-2 border border-[#C9A84C]/30 text-[#C9A84C]/70 hover:bg-[#C9A84C]/10 rounded-lg text-[10px] uppercase tracking-widest font-bold transition"
-            >
-              Converter tudo → Mesa
-            </button>
-          )}
+                setConvertMode('toBistro');
+              }
+            }}
+            className="w-full py-2 border border-[#C9A84C]/30 text-[#C9A84C]/70 hover:bg-[#C9A84C]/10 rounded-lg text-[10px] uppercase tracking-widest font-bold transition"
+          >
+            {convertMode === 'toBistro' ? 'Converter Tudo → Bistrô' : 'Converter Tudo → Mesa'}
+          </button>
           <button
             onClick={() => onSave(elements, 80)}
             disabled={!canSave}
@@ -597,7 +594,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
           </button>
           <button
             onClick={() => setConfirmRestore(true)}
-            disabled={savedInitialLayout.length === 0}
+            disabled={!(defaultLayout?.length || savedInitialLayout.length)}
             className="w-full py-2.5 border border-[#d4af37]/20 rounded-lg text-xs uppercase tracking-widest font-bold hover:bg-[#d4af37]/5 transition text-[#d4af37]/60 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Restaurar
@@ -630,7 +627,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
             <p className="text-sm text-white/50">O layout voltará ao estado inicial salvo. As alterações atuais serão perdidas.</p>
             <div className="flex gap-3 justify-end">
               <button onClick={() => setConfirmRestore(false)} className="px-4 py-2 rounded-lg border border-white/10 text-sm hover:bg-white/5 transition text-white/70">Cancelar</button>
-              <button onClick={() => { setElements([...savedInitialLayout]); setSelectedId(null); setConfirmRestore(false); }} className="px-4 py-2 rounded-lg bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#d4af37] text-sm font-bold hover:bg-[#d4af37]/30 transition">Restaurar</button>
+              <button onClick={() => { setElements([...(defaultLayout ?? savedInitialLayout)]); setSelectedId(null); setConvertMode('toBistro'); setConfirmRestore(false); }} className="px-4 py-2 rounded-lg bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#d4af37] text-sm font-bold hover:bg-[#d4af37]/30 transition">Restaurar</button>
             </div>
           </div>
         </div>
