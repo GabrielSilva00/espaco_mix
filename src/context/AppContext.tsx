@@ -449,6 +449,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const adminScrollRef = useRef<HTMLDivElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const lenisRef = useRef<Lenis | null>(null);
+  const paymentAbortRef = useRef<AbortController | null>(null);
 
   // ─── Computed values ─────────────────────────────────────────────────────
 
@@ -551,10 +552,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
           } catch (err) {
             const errMsg = String(err).toLowerCase();
+            console.error('[Context] Erro ao verificar sessão inicial:', err);
+            // Limpar sessão corrompida em todos os casos de erro
+            try { await signOut(); } catch {}
+            try {
+              Object.keys(localStorage)
+                .filter(k => k === 'eventix-auth' || k.startsWith('sb-') || k.includes('supabase'))
+                .forEach(k => localStorage.removeItem(k));
+            } catch {}
             if (errMsg.includes('infinite recursion') || errMsg.includes('policies')) {
-              console.error('[Context] Erro ao verificar sessão: problema com configuração do banco de dados');
-            } else {
-              console.error('Erro ao verificar sessão inicial:', err);
+              console.error('[Context] Sessão corrompida por erro de RLS — recarregando');
+              sessionStorage.clear();
+              setTimeout(() => window.location.reload(), 200);
             }
           }
         }
@@ -699,6 +708,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setTotpPending(false);
       setTotpInput('');
     }
+
+    if (currentView === 'home') {
+      setIsCheckoutOpen(false);
+      setCheckoutStep('selection');
+      setPaymentStatus('idle');
+      setErrors({});
+    }
+
+    if (currentView === 'dashboard') {
+      if (!formEvent?.id) setFormEvent(null);
+      setMessageText('');
+      setIsMessageModalOpen(false);
+    }
+
+    if (currentView !== 'booking' && currentView !== 'admin-login') {
+      setGuestData({ name: '', email: '', cpf: '' });
+    }
   }, [currentView]);
 
   useEffect(() => {
@@ -767,14 +793,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     console.warn = (...args) => { addLog('warn', args); origWarn.apply(console, args); };
     console.info = (...args) => { addLog('info', args); origInfo.apply(console, args); };
 
-    const savedSession = localStorage.getItem('eventix-session');
-    if (savedSession) {
+    // Limpar dados transientes do localStorage legado
+    localStorage.removeItem('eventix-session');
+
+    const savedCart = sessionStorage.getItem('eventix-cart');
+    if (savedCart) {
       try {
-        const session = JSON.parse(savedSession);
+        const session = JSON.parse(savedCart);
         let restoredAnything = false;
         const conflictList: string[] = [];
         if (session.singleTickets) { setSingleTickets(session.singleTickets); restoredAnything = true; }
-        if (session.guestData) { setGuestData(session.guestData); restoredAnything = true; }
+        if (session.guestData?.name) { setGuestData(prev => ({ ...prev, ...session.guestData })); restoredAnything = true; }
         // Checkout nunca é reaberto automaticamente — apenas o carrinho é restaurado
         if (Array.isArray(session.selectedTables) && session.selectedTables.length > 0) {
           const availableRestored = session.selectedTables.filter((id: number) => {
@@ -787,7 +816,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (conflictList.length > 0) setSessionConflict(conflictList);
         }
         if (restoredAnything) { setSessionRestored(true); setTimeout(() => setSessionRestored(false), 5000); }
-      } catch (e) { origError('Erro ao restaurar sessão:', e); }
+      } catch { sessionStorage.removeItem('eventix-cart'); }
     }
 
     return () => {
@@ -800,16 +829,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // CPF não é persistido no localStorage — dados sensíveis ficam apenas em memória
+    // Não persistir estados de pagamento em andamento ou finalizado
+    if (paymentStatus === 'processing' || paymentStatus === 'success') return;
+    if (selectedTables.length === 0 && singleTickets === 0) {
+      sessionStorage.removeItem('eventix-cart');
+      return;
+    }
     const { cpf: _cpf, ...guestDataSafe } = guestData;
-    const session = { selectedTables, singleTickets, guestData: guestDataSafe };
-    localStorage.setItem('eventix-session', JSON.stringify(session));
-  }, [selectedTables, singleTickets, guestData]);
+    sessionStorage.setItem('eventix-cart', JSON.stringify({ selectedTables, singleTickets, guestData: guestDataSafe }));
+  }, [selectedTables, singleTickets, guestData, paymentStatus]);
 
   useEffect(() => {
     if (userRole !== 'admin' && userRole !== 'developer') return;
     getStaffAccounts().then(data => setStaffAccounts(data)).catch(e => console.error('[Context] Erro ao carregar staff:', (e as Error)?.message));
   }, [userRole]);
+
+  // ─── Reset de estados transientes ────────────────────────────────────────
+
+  const resetAllTransientState = () => {
+    setIsCheckoutOpen(false);
+    setCheckoutStep('selection');
+    setPaymentStatus('idle');
+    setPixData(null);
+    setIsProcessingPayment(false);
+    setCartExpiresAt(null);
+    setCartTimeLeft(null);
+    setAdminError('');
+    setAdminForm({ username: '', password: '' });
+    setRegisterForm({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
+    setRegisterStep(1);
+    setVerificationStep(false);
+    setVerificationCode(['', '', '', '']);
+    setTotpPending(false);
+    setTotpInput('');
+    setForgotPasswordStep('none');
+    setForgotPasswordData({ email: '', code: '', newPassword: '' });
+    setMessageText('');
+    setIsMessageModalOpen(false);
+    setIsStaffModalOpen(false);
+    setErrors({});
+  };
+
+  // Garantir estado limpo em cada carregamento de página
+  useEffect(() => {
+    resetAllTransientState();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Limpar sessionStorage e abortar fetch se pagamento em andamento ao recarregar
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (isProcessingPayment || paymentStatus === 'processing') {
+        sessionStorage.removeItem('eventix-cart');
+        paymentAbortRef.current?.abort();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isProcessingPayment, paymentStatus]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────
 
@@ -1144,6 +1221,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const errs = validateGuestDataUtil(guestData);
       if (Object.keys(errs).length > 0) { setErrors(errs); return; }
     }
+    // Cancelar qualquer requisição de pagamento anterior pendente
+    if (paymentAbortRef.current) paymentAbortRef.current.abort();
+    paymentAbortRef.current = new AbortController();
+    const { signal } = paymentAbortRef.current;
+
     setIsProcessingPayment(true);
     setPaymentStatus('processing');
     setPixData(null);
@@ -1219,6 +1301,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (selectedPaymentMethod === 'pix') {
         const res = await fetch('/api/payment/pix', {
           method: 'POST',
+          signal,
           headers: authHeaders,
           body: JSON.stringify({ amount: grandTotal, description: activeEvent?.title || 'Ingresso', guestData }),
         });
@@ -1235,6 +1318,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!cardToken) throw new Error('Falha ao tokenizar cartão. Verifique os dados e tente novamente.');
         const res = await fetch('/api/payment/mercadopago', {
           method: 'POST',
+          signal,
           headers: authHeaders,
           body: JSON.stringify({
             cardToken,
@@ -1280,6 +1364,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        console.warn('[Payment] Requisição cancelada (página recarregada ou nova tentativa)');
+        return;
+      }
       console.error('[Payment] Erro na transação:', err?.message ?? 'Erro desconhecido');
       setErrors({ payment: err.message || 'Falha na transação de segurança.' });
       setPaymentStatus('idle');

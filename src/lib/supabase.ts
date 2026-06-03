@@ -309,6 +309,18 @@ export const supabase = createClient(supabaseUrl, supabaseAnon, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    storageKey: 'eventix-auth',
+  },
+  realtime: {
+    params: { eventsPerSecond: 10 },
+  },
+  global: {
+    fetch: (url, options = {}) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      return fetch(url as string, { ...options, signal: controller.signal })
+        .finally(() => clearTimeout(timeout));
+    },
   },
 });
 
@@ -959,8 +971,13 @@ export async function updateMyCredentials(updates: {
 
 /** Ouvir mudanças nos eventos em tempo real */
 export function subscribeToEvents(callback: (events: Event[]) => void) {
+  // Remover canal anterior se existir (evita canais zumbi no reload)
+  supabase.getChannels()
+    .filter(ch => ch.topic === 'realtime:events-changes')
+    .forEach(ch => supabase.removeChannel(ch));
+
   let cachedEvents: Event[] = [];
-  
+
   // Carrega os eventos iniciais — callback com [] em caso de falha para liberar loading
   getEvents()
     .then(events => {
@@ -1048,6 +1065,11 @@ export function subscribeToEventReservations(
 export function subscribeToPendingApplications(
   callback: (count: number) => void
 ) {
+  // Remover canal anterior se existir (evita canais zumbi no reload)
+  supabase.getChannels()
+    .filter(ch => ch.topic === 'realtime:pending-applications')
+    .forEach(ch => supabase.removeChannel(ch));
+
   const channel = supabase
     .channel('pending-applications')
     .on(
