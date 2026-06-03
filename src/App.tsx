@@ -63,14 +63,14 @@ export function App() {
         Pular para conteúdo principal
       </a>
 
-      {isAdminLayout ? <AdminSidebar /> : <Navbar />}
+      {isAdminLayout ? <AdminSidebar /> : currentView !== 'admin-login' && <Navbar />}
 
       <div
         ref={adminScrollRef}
         data-lenis-prevent
         className={`${isAdminLayout ? 'flex-1 h-screen overflow-y-auto custom-scrollbar relative' : 'w-full'} flex flex-col`}
       >
-        <main id="main-content" className={`${isAdminLayout ? 'pt-20 md:pt-10' : 'pt-16 md:pt-20'} pb-24 px-0 md:px-0 flex-1`}>
+        <main id="main-content" className={`${isAdminLayout ? 'pt-20 md:pt-10' : currentView === 'admin-login' ? 'pt-0' : 'pt-16 md:pt-20'} pb-24 px-0 md:px-0 flex-1`}>
 
           {currentView === 'home' && (
             <Home

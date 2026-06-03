@@ -127,8 +127,8 @@ interface AppContextValue {
   // Auth form
   adminForm: { username: string; password: string };
   setAdminForm: React.Dispatch<React.SetStateAction<{ username: string; password: string }>>;
-  registerForm: { name: string; email: string; phone: string; cpf: string; birthDate: string; password: string };
-  setRegisterForm: React.Dispatch<React.SetStateAction<{ name: string; email: string; phone: string; cpf: string; birthDate: string; password: string }>>;
+  registerForm: { name: string; email: string; cpf: string; phone: string; phoneCountry: string; birthDate: string; sex: string; password: string; confirmPassword: string; nationality: string; country: string; passportDoc: string };
+  setRegisterForm: React.Dispatch<React.SetStateAction<{ name: string; email: string; cpf: string; phone: string; phoneCountry: string; birthDate: string; sex: string; password: string; confirmPassword: string; nationality: string; country: string; passportDoc: string }>>;
   registerStep: number;
   setRegisterStep: React.Dispatch<React.SetStateAction<number>>;
   verificationCode: string[];
@@ -356,7 +356,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Auth form
   const [adminForm, setAdminForm] = useState({ username: '', password: '' });
-  const [registerForm, setRegisterForm] = useState({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
+  const [registerForm, setRegisterForm] = useState({
+    name: '',
+    email: '',
+    cpf: '',
+    phone: '',
+    phoneCountry: '+55',
+    birthDate: '',
+    sex: '',
+    password: '',
+    confirmPassword: '',
+    nationality: 'br',
+    country: '',
+    passportDoc: '',
+  });
   const [registerStep, setRegisterStep] = useState(1);
   const [verificationCode, setVerificationCode] = useState(['', '', '', '']);
   const [verificationStep, setVerificationStep] = useState(false);
@@ -549,6 +562,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 isApprovedEventCreator: profile.is_approved_event_creator,
                 avatarUrl: profile.avatar_url,
               });
+              // Rebusca eventos com sessão restaurada (subscribeToEvents pode ter rodado sem auth)
+              getEvents()
+                .then(data => setEvents(data.map(mapDbEventToApp)))
+                .catch(e => console.error('[Context] Erro ao buscar eventos (INITIAL_SESSION):', (e as Error)?.message))
+                .finally(() => setLoadingEvents(false));
             }
           } catch (err) {
             const errMsg = String(err).toLowerCase();
@@ -615,6 +633,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsApprovedEventCreator(false);
         setSessionUser(null);
         setIsStaff(false);
+        setEvents([]);
       }
     });
 
@@ -698,7 +717,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setAuthTab('login');
     } else {
       setAdminForm({ username: '', password: '' });
-      setRegisterForm({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
+      setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
       setRegisterStep(1);
       setVerificationStep(false);
       setVerificationCode(['', '', '', '']);
@@ -856,7 +875,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCartTimeLeft(null);
     setAdminError('');
     setAdminForm({ username: '', password: '' });
-    setRegisterForm({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
+    setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
     setRegisterStep(1);
     setVerificationStep(false);
     setVerificationCode(['', '', '', '']);
@@ -942,11 +961,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (registerStep === 1) {
-      if (!registerForm.name || !registerForm.email || !registerForm.password) { setAdminError('Preencha nome, e-mail e senha para continuar'); return; }
+      if (!registerForm.name.trim()) { setAdminError('Informe seu nome completo'); return; }
+      if (!registerForm.email.trim()) { setAdminError('Informe seu e-mail'); return; }
+      if (registerForm.nationality === 'br') {
+        const cpf = registerForm.cpf.replace(/\D/g, '');
+        if (cpf.length !== 11) { setAdminError('CPF inválido — informe os 11 dígitos'); return; }
+      } else {
+        if (!registerForm.country) { setAdminError('Selecione seu país'); return; }
+        if (!registerForm.passportDoc.trim()) { setAdminError('Informe o número do documento/passaporte'); return; }
+      }
+      const phone = registerForm.phone.replace(/\D/g, '');
+      if (phone.length < 8) { setAdminError('Informe um número de celular válido'); return; }
+      if (!registerForm.birthDate) { setAdminError('Informe sua data de nascimento'); return; }
+      if (!registerForm.sex) { setAdminError('Selecione seu sexo'); return; }
       setAdminError('');
       setRegisterStep(2);
+      return;
     } else {
-      if (!registerForm.phone || !registerForm.cpf || !registerForm.birthDate) { setAdminError('Preencha celular, CPF e data de nascimento'); return; }
+      if (!registerForm.password || registerForm.password.length < 6) { setAdminError('A senha deve ter no mínimo 6 caracteres'); return; }
+      if (registerForm.password !== registerForm.confirmPassword) { setAdminError('As senhas não coincidem'); return; }
       setAdminError('');
       try {
         const resp = await fetch('/api/auth/send-verify-code', {
@@ -981,9 +1014,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setAdminError((checkData as any).error ?? 'Código inválido.');
         return;
       }
-      await signUp(registerForm.email, registerForm.password, registerForm.name, { phone: registerForm.phone, cpf: registerForm.cpf, birth_date: registerForm.birthDate } as any);
+      await signUp(registerForm.email, registerForm.password, registerForm.name, {
+        phone: registerForm.phone.replace(/\D/g, ''),
+        cpf: registerForm.nationality === 'br' ? registerForm.cpf.replace(/\D/g, '') : undefined,
+        birth_date: registerForm.birthDate,
+        sex: registerForm.sex,
+        nationality: registerForm.nationality,
+        country: registerForm.nationality === 'foreign' ? registerForm.country : undefined,
+        passport_doc: registerForm.nationality === 'foreign' ? registerForm.passportDoc : undefined,
+      } as any);
       setVerificationStep(false);
-      setRegisterForm({ name: '', email: '', phone: '', cpf: '', birthDate: '', password: '' });
+      setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
       setVerificationCode(['', '', '', '']);
       setAdminForm({ username: '', password: '' });
       setRegisterStep(1);

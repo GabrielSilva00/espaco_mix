@@ -1,14 +1,23 @@
+import { useState } from 'react';
 import { motion } from 'motion/react';
 import {
   ShieldCheck,
   Mail,
   ArrowLeft,
+  Eye,
+  EyeOff,
+  Globe,
+  User,
+  HelpCircle,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { GoogleIcon } from '../../components/GoogleIcon';
 import { supabase } from '../../lib/supabase';
 
 export function AuthView() {
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const {
     setCurrentView,
     setDashboardMode,
@@ -34,7 +43,7 @@ export function AuthView() {
   } = useApp();
 
   return (
-    <div className="max-w-sm mx-auto px-4 md:px-6 py-4 md:py-6 flex flex-col items-center justify-center min-h-[60vh]">
+    <div className="max-w-lg mx-auto px-4 md:px-6 py-6 md:py-10 flex flex-col items-center justify-center min-h-screen">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -64,7 +73,7 @@ export function AuthView() {
             {authTab === 'staff' ? 'Acesso Colaborador' : authTab === 'login' ? 'Bem-vindo de volta' : 'Criar nova conta'}
           </h1>
           <p className="text-[9px] md:text-[10px] uppercase tracking-widest opacity-40">
-             {authTab === 'staff' ? 'Entre com sua credencial da equipe' : authTab === 'login' ? 'Acesse sua conta para continuar' : 'Preencha os dados para se cadastrar'}
+             {authTab === 'staff' ? 'Entre com sua credencial da equipe' : authTab === 'login' ? 'Acesse sua conta para continuar' : ''}
           </p>
         </div>
 
@@ -174,76 +183,240 @@ export function AuthView() {
               <form onSubmit={(authTab === 'login' || authTab === 'staff') ? handleAdminLogin : handleRegister} className="space-y-3">
                 {authTab === 'register' && registerStep === 1 && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
+                    {/* Brasileiro / Estrangeiro */}
+                    <div className="flex gap-4 py-1">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="nationality"
+                          checked={registerForm.nationality === 'br'}
+                          onChange={() => setRegisterForm({ ...registerForm, nationality: 'br', country: '', passportDoc: '' })}
+                          className="accent-[#d4af37] w-4 h-4"
+                        />
+                        <User className="w-3.5 h-3.5 text-white/50" />
+                        <span className="text-[11px] uppercase tracking-widest text-white/70">Brasileiro</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="nationality"
+                          checked={registerForm.nationality === 'foreign'}
+                          onChange={() => setRegisterForm({ ...registerForm, nationality: 'foreign', cpf: '' })}
+                          className="accent-[#d4af37] w-4 h-4"
+                        />
+                        <Globe className="w-3.5 h-3.5 text-white/50" />
+                        <span className="text-[11px] uppercase tracking-widest text-white/70">Estrangeiro</span>
+                      </label>
+                    </div>
+
+                    {/* Nome Completo */}
                     <div>
-                      <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">Nome Completo</label>
+                      <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">Nome Completo</label>
                       <input
                         type="text"
                         value={registerForm.name}
-                        onChange={(e) => setRegisterForm({...registerForm, name: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
-                        placeholder="Seu nome"
+                        onChange={(e) => setRegisterForm({ ...registerForm, name: e.target.value })}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[44px] text-sm focus:border-[#d4af37] outline-none transition"
+                        placeholder="Seu nome completo"
                       />
                     </div>
+
+                    {/* E-mail */}
                     <div>
-                      <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">E-mail</label>
+                      <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">E-mail</label>
                       <input
                         type="email"
                         value={registerForm.email}
-                        onChange={(e) => setRegisterForm({...registerForm, email: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
+                        onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[44px] text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="contato@exemplo.com"
                       />
                     </div>
+
+                    {/* CPF ou País + Passaporte */}
+                    {registerForm.nationality === 'br' ? (
+                      <div>
+                        <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">CPF</label>
+                        <input
+                          type="text"
+                          value={registerForm.cpf}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, '').slice(0, 11);
+                            const masked = v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+                            setRegisterForm({ ...registerForm, cpf: masked });
+                          }}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[44px] text-sm focus:border-[#d4af37] outline-none transition"
+                          placeholder="000.000.000-00"
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1 flex items-center gap-1">
+                            <Globe className="w-3 h-3" /> País
+                          </label>
+                          <select
+                            value={registerForm.country}
+                            onChange={(e) => setRegisterForm({ ...registerForm, country: e.target.value })}
+                            className="w-full bg-[#0d0d0d] border border-white/10 rounded-xl px-4 min-h-[44px] text-sm focus:border-[#d4af37] outline-none transition text-white appearance-none"
+                          >
+                            <option value="">Selecione o país</option>
+                            <option value="US">🇺🇸 United States</option>
+                            <option value="AR">🇦🇷 Argentina</option>
+                            <option value="CL">🇨🇱 Chile</option>
+                            <option value="CO">🇨🇴 Colombia</option>
+                            <option value="UY">🇺🇾 Uruguay</option>
+                            <option value="PY">🇵🇾 Paraguay</option>
+                            <option value="BO">🇧🇴 Bolivia</option>
+                            <option value="VE">🇻🇪 Venezuela</option>
+                            <option value="PE">🇵🇪 Peru</option>
+                            <option value="PT">🇵🇹 Portugal</option>
+                            <option value="ES">🇪🇸 Spain</option>
+                            <option value="IT">🇮🇹 Italy</option>
+                            <option value="DE">🇩🇪 Germany</option>
+                            <option value="FR">🇫🇷 France</option>
+                            <option value="GB">🇬🇧 United Kingdom</option>
+                            <option value="OTHER">Outro</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">Documento / Passaporte</label>
+                          <input
+                            type="text"
+                            value={registerForm.passportDoc}
+                            onChange={(e) => setRegisterForm({ ...registerForm, passportDoc: e.target.value.toUpperCase() })}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[44px] text-sm focus:border-[#d4af37] outline-none transition"
+                            placeholder="ABC123456"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* Celular com DDI */}
                     <div>
-                      <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">Senha</label>
+                      <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">Celular</label>
+                      <div className="flex gap-2">
+                        <select
+                          value={registerForm.phoneCountry}
+                          onChange={(e) => setRegisterForm({ ...registerForm, phoneCountry: e.target.value })}
+                          className="bg-[#0d0d0d] border border-white/10 rounded-xl px-3 min-h-[44px] text-sm text-white focus:border-[#d4af37] outline-none transition appearance-none w-24 text-center"
+                        >
+                          <option value="+55">🇧🇷 +55</option>
+                          <option value="+1">🇺🇸 +1</option>
+                          <option value="+54">🇦🇷 +54</option>
+                          <option value="+56">🇨🇱 +56</option>
+                          <option value="+57">🇨🇴 +57</option>
+                          <option value="+598">🇺🇾 +598</option>
+                          <option value="+595">🇵🇾 +595</option>
+                          <option value="+591">🇧🇴 +591</option>
+                          <option value="+51">🇵🇪 +51</option>
+                          <option value="+351">🇵🇹 +351</option>
+                          <option value="+34">🇪🇸 +34</option>
+                          <option value="+39">🇮🇹 +39</option>
+                          <option value="+49">🇩🇪 +49</option>
+                          <option value="+33">🇫🇷 +33</option>
+                          <option value="+44">🇬🇧 +44</option>
+                        </select>
+                        <input
+                          type="tel"
+                          value={registerForm.phone}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, '').slice(0, 11);
+                            const masked = registerForm.phoneCountry === '+55'
+                              ? (v.length <= 10
+                                  ? v.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3')
+                                  : v.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3'))
+                              : v;
+                            setRegisterForm({ ...registerForm, phone: masked });
+                          }}
+                          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 min-h-[44px] text-sm focus:border-[#d4af37] outline-none transition"
+                          placeholder={registerForm.phoneCountry === '+55' ? '(11) 90000-0000' : '000000000'}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Data de Nascimento */}
+                    <div>
+                      <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">Data de Nascimento</label>
                       <input
-                        type="password"
-                        value={registerForm.password}
-                        onChange={(e) => setRegisterForm({...registerForm, password: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
-                        placeholder="••••••••"
+                        type="date"
+                        value={registerForm.birthDate}
+                        onChange={(e) => setRegisterForm({ ...registerForm, birthDate: e.target.value })}
+                        style={{ colorScheme: 'dark' }}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[44px] text-sm focus:border-[#d4af37] outline-none transition text-white"
                       />
+                    </div>
+
+                    {/* Sexo */}
+                    <div>
+                      <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">Sexo</label>
+                      <div className="flex gap-2">
+                        {[{ v: 'M', l: 'Masculino' }, { v: 'F', l: 'Feminino' }, { v: 'O', l: 'Outro' }].map(opt => (
+                          <button
+                            key={opt.v}
+                            type="button"
+                            onClick={() => setRegisterForm({ ...registerForm, sex: opt.v })}
+                            className={`flex-1 min-h-[40px] rounded-xl text-[10px] uppercase tracking-widest font-bold border transition ${registerForm.sex === opt.v ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37]' : 'bg-white/5 border-white/10 text-white/40 hover:border-white/30'}`}
+                          >
+                            {opt.l}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </motion.div>
                 )}
                 {authTab === 'register' && registerStep === 2 && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
                     <button
                       type="button"
                       onClick={() => setRegisterStep(1)}
-                      className="text-[10px] uppercase tracking-widest opacity-50 hover:opacity-100 transition flex items-center gap-2 mb-4"
+                      className="text-[10px] uppercase tracking-widest opacity-50 hover:opacity-100 transition flex items-center gap-2 mb-2"
                     >
                       <ArrowLeft className="w-3 h-3" /> Voltar
                     </button>
+
+                    {/* Senha */}
                     <div>
-                      <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">Celular</label>
-                      <input
-                        type="tel"
-                        value={registerForm.phone}
-                        onChange={(e) => setRegisterForm({...registerForm, phone: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
-                        placeholder="(11) 90000-0000"
-                      />
+                      <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">Senha</label>
+                      <div className="relative">
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          value={registerForm.password}
+                          onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 pr-12 min-h-[44px] text-sm focus:border-[#d4af37] outline-none transition"
+                          placeholder="Mínimo 6 caracteres"
+                        />
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => setShowPassword(v => !v)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70 transition"
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
+
+                    {/* Confirmação de senha */}
                     <div>
-                      <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">CPF</label>
-                      <input
-                        type="text"
-                        value={registerForm.cpf}
-                        onChange={(e) => setRegisterForm({...registerForm, cpf: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
-                        placeholder="000.000.000-00"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] md:text-[10px] uppercase tracking-[2px] opacity-50 mb-2 ml-1">Data de Nascimento</label>
-                      <input
-                        type="date"
-                        value={registerForm.birthDate}
-                        onChange={(e) => setRegisterForm({...registerForm, birthDate: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition text-white"
-                        style={{ colorScheme: 'dark' }}
-                      />
+                      <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">Confirmar Senha</label>
+                      <div className="relative">
+                        <input
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          value={registerForm.confirmPassword}
+                          onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 pr-12 min-h-[44px] text-sm focus:border-[#d4af37] outline-none transition"
+                          placeholder="Repita a senha"
+                        />
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => setShowConfirmPassword(v => !v)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70 transition"
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
                   </motion.div>
                 )}
@@ -290,14 +463,14 @@ export function AuthView() {
 
                 <button
                   type="submit"
-                  className="w-full bg-[#d4af37] text-[#0a0a0a] py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:brightness-110 transition mt-2"
+                  className="w-full bg-[#d4af37] text-[#0a0a0a] py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:brightness-110 transition mt-1"
                 >
                   {(authTab === 'login' || authTab === 'staff') ? 'Entrar' : registerStep === 1 ? 'Continuar' : 'Criar Conta e Continuar'}
                 </button>
 
                 {authTab === 'login' && (
                   <>
-                    <div className="flex items-center gap-4 my-4 opacity-30">
+                    <div className="flex items-center gap-4 my-2 opacity-30">
                       <div className="h-[1px] flex-1 bg-white"></div>
                       <span className="text-[9px] uppercase tracking-widest">ou</span>
                       <div className="h-[1px] flex-1 bg-white"></div>
@@ -309,6 +482,27 @@ export function AuthView() {
                     >
                       <GoogleIcon className="w-4 h-4" /> Entrar com Google
                     </button>
+                    <div className="mt-6 pt-5 border-t border-white/5">
+                      <p className="text-[9px] uppercase tracking-widest opacity-40 text-center mb-3 flex items-center justify-center gap-1.5">
+                        <HelpCircle className="w-3 h-3" /> Ajuda ao cliente
+                      </p>
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentView('contact')}
+                          className="flex-1 min-h-[40px] rounded-xl border border-white/10 text-[10px] uppercase tracking-widest font-bold text-white/50 hover:text-white hover:border-white/25 transition"
+                        >
+                          Suporte
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentView('terms')}
+                          className="flex-1 min-h-[40px] rounded-xl border border-white/10 text-[10px] uppercase tracking-widest font-bold text-white/50 hover:text-white hover:border-white/25 transition"
+                        >
+                          Termos e Políticas
+                        </button>
+                      </div>
+                    </div>
                   </>
                 )}
 
@@ -432,14 +626,6 @@ export function AuthView() {
           )}
       </motion.div>
 
-      <div className="flex flex-col gap-3 mt-8">
-        <button
-          onClick={() => setCurrentView('home')}
-          className="inline-flex items-center justify-center min-h-[38px] px-8 bg-white/5 border border-white/10 text-white rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 hover:border-white/20 transition-all shadow-sm"
-        >
-          Voltar ao Site
-        </button>
-      </div>
     </div>
   );
 }

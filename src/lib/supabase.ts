@@ -405,7 +405,7 @@ export async function resetPassword(email: string) {
 // ═══════════════════════════════════════════════════════════════
 
 export async function updateProfile(userId: string, updates: Partial<Profile>) {
-  const SENSITIVE = ['cpf', 'phone', 'birth_date'] as const;
+  const SENSITIVE = ['cpf', 'phone', 'birth_date', 'passport_doc'] as const;
 
   const sensitive: Partial<Profile> = {};
   const regular: Partial<Profile> = {};
@@ -977,7 +977,7 @@ export function subscribeToEvents(callback: (events: Event[]) => void) {
     })
     .catch(err => {
       console.error('[subscribeToEvents] Falha ao carregar eventos:', err);
-      callback([]);
+      callback(cachedEvents);
     });
 
   const channel = supabase
