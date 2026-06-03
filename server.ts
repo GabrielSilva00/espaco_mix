@@ -95,6 +95,11 @@ const appUrl = process.env.APP_URL;
 const paymentProvider = process.env.PAYMENT_PROVIDER ?? (isProduction ? "disabled" : "mock");
 const allowMockPayments = process.env.ALLOW_MOCK_PAYMENTS === "true";
 
+// ─── Credenciais MP em memória (definidas via painel admin) ──────────────────
+// Persiste até reiniciar o servidor; process.env tem prioridade em produção.
+let runtimeMpAccessToken = "";
+let runtimeMpPublicKey = "";
+
 // ─── Express app factory ─────────────────────────────────────────────────────
 
 export async function createExpressApp() {
@@ -450,6 +455,19 @@ export async function createExpressApp() {
     }
   });
 
+  // ── Definir credenciais MP em memória (painel admin) ─────────────────────
+  app.post("/api/admin/set-mp-credentials", requireAuth, (req, res) => {
+    const { accessToken, publicKey } = req.body as { accessToken?: string; publicKey?: string };
+    if (!accessToken || !publicKey) {
+      res.status(400).json({ error: "accessToken e publicKey são obrigatórios." });
+      return;
+    }
+    runtimeMpAccessToken = accessToken;
+    runtimeMpPublicKey = publicKey;
+    console.log("[MP] Credenciais atualizadas via painel admin");
+    res.json({ success: true });
+  });
+
   // ── Mercado Pago - Process Payment ────────────────────────────────────────
   app.post("/api/payment/mercadopago", paymentLimiter, requireAuth, async (req, res) => {
     const {
@@ -470,11 +488,11 @@ export async function createExpressApp() {
       guestData?: { name?: string; email?: string; cpf?: string };
     };
 
-    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN || runtimeMpAccessToken;
 
     if (!accessToken) {
       console.error("[MERCADOPAGO] Access Token não configurado");
-      res.status(503).json({ error: "Mercado Pago não configurado no servidor." });
+      res.status(503).json({ error: "Mercado Pago não configurado. Configure as credenciais no painel admin." });
       return;
     }
 
@@ -563,9 +581,9 @@ export async function createExpressApp() {
       return;
     }
 
-    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN || runtimeMpAccessToken;
     if (!accessToken) {
-      res.status(503).json({ error: "Mercado Pago não configurado no servidor." });
+      res.status(503).json({ error: "Mercado Pago não configurado. Configure as credenciais no painel admin." });
       return;
     }
 

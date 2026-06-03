@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Settings, Save, Check, Eye, EyeOff, Copy, AlertCircle, 
   TestTube, CheckCircle2, AlertTriangle, Info, Key, CreditCard,
@@ -22,6 +22,35 @@ export function MercadoPagoSettings() {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
 
+  const serverUrl = window.location.origin.replace(':5173', ':3000');
+
+  const syncToServer = useCallback(async (accessToken: string, publicKey: string) => {
+    if (!accessToken || !publicKey) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      await fetch(`${serverUrl}/api/admin/set-mp-credentials`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ accessToken, publicKey }),
+      });
+    } catch (e) {
+      console.warn('[MP Settings] Falha ao sincronizar com servidor:', e);
+    }
+  }, [serverUrl]);
+
+  // Auto-sincronizar credenciais existentes ao montar o componente
+  useEffect(() => {
+    const savedToken = localStorage.getItem('mp_access_token') || '';
+    const savedKey = localStorage.getItem('mp_public_key') || '';
+    if (savedToken && savedKey) {
+      syncToServer(savedToken, savedKey);
+    }
+  }, [syncToServer]);
+
   const handleChange = (key: string, value: any) => {
     setSettings(prev => ({ ...prev, [key]: value }));
     setIsSaved(false);
@@ -35,7 +64,10 @@ export function MercadoPagoSettings() {
     localStorage.setItem('mp_statement_descriptor', settings.statementDescriptor);
     localStorage.setItem('mp_binary_mode', String(settings.binaryMode));
     localStorage.setItem('mp_auto_return', String(settings.autoReturn));
-    
+
+    // Sincronizar com o servidor para que PIX e cartão funcionem imediatamente
+    await syncToServer(settings.accessToken, settings.publicKey);
+
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
   };
@@ -55,9 +87,6 @@ export function MercadoPagoSettings() {
         return;
       }
 
-      // Detectar a URL do servidor (pode estar em porta diferente)
-      const serverUrl = window.location.origin.replace(':5173', ':3000');
-      
       const response = await fetch(`${serverUrl}/api/admin/test-mercadopago`, {
         method: 'POST',
         headers: { 
@@ -93,16 +122,14 @@ export function MercadoPagoSettings() {
   };
 
   const generateWebhookUrl = () => {
-    // Detectar a URL do servidor (substitui porta 5173 pela 3000)
-    let serverUrl = window.location.origin;
-    
-    if (serverUrl.includes('localhost:5173')) {
-      serverUrl = serverUrl.replace(':5173', ':3000');
-      setSettings(prev => ({ ...prev, webhookUrl: `${serverUrl}/api/webhook/mercadopago` }));
+    let baseUrl = window.location.origin;
+    if (baseUrl.includes('localhost:5173')) {
+      baseUrl = baseUrl.replace(':5173', ':3000');
+      setSettings(prev => ({ ...prev, webhookUrl: `${baseUrl}/api/webhook/mercadopago` }));
       alert('✓ URL gerada para TESTE LOCAL.\n\n⚠️ Para teste com Mercado Pago, use ngrok:\n\n1. Terminal: ngrok http 3000\n2. Copie a URL gerada\n3. Use no Mercado Pago');
     } else {
       // Em produção, usar o domínio real
-      setSettings(prev => ({ ...prev, webhookUrl: `${serverUrl}/api/webhook/mercadopago` }));
+      setSettings(prev => ({ ...prev, webhookUrl: `${baseUrl}/api/webhook/mercadopago` }));
     }
   };
 

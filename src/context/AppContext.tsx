@@ -526,7 +526,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const profile = await getMyProfile();
             // Admin e developer nunca são restaurados automaticamente — devem fazer login manual
             if (profile?.role === 'admin' || profile?.role === 'developer') {
-              await signOut();
+              try { await signOut(); } catch {}
+              try {
+                Object.keys(localStorage).forEach(k => {
+                  if (k.startsWith('sb-')) localStorage.removeItem(k);
+                });
+              } catch {}
               return;
             }
             // Clientes comuns têm sessão restaurada normalmente
@@ -590,6 +595,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } else if (event === 'SIGNED_OUT') {
+        // Limpar token inválido do localStorage (previne loop de refresh_token 400)
+        try {
+          Object.keys(localStorage).forEach(k => {
+            if (k.startsWith('sb-')) localStorage.removeItem(k);
+          });
+        } catch {}
         setUserRole(null);
         setLoggedInUserId(null);
         setIsApprovedEventCreator(false);

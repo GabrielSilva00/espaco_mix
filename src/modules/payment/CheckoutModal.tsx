@@ -74,6 +74,15 @@ export function CheckoutModal() {
     }
   }, [checkoutStep]);
 
+  // Resetar dados do cartão ao fechar o modal
+  useEffect(() => {
+    if (!isCheckoutOpen) {
+      setCardData({ number: '', holderName: '', expiryMonth: '', expiryYear: '', cvv: '', installments: '1' });
+      setCardErrors({});
+      setLocalPaymentMethod(null);
+    }
+  }, [isCheckoutOpen]);
+
   const selectedTablesData = derivedTables.filter(t => selectedTables.includes(t.id));
 
   if (!isCheckoutOpen) return null;
