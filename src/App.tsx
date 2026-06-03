@@ -70,7 +70,11 @@ export function App() {
         data-lenis-prevent
         className={`${isAdminLayout ? 'flex-1 h-screen overflow-y-auto custom-scrollbar relative' : 'w-full'} flex flex-col`}
       >
-        <main id="main-content" className={`${isAdminLayout ? 'pt-20 md:pt-10' : currentView === 'admin-login' ? 'pt-0' : 'pt-16 md:pt-20'} pb-24 px-0 md:px-0 flex-1`}>
+        <main
+          id="main-content"
+          className={`${isAdminLayout ? 'pt-14 md:pt-10' : currentView === 'admin-login' ? 'pt-0' : 'pt-16 md:pt-20'} pb-24 md:pb-6 px-0 flex-1`}
+          style={isAdminLayout ? { paddingBottom: 'calc(60px + env(safe-area-inset-bottom, 16px))' } : undefined}
+        >
 
           {currentView === 'home' && (
             <Home
@@ -134,16 +138,22 @@ export function App() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[60] bg-[#0a0a0a] flex flex-col"
           >
-            <div className="px-4 md:px-8 py-4 border-b border-white/10 flex items-center justify-between">
-              <h3 className="text-lg md:text-xl font-serif text-[#d4af37]">Layout do Local</h3>
+            <div
+              className="px-4 md:px-8 py-3 md:py-4 border-b border-white/10 flex items-center justify-between shrink-0"
+              style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
+            >
+              <h3 className="text-base md:text-xl font-serif text-[#d4af37]">Layout do Local</h3>
               <button
                 onClick={() => setIsTableLayoutEditorOpen(false)}
-                className="p-2 rounded-lg border border-white/10 text-white/70 hover:text-white hover:border-white/30 transition"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg border border-white/10 text-white/70 hover:text-white hover:border-white/30 transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex-1 p-4 md:p-6 overflow-auto">
+            <div
+              className="flex-1 p-3 md:p-6 overflow-auto"
+              style={{ paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}
+            >
               <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[50vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
               <TableLayoutEditor
                 initialLayout={formEvent.tableLayout || []}

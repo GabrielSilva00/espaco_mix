@@ -243,13 +243,13 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
   ];
 
   return (
-    <div className="h-full grid grid-cols-1 xl:grid-cols-[240px_1fr_280px] gap-4">
+    <div className="h-full flex flex-col xl:grid xl:grid-cols-[240px_1fr_280px] gap-3">
 
-      {/* Left: Palette */}
-      <aside className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 flex flex-col gap-4">
-        <div>
-          <h4 className="text-[11px] uppercase tracking-widest font-bold text-[#C9A84C] mb-3">Elementos</h4>
-          <div className="space-y-2">
+      {/* Left: Palette — mobile: faixa horizontal com scroll; desktop: coluna lateral */}
+      <aside className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-3 xl:p-4 flex flex-row xl:flex-col gap-3 xl:gap-4 overflow-x-auto xl:overflow-x-visible shrink-0">
+        <div className="flex flex-row xl:flex-col gap-2 xl:gap-0 min-w-max xl:min-w-0 xl:w-full">
+          <h4 className="hidden xl:block text-[11px] uppercase tracking-widest font-bold text-[#C9A84C] mb-3">Elementos</h4>
+          <div className="flex flex-row xl:flex-col gap-2">
             {palette.map(item => {
               const isMesa = item.type === 'rect-table';
               const isBistro = item.type === 'bistro-table';
@@ -266,7 +266,8 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
                     if (atLimit) { e.preventDefault(); return; }
                     e.dataTransfer.setData('application/layout-item', item.type);
                   }}
-                  className={`p-3 rounded-xl border transition flex items-center gap-3 ${
+                  style={{ minWidth: 64 }}
+                  className={`p-2 xl:p-3 rounded-xl border transition flex flex-col xl:flex-row items-center gap-1 xl:gap-3 ${
                     atLimit ? 'border-white/5 opacity-30 cursor-not-allowed' :
                     isMesa ? 'border-[#C9A84C]/30 bg-[#C9A84C]/5 hover:border-[#C9A84C]/60 cursor-grab active:cursor-grabbing' :
                     isBistro ? 'border-amber-800/40 bg-amber-950/20 hover:border-[#C9A84C]/40 cursor-grab active:cursor-grabbing' :
@@ -294,12 +295,12 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
                       </div>
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <span className={`text-xs font-bold ${isMesa ? 'text-[#C9A84C]' : isBistro ? 'text-amber-300' : 'text-white/50'}`}>
+                  <div className="flex-1 min-w-0 text-center xl:text-left">
+                    <span className={`text-[9px] xl:text-xs font-bold ${isMesa ? 'text-[#C9A84C]' : isBistro ? 'text-amber-300' : 'text-white/50'}`}>
                       {item.label}
                     </span>
                     {item.capacity && (
-                      <span className="text-[9px] text-white/30 block mt-0.5">{item.capacity} pessoas</span>
+                      <span className="text-[9px] text-white/30 block mt-0.5 hidden xl:block">{item.capacity} pessoas</span>
                     )}
                   </div>
                 </div>
@@ -309,7 +310,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
         </div>
 
         {/* Counters */}
-        <div className="pt-3 border-t border-white/10 space-y-2">
+        <div className="pt-3 border-t border-white/10 space-y-2 hidden xl:block">
           <div className="flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-widest text-white/40">Mesas</span>
             <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${mesaExceeded ? 'bg-red-500/20 text-red-400' : mesaCount > 0 ? 'bg-[#C9A84C]/10 text-[#C9A84C]' : 'bg-white/5 text-white/40'}`}>
@@ -325,7 +326,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
         </div>
 
         {/* Snap */}
-        <div className="flex items-center justify-between pt-3 border-t border-white/10">
+        <div className="flex items-center justify-between pt-3 border-t border-white/10 hidden xl:flex">
           <span className="text-[10px] uppercase tracking-widest text-white/40">Snap ao Grid</span>
           <button
             onClick={() => setSnapEnabled(p => !p)}
@@ -334,11 +335,11 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
             <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${snapEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
           </button>
         </div>
-        <p className="text-[9px] text-white/20 leading-relaxed">Teclas de seta movem o elemento selecionado.</p>
+        <p className="text-[9px] text-white/20 leading-relaxed hidden xl:block">Teclas de seta movem o elemento selecionado.</p>
       </aside>
 
       {/* Center: Canvas */}
-      <section ref={canvasSectionRef} className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 overflow-auto flex flex-col">
+      <section ref={canvasSectionRef} className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-3 xl:p-4 overflow-auto flex flex-col flex-1 min-h-[300px] xl:min-h-0">
         <div className="flex items-center justify-between mb-3 shrink-0">
           <div className="flex items-center gap-3">
             <h4 className="text-[11px] uppercase tracking-widest font-bold text-white/50">Canvas</h4>
@@ -443,8 +444,8 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
         </div>
       </section>
 
-      {/* Right: Properties */}
-      <aside className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 flex flex-col">
+      {/* Right: Properties — mobile: barra inferior compacta; desktop: coluna lateral */}
+      <aside className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-3 xl:p-4 flex flex-col max-h-[220px] xl:max-h-none overflow-y-auto xl:overflow-visible">
         <h4 className="text-[11px] uppercase tracking-widest font-bold text-[#C9A84C] mb-4">Propriedades</h4>
 
         {selectedElement ? (

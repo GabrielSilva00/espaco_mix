@@ -296,33 +296,37 @@ export function AdminSettings({
   );
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-0 pb-32">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 sticky top-0 bg-[#0a0a0a] z-30 py-4 border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#d4af37]/10 flex items-center justify-center text-[#d4af37]">
-            <Settings className="w-5 h-5" />
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 pb-32">
+      <div className="flex items-center justify-between gap-3 sticky top-0 z-30 bg-[#0a0a0a] py-3 md:py-4 border-b border-white/5">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-[#d4af37]/10 flex items-center justify-center text-[#d4af37] shrink-0">
+            <Settings className="w-4 h-4 md:w-5 md:h-5" />
           </div>
-          <div>
-            <h2 className="text-2xl md:text-3xl font-serif text-[#d4af37]">Configuração de regras e operação</h2>
+          <div className="min-w-0">
+            <h2 className="text-base md:text-xl font-serif text-[#d4af37] leading-tight truncate">Painel de Controle</h2>
+            <p className="text-[9px] uppercase tracking-widest opacity-40 hidden sm:block">Configuração de regras e operação</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handleReset}
-            className="flex items-center gap-2 px-4 py-2 hover:bg-white/5 text-white/60 hover:text-white rounded-xl transition duration-300"
+            className="p-2 rounded-lg hover:bg-white/5 text-white/60 hover:text-white transition flex items-center gap-1.5"
           >
             <RefreshCcw className="w-4 h-4" />
-            <span className="text-[10px] uppercase tracking-widest font-bold hidden sm:inline">Restaurar Padrões</span>
+            <span className="hidden sm:inline text-[10px] uppercase tracking-widest font-bold">Restaurar</span>
           </button>
 
           <button
             onClick={handleSave}
             disabled={isSaving}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl transition duration-300 shadow-[0_0_20px_rgba(212,175,55,0.2)] disabled:opacity-70 disabled:cursor-not-allowed ${isSaved ? 'bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'bg-[#d4af37] text-black hover:brightness-110'}`}
+            className={`flex items-center gap-1.5 px-3 md:px-6 py-2 md:py-3 rounded-xl transition duration-300 shadow-[0_0_20px_rgba(212,175,55,0.2)] disabled:opacity-70 disabled:cursor-not-allowed ${isSaved ? 'bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'bg-[#d4af37] text-black hover:brightness-110'}`}
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : isSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-            <span className="text-[10px] sm:text-xs uppercase tracking-widest font-bold">{isSaving ? 'Salvando...' : isSaved ? 'Salvo' : 'Salvar Alterações'}</span>
+            <span className="text-[10px] uppercase tracking-widest font-bold">
+              <span className="hidden sm:inline">{isSaving ? 'Salvando...' : isSaved ? 'Salvo' : 'Salvar Alterações'}</span>
+              <span className="sm:hidden">{isSaving ? '...' : isSaved ? '✓' : 'Salvar'}</span>
+            </span>
           </button>
         </div>
       </div>
@@ -332,11 +336,11 @@ export function AdminSettings({
         </div>
       )}
 
-      {/* Abas */}
-      <div className="bg-[#0a0a0a] py-4 border-b border-white/5 flex gap-2">
+      {/* Abas — sem sticky; scroll horizontal em mobile */}
+      <div className="bg-[#0a0a0a] py-3 border-b border-white/5 flex gap-1 overflow-x-auto scrollbar-none">
         <button
           onClick={() => setActiveTab('general')}
-          className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-xs uppercase tracking-widest transition ${
+          className={`flex items-center gap-1.5 px-3 md:px-6 py-2 rounded-lg font-bold text-[10px] md:text-xs uppercase tracking-widest transition whitespace-nowrap shrink-0 ${
             activeTab === 'general'
               ? 'bg-[#d4af37] text-black shadow-[0_0_20px_rgba(212,175,55,0.2)]'
               : 'hover:bg-white/5 text-white/60 hover:text-white'
@@ -347,7 +351,7 @@ export function AdminSettings({
         </button>
         <button
           onClick={() => setActiveTab('payments')}
-          className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-xs uppercase tracking-widest transition ${
+          className={`flex items-center gap-1.5 px-3 md:px-6 py-2 rounded-lg font-bold text-[10px] md:text-xs uppercase tracking-widest transition whitespace-nowrap shrink-0 ${
             activeTab === 'payments'
               ? 'bg-[#d4af37] text-black shadow-[0_0_20px_rgba(212,175,55,0.2)]'
               : 'hover:bg-white/5 text-white/60 hover:text-white'
@@ -358,7 +362,7 @@ export function AdminSettings({
         </button>
         <button
           onClick={() => setActiveTab('conta')}
-          className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-xs uppercase tracking-widest transition ${
+          className={`flex items-center gap-1.5 px-3 md:px-6 py-2 rounded-lg font-bold text-[10px] md:text-xs uppercase tracking-widest transition whitespace-nowrap shrink-0 ${
             activeTab === 'conta'
               ? 'bg-[#d4af37] text-black shadow-[0_0_20px_rgba(212,175,55,0.2)]'
               : 'hover:bg-white/5 text-white/60 hover:text-white'
@@ -598,7 +602,7 @@ export function AdminSettings({
                   </select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                    <div>
                     <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Gateway</label>
                     <select name="paymentGateway" value={settings.paymentGateway} onChange={handleChange} className="w-full select-field">
@@ -625,7 +629,7 @@ export function AdminSettings({
               <div className="space-y-6">
                 <h4 className="text-[11px] uppercase tracking-widest font-bold opacity-60 border-b border-white/10 pb-2">Taxação da Plataforma</h4>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Tipo de Taxa</label>
                     <select name="feeType" value={settings.feeType} onChange={handleChange} className="w-full select-field">

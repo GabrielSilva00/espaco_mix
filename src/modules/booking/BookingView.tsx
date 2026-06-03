@@ -100,6 +100,7 @@ export function BookingView() {
           initial={{ y: 100 }}
           animate={{ y: 0 }}
           className="fixed bottom-0 left-0 right-0 lg:hidden bg-gradient-to-t from-[#0a0a0a] to-[#0a0a0a]/80 backdrop-blur-md border-t border-white/10 p-4 z-40"
+          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
         >
           <div className="max-w-7xl mx-auto px-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -393,9 +394,9 @@ export function BookingView() {
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
-                                              <button aria-label="Remover ingresso masculino" onClick={(e) => { e.stopPropagation(); setMaleTickets(Math.max(0, maleTickets - 1)); }} disabled={maleTickets === 0} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
+                                              <button aria-label="Remover ingresso masculino" onClick={(e) => { e.stopPropagation(); setMaleTickets(Math.max(0, maleTickets - 1)); }} disabled={maleTickets === 0} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
                                               <span className="w-5 text-center text-sm font-bold text-white">{maleTickets}</span>
-                                              <button aria-label="Adicionar ingresso masculino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setMaleTickets(maleTickets + 1); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
+                                              <button aria-label="Adicionar ingresso masculino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setMaleTickets(maleTickets + 1); }} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
                                             </div>
                                           </div>
                                           <div className="flex justify-between items-center py-3 border-t border-white/5">
@@ -407,9 +408,9 @@ export function BookingView() {
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
-                                              <button aria-label="Remover ingresso feminino" onClick={(e) => { e.stopPropagation(); setFemaleTickets(Math.max(0, femaleTickets - 1)); }} disabled={femaleTickets === 0} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
+                                              <button aria-label="Remover ingresso feminino" onClick={(e) => { e.stopPropagation(); setFemaleTickets(Math.max(0, femaleTickets - 1)); }} disabled={femaleTickets === 0} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
                                               <span className="w-5 text-center text-sm font-bold text-white">{femaleTickets}</span>
-                                              <button aria-label="Adicionar ingresso feminino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setFemaleTickets(femaleTickets + 1); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
+                                              <button aria-label="Adicionar ingresso feminino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setFemaleTickets(femaleTickets + 1); }} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
                                             </div>
                                           </div>
                                         </>
@@ -423,9 +424,9 @@ export function BookingView() {
                                             </div>
                                           </div>
                                           <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
-                                            <button aria-label="Remover ingresso" onClick={(e) => { e.stopPropagation(); setSingleTickets(Math.max(0, singleTickets - 1)); }} disabled={singleTickets === 0} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
+                                            <button aria-label="Remover ingresso" onClick={(e) => { e.stopPropagation(); setSingleTickets(Math.max(0, singleTickets - 1)); }} disabled={singleTickets === 0} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
                                             <span className="w-5 text-center text-sm font-bold text-white">{singleTickets}</span>
-                                            <button aria-label="Adicionar ingresso" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setSingleTickets(singleTickets + 1); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
+                                            <button aria-label="Adicionar ingresso" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setSingleTickets(singleTickets + 1); }} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
                                           </div>
                                         </div>
                                       )}
@@ -449,14 +450,14 @@ export function BookingView() {
                       exit={{ opacity: 0, y: -8 }}
                       transition={{ duration: 0.25 }}
                     >
-                      <div className="space-y-6 flex flex-col p-1 border border-[#ffffff1a] bg-gradient-to-br from-[#0f0f0f] to-[#0a0a0a] rounded-[1.5rem] min-h-[720px]">
-                        <div className="pt-8 pb-8 pr-8 pl-[17px]">
-                          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8">
+                      <div className="space-y-6 flex flex-col p-1 border border-[#ffffff1a] bg-gradient-to-br from-[#0f0f0f] to-[#0a0a0a] rounded-[1.5rem] min-h-[480px] md:min-h-[720px]">
+                        <div className="pt-4 pb-4 pr-4 pl-4 md:pt-8 md:pb-8 md:pr-8 md:pl-[17px]">
+                          <div className="flex flex-col gap-3 mb-4 md:mb-8">
                             <div>
                               <h2 className="text-xl font-serif text-[#d4af37] mb-2">Mapa do Evento</h2>
                               <p className="text-[10px] opacity-50 uppercase tracking-widest">Selecione sua mesa ou bistrô</p>
                             </div>
-                            <div className="flex items-center gap-4 flex-wrap text-[10px] uppercase opacity-60 tracking-widest">
+                            <div className="flex items-center gap-3 flex-wrap text-[10px] uppercase opacity-60 tracking-widest">
                               <div className="flex items-center gap-1.5">
                                 <div className="w-3 h-3 rounded-sm bg-[#C9A84C]" />
                                 Livre
@@ -500,13 +501,13 @@ export function BookingView() {
 
                             return hasTables ? (
                             <div
-                              className="relative w-full max-w-3xl mx-auto bg-[#111111] rounded-2xl border border-[#2a2a2a] overflow-x-hidden"
-                              style={{ minHeight: 300 }}
+                              className="relative w-full mx-auto bg-[#111111] rounded-2xl border border-[#2a2a2a] overflow-hidden"
+                              style={{ minHeight: 240 }}
                             >
-                              <div className="overflow-x-auto overflow-y-auto w-full" style={{ maxHeight: 520 }}>
+                              <div className="overflow-x-auto overflow-y-auto w-full touch-pan-x" style={{ maxHeight: 'min(65vh, 480px)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
                                 <svg
                                   viewBox={viewBox}
-                                  style={{ display: 'block', width: '100%', minWidth: 320, minHeight: 300, transform: 'scale(0.88)', transformOrigin: 'top center' }}
+                                  style={{ display: 'block', width: '100%', minWidth: 'min(320px, 100vw)', minHeight: 220, transform: 'scale(0.88)', transformOrigin: 'top center' }}
                                   preserveAspectRatio="xMidYMin meet"
                                 >
                                   <defs>
@@ -783,7 +784,7 @@ export function BookingView() {
           </div>
 
           {/* Right Column: Resumo */}
-          <div className={`lg:col-span-4 flex flex-col ${activeEvent?.status === 'Em breve' ? 'hidden' : ''} order-3 lg:order-none`}>
+          <div className={`lg:col-span-4 flex-col ${activeEvent?.status === 'Em breve' ? 'hidden' : 'hidden lg:flex'}`}>
             <div className="sticky top-24 flex flex-col gap-8">
               <div className="flex-1 flex flex-col">
                 <h2 className="text-[10px] tracking-[0.2em] uppercase text-[#d4af37] mb-6">Detalhes do Pedido</h2>

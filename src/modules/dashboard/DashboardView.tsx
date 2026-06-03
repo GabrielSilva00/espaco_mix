@@ -63,12 +63,12 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-blue-400"><Calendar className="w-5 h-5" /></div>
-          <p className="text-2xl font-bold text-white">{activeEvents}</p>
+          <p className="text-2xl md:text-3xl font-bold text-white truncate">{activeEvents}</p>
           <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Eventos Ativos</p>
         </div>
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-red-400"><Layers className="w-5 h-5" /></div>
-          <p className="text-2xl font-bold text-white">{encerrados}</p>
+          <p className="text-2xl md:text-3xl font-bold text-white truncate">{encerrados}</p>
           <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Eventos Encerrados</p>
         </div>
         <div className="bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-2xl p-5 col-span-2 md:col-span-1">
@@ -78,17 +78,17 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
         </div>
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-green-400"><ShieldCheck className="w-5 h-5" /></div>
-          <p className="text-2xl font-bold text-white">{soldTickets}</p>
+          <p className="text-2xl md:text-3xl font-bold text-white truncate">{soldTickets}</p>
           <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Ingressos Vendidos</p>
         </div>
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-purple-400"><Users className="w-5 h-5" /></div>
-          <p className="text-2xl font-bold text-white">{checkedInCount}</p>
+          <p className="text-2xl md:text-3xl font-bold text-white truncate">{checkedInCount}</p>
           <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Check-ins Realizados</p>
         </div>
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-amber-400"><TrendingUp className="w-5 h-5" /></div>
-          <p className="text-2xl font-bold text-white">{occupancyRate}%</p>
+          <p className="text-2xl md:text-3xl font-bold text-white truncate">{occupancyRate}%</p>
           <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Taxa de Ocupação</p>
         </div>
       </div>
@@ -1004,7 +1004,7 @@ export function DashboardView() {
 ) : dashboardMode === 'check-in' ? (
               <div className="max-w-4xl mx-auto space-y-4 px-2 sm:px-0 pb-32">
                 {/* Header KPI Check-in */}
-                <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 sm:p-6 mb-4 flex flex-col sm:flex-row justify-between items-center gap-4 sticky top-0 z-40 shadow-2xl">
+                <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 sm:p-6 mb-4 flex flex-col sm:flex-row justify-between items-center gap-4 sticky top-14 md:top-4 z-40 shadow-2xl">
                    <div className="flex items-center gap-4 w-full sm:w-auto">
                      <div className="w-12 h-12 rounded-full bg-[#d4af37]/10 flex items-center justify-center border border-[#d4af37]/20">
                        <ShieldCheck className="w-6 h-6 text-[#d4af37]" />
