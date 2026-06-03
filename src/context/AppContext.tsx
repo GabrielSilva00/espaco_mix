@@ -1316,7 +1316,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const cardBrand = detectCardBrand(cardData.number);
         const cardToken = await tokenizeCard(cardData);
         if (!cardToken) throw new Error('Falha ao tokenizar cartão. Verifique os dados e tente novamente.');
-        const res = await fetch('/api/payment/mercadopago', {
+        const paymentFetch = fetch('/api/payment/mercadopago', {
           method: 'POST',
           signal,
           headers: authHeaders,
@@ -1330,10 +1330,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             guestData,
           }),
         });
+        const paymentTimeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Servidor não respondeu em 30 segundos. Verifique a conexão.')), 30000)
+        );
+        const res = await Promise.race([paymentFetch, paymentTimeout]);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Erro ao processar pagamento');
 
-        if (data.status === 'approved') {
+        if (data.status === 'approved' || data.status === 'in_process' || data.status === 'pending') {
           const resId = data.paymentId ? `RES-MP-${data.paymentId}` : `RES-${Date.now()}`;
           finalizeSuccess(resId);
           fetch('/api/email/send-confirmation', {
@@ -1351,10 +1355,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               paymentMethod: selectedPaymentMethod ?? 'credit_card',
             }),
           }).catch(() => {});
-        } else if (data.status === 'in_process' || data.status === 'pending') {
-          setPaymentStatus('processing');
-          setCheckoutStep('processing');
-          setIsProcessingPayment(false);
         } else if (data.status === 'rejected') {
           throw new Error(`Pagamento recusado: ${data.statusDetail || 'tente outro cartão'}`);
         } else {
@@ -1365,7 +1365,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        console.warn('[Payment] Requisição cancelada (página recarregada ou nova tentativa)');
+        console.warn('[Payment] Requisição cancelada');
+        setPaymentStatus('idle');
+        setIsProcessingPayment(false);
         return;
       }
       console.error('[Payment] Erro na transação:', err?.message ?? 'Erro desconhecido');

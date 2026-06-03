@@ -518,7 +518,6 @@ export async function createExpressApp() {
         installments: parseInt(installments || "1", 10),
         statement_descriptor: description.slice(0, 22),
         transaction_amount: Math.round(amount * 100) / 100,
-        currency_id: "BRL",
         description,
         payer: {
           email: guestData?.email || "comprador@mercadopago.com",
@@ -538,6 +537,7 @@ export async function createExpressApp() {
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${accessToken}`,
+          "X-Idempotency-Key": `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         },
         body: JSON.stringify(payload),
       });
