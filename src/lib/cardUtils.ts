@@ -67,8 +67,11 @@ export function validateCVV(cvv: string): boolean {
 
 // Validar nome do titular
 export function validateHolderName(name: string): boolean {
-  if (name.trim().length < 5) return false;
-  return /^[a-zA-ZÀ-ÿ\s']+$/.test(name);
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return false;
+  const mpTestNames = ['APRO', 'OTHE', 'CONT', 'CALL', 'FUND', 'SECU', 'EXPI', 'FORM'];
+  if (mpTestNames.includes(trimmed.toUpperCase())) return true;
+  return /^[a-zA-ZÀ-ÿ\s']+$/.test(trimmed);
 }
 
 // Validar dados completos do cartão
@@ -80,7 +83,7 @@ export function validateCardData(cardData: CardData): CardValidation {
   }
 
   if (!validateHolderName(cardData.holderName)) {
-    errors.holderName = 'Nome inválido (mínimo 5 caracteres)';
+    errors.holderName = 'Nome inválido (mínimo 2 caracteres)';
   }
 
   if (!validateExpiry(cardData.expiryMonth, cardData.expiryYear)) {
@@ -131,7 +134,7 @@ export async function tokenizeCard(cardData: CardData): Promise<string | null> {
     return null;
   }
 
-  try {
+  const tokenPromise = (async () => {
     const { loadMercadoPago } = await import('@mercadopago/sdk-js');
     const MercadoPagoConstructor = await loadMercadoPago() as any;
     if (!MercadoPagoConstructor) throw new Error('SDK do Mercado Pago não disponível');
@@ -149,10 +152,17 @@ export async function tokenizeCard(cardData: CardData): Promise<string | null> {
       securityCode: cardData.cvv,
     });
 
-    console.log('[CardTokenizer] Token gerado:', result.id);
     return result.id ?? null;
+  })();
+
+  const timeoutPromise = new Promise<null>((_, reject) =>
+    setTimeout(() => reject(new Error('Timeout ao tokenizar cartão (15s)')), 15000)
+  );
+
+  try {
+    return await Promise.race([tokenPromise, timeoutPromise]);
   } catch (error) {
-    console.error('[CardTokenizer] Erro ao tokenizar:', error);
+    console.error('[CardTokenizer] Erro:', error);
     return null;
   }
 }

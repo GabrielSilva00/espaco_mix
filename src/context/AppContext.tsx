@@ -13,7 +13,7 @@ import {
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { mapDbEventToApp, mapAppEventToDb } from '../shared/utils/eventMapper';
 import { validateGuestData as validateGuestDataUtil } from '../shared/utils/validators';
-import { type CardData, tokenizeCard } from '../lib/cardUtils';
+import { type CardData, tokenizeCard, detectCardBrand } from '../lib/cardUtils';
 import { mockTables, MOCK_BUYERS, EVENT_TICKET_PRICE, CART_EXPIRATION_MS } from '../shared/constants/app';
 import type {
   Event, Buyer, Reservation, StaffAccount, SessionUser, SiteConfig,
@@ -693,13 +693,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
     let firstLoad = true;
+
+    const safetyTimeout = setTimeout(() => {
+      if (firstLoad) {
+        firstLoad = false;
+        setLoadingEvents(false);
+        console.warn('[Context] Timeout ao carregar eventos — liberando loading');
+      }
+    }, 8000);
+
     const unsubscribe = subscribeToEvents(data => {
       setEvents(data.map(mapDbEventToApp).map(e =>
         e.date < today && e.status !== 'Finalizado' ? { ...e, status: 'Finalizado' as const } : e
       ));
-      if (firstLoad) { firstLoad = false; setLoadingEvents(false); }
+      if (firstLoad) {
+        firstLoad = false;
+        clearTimeout(safetyTimeout);
+        setLoadingEvents(false);
+      }
     });
-    return () => { unsubscribe(); };
+
+    return () => {
+      unsubscribe();
+      clearTimeout(safetyTimeout);
+    };
   }, []);
 
   useEffect(() => {
@@ -822,15 +839,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await signOut();
     } catch (e) {
-      console.error('[Auth] Erro no logout:', (e as Error)?.message);
-    } finally {
-      setUserRole(null);
-      setLoggedInUserId(null);
-      setCurrentView('home');
-      setDashboardMode('list');
-      localStorage.removeItem('eventix-session');
-      setTimeout(() => { window.location.href = '/'; }, 100);
+      console.warn('[Auth] signOut error (ignorado):', e);
     }
+    setUserRole(null);
+    setLoggedInUserId(null);
+    setIsStaff(false);
+    setIsApprovedEventCreator(false);
+    setCurrentView('home');
+    setDashboardMode('list');
+    try { localStorage.removeItem('eventix-session'); } catch {}
+    setTimeout(() => { window.location.href = '/'; }, 80);
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -1201,6 +1219,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsProcessingPayment(false);
       } else {
         if (!cardData) throw new Error('Dados do cartão não informados');
+        const cardBrand = detectCardBrand(cardData.number);
         const cardToken = await tokenizeCard(cardData);
         if (!cardToken) throw new Error('Falha ao tokenizar cartão. Verifique os dados e tente novamente.');
         const res = await fetch('/api/payment/mercadopago', {
@@ -1208,6 +1227,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: authHeaders,
           body: JSON.stringify({
             cardToken,
+            cardBrand,
             amount: grandTotal,
             description: activeEvent?.title || 'Ingresso',
             paymentMethod: selectedPaymentMethod,
@@ -1217,24 +1237,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Erro ao processar pagamento');
-        const resId = `RES-${Date.now()}`;
-        finalizeSuccess(resId);
-        // Fire-and-forget: notificação de email ao comprador
-        fetch('/api/email/send-confirmation', {
-          method: 'POST',
-          headers: authHeaders,
-          body: JSON.stringify({
-            buyerName: guestData.name,
-            buyerEmail: guestData.email,
-            reservationId: resId,
-            eventTitle: activeEvent?.title ?? '',
-            eventDate: activeEvent?.date ?? '',
-            eventTime: activeEvent?.time ?? '',
-            eventLocation: activeEvent?.location ?? '',
-            total: grandTotal,
-            paymentMethod: selectedPaymentMethod ?? 'credit_card',
-          }),
-        }).catch(() => {});
+
+        if (data.status === 'approved') {
+          const resId = data.paymentId ? `RES-MP-${data.paymentId}` : `RES-${Date.now()}`;
+          finalizeSuccess(resId);
+          fetch('/api/email/send-confirmation', {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify({
+              buyerName: guestData.name,
+              buyerEmail: guestData.email,
+              reservationId: resId,
+              eventTitle: activeEvent?.title ?? '',
+              eventDate: activeEvent?.date ?? '',
+              eventTime: activeEvent?.time ?? '',
+              eventLocation: activeEvent?.location ?? '',
+              total: grandTotal,
+              paymentMethod: selectedPaymentMethod ?? 'credit_card',
+            }),
+          }).catch(() => {});
+        } else if (data.status === 'in_process' || data.status === 'pending') {
+          setPaymentStatus('processing');
+          setCheckoutStep('processing');
+          setIsProcessingPayment(false);
+        } else if (data.status === 'rejected') {
+          throw new Error(`Pagamento recusado: ${data.statusDetail || 'tente outro cartão'}`);
+        } else {
+          setPaymentStatus('idle');
+          setIsProcessingPayment(false);
+          setErrors({ payment: `Status inesperado: ${data.status ?? 'desconhecido'}` });
+        }
       }
     } catch (err: any) {
       console.error('[Payment] Erro na transação:', err?.message ?? 'Erro desconhecido');

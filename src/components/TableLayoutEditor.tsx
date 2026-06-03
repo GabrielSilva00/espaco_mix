@@ -5,7 +5,7 @@ export type { TableLayoutElement };
 
 interface TableLayoutEditorProps {
   initialLayout: TableLayoutElement[];
-  defaultLayout?: TableLayoutElement[];
+  defaultLayout: TableLayoutElement[];
   onSave: (layout: TableLayoutElement[], iconSize: number) => void;
   requiredTables?: number;
   requiredBistros?: number;
@@ -97,6 +97,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
   requiredTables,
   requiredBistros,
 }) => {
+  const defaultLayoutRef = useRef<TableLayoutElement[]>(defaultLayout);
   const [savedInitialLayout] = useState<TableLayoutElement[]>(() => [...initialLayout]);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [elements, setElements] = useState<TableLayoutElement[]>(initialLayout);
@@ -594,7 +595,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
           </button>
           <button
             onClick={() => setConfirmRestore(true)}
-            disabled={!(defaultLayout?.length || savedInitialLayout.length)}
+            disabled={!defaultLayoutRef.current.length}
             className="w-full py-2.5 border border-[#d4af37]/20 rounded-lg text-xs uppercase tracking-widest font-bold hover:bg-[#d4af37]/5 transition text-[#d4af37]/60 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Restaurar
@@ -627,7 +628,7 @@ export const TableLayoutEditor: React.FC<TableLayoutEditorProps> = ({
             <p className="text-sm text-white/50">O layout voltará ao estado inicial salvo. As alterações atuais serão perdidas.</p>
             <div className="flex gap-3 justify-end">
               <button onClick={() => setConfirmRestore(false)} className="px-4 py-2 rounded-lg border border-white/10 text-sm hover:bg-white/5 transition text-white/70">Cancelar</button>
-              <button onClick={() => { setElements([...(defaultLayout ?? savedInitialLayout)]); setSelectedId(null); setConvertMode('toBistro'); setConfirmRestore(false); }} className="px-4 py-2 rounded-lg bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#d4af37] text-sm font-bold hover:bg-[#d4af37]/30 transition">Restaurar</button>
+              <button onClick={() => { setElements(defaultLayoutRef.current.map(el => ({ ...el }))); setSelectedId(null); setConvertMode('toBistro'); setConfirmRestore(false); }} className="px-4 py-2 rounded-lg bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#d4af37] text-sm font-bold hover:bg-[#d4af37]/30 transition">Restaurar</button>
             </div>
           </div>
         </div>

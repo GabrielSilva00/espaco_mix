@@ -452,15 +452,17 @@ export async function createExpressApp() {
 
   // ── Mercado Pago - Process Payment ────────────────────────────────────────
   app.post("/api/payment/mercadopago", paymentLimiter, requireAuth, async (req, res) => {
-    const { 
-      cardToken, 
-      amount, 
+    const {
+      cardToken,
+      cardBrand,
+      amount,
       description,
       paymentMethod,
       installments,
-      guestData 
+      guestData
     } = req.body as {
       cardToken?: string;
+      cardBrand?: string;
       amount?: number;
       description?: string;
       paymentMethod?: string;
@@ -487,11 +489,17 @@ export async function createExpressApp() {
     }
 
     try {
+      const isDebit = paymentMethod === 'debit_card';
+      const brandMap: Record<string, string> = { visa: 'visa', mastercard: 'master', amex: 'amex', elo: 'elo' };
+      const brandKey = brandMap[cardBrand || 'visa'] ?? 'visa';
+      const payment_method_id = isDebit ? `deb${brandKey}` : brandKey;
+
       const payload = {
         token: cardToken,
+        payment_method_id,
         installments: parseInt(installments || "1", 10),
         statement_descriptor: description.slice(0, 22),
-        amount: Math.round(amount * 100) / 100, // Garante 2 casas decimais
+        transaction_amount: Math.round(amount * 100) / 100,
         currency_id: "BRL",
         description,
         payer: {

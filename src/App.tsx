@@ -21,6 +21,12 @@ import { LegalView } from './modules/legal/LegalView';
 import { InstallPrompt } from './components/InstallPrompt';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
 import { generateDefaultLayout } from './shared/utils/defaultLayout';
+import type { TableLayoutElement } from './components/TableLayoutEditor';
+
+function isDefaultLayout(layout: TableLayoutElement[], def: TableLayoutElement[]): boolean {
+  if (layout.length !== def.length) return false;
+  return layout.every((el, i) => el.type === def[i].type);
+}
 
 // Lazy-loaded: carregados sob demanda para reduzir o bundle inicial
 const DashboardView = React.lazy(() =>
@@ -157,7 +163,7 @@ export function App() {
                     formEvent.tableConfig?.totalBistros ?? 10,
                     formEvent.tableConfig?.seatsPerTable ?? 4,
                   );
-                  const isDefault = layout.length === defLayout.length;
+                  const isDefault = isDefaultLayout(layout, defLayout);
                   setFormEvent({
                     ...formEvent,
                     tableLayout: layout,

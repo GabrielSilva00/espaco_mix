@@ -1972,13 +1972,10 @@ export function DashboardView() {
                             {(() => {
                               const totalT = formEvent.tableConfig.totalTables;
                               const totalB = formEvent.tableConfig.totalBistros ?? 0;
-                              const savedLayout = formEvent.tableLayout || [];
-                              const hasElements = savedLayout.some(el =>
-                                el.type === 'rect-table' || el.type === 'round-table' || el.type === 'bistro-table'
-                              );
-                              const previewElements = hasElements
-                                ? savedLayout
-                                : generateDefaultLayout(totalT, totalB, formEvent.tableConfig?.seatsPerTable ?? 4);
+                              const seats = formEvent.tableConfig?.seatsPerTable ?? 4;
+                              const previewElements = formEvent.tableLayoutIsCustom && (formEvent.tableLayout?.length ?? 0) > 0
+                                ? formEvent.tableLayout!
+                                : generateDefaultLayout(totalT, totalB, seats);
                               const viewBox = getLayoutViewBox(previewElements);
                               const [,, vbW, vbH] = viewBox.split(' ').map(Number);
 

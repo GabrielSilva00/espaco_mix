@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Check, CreditCard, Copy, AlertCircle, QrCode, ChevronRight, ChevronLeft,
@@ -67,6 +67,12 @@ export function CheckoutModal() {
     reservations,
     handleCheckIn,
   } = useApp();
+
+  useEffect(() => {
+    if (checkoutStep === 'payment-method') {
+      import('@mercadopago/sdk-js').catch(() => {});
+    }
+  }, [checkoutStep]);
 
   const selectedTablesData = derivedTables.filter(t => selectedTables.includes(t.id));
 
@@ -259,10 +265,11 @@ export function CheckoutModal() {
 
                     {/* Cartão de Crédito */}
                     <AnimatePresence>
-                      <button 
+                      <button
                         onClick={() => {
                           setLocalPaymentMethod('credit_card');
                           setErrors(prev => ({ ...prev, payment: '' }));
+                          import('@mercadopago/sdk-js').catch(() => {});
                         }}
                         className={`w-full p-3 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${localPaymentMethod === 'credit_card' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
                       >

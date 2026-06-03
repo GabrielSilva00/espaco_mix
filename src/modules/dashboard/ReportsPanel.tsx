@@ -3,8 +3,34 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis,
   Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-import { DollarSign, TrendingUp, Users, BarChart3, Calendar, Filter } from 'lucide-react';
+import { DollarSign, TrendingUp, Users, BarChart3, Filter, ChevronDown } from 'lucide-react';
 import type { Event, Reservation } from '../../types';
+
+function CustomSelect<T extends string | number>({
+  value, onChange, options, className,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+  className?: string;
+}) {
+  return (
+    <div className={`relative ${className ?? ''}`}>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value as unknown as T)}
+        className="w-full appearance-none bg-[#0d0d0d] border border-white/10 text-white text-[11px] uppercase tracking-widest font-bold rounded-xl px-4 py-2.5 pr-8 focus:outline-none focus:border-[#d4af37]/50 transition cursor-pointer hover:border-white/20"
+      >
+        {options.map(o => (
+          <option key={String(o.value)} value={o.value} className="bg-[#0d0d0d] text-white normal-case tracking-normal font-normal">
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/40 pointer-events-none" />
+    </div>
+  );
+}
 
 interface ReportsPanelProps {
   events: Event[];
@@ -110,41 +136,35 @@ export function ReportsPanel({ events, reservations }: ReportsPanelProps) {
           ))}
 
           {filterType === 'event' && (
-            <select
+            <CustomSelect
               value={selectedEventId}
-              onChange={e => setSelectedEventId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/80 outline-none"
-            >
-              <option value="all">Todos os eventos</option>
-              {events.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
-            </select>
+              onChange={v => setSelectedEventId(v === 'all' ? 'all' : Number(v))}
+              options={[
+                { value: 'all' as string | number, label: 'Todos os eventos' },
+                ...events.map(ev => ({ value: ev.id as string | number, label: ev.title })),
+              ]}
+            />
           )}
           {filterType === 'month' && (
             <div className="flex gap-2">
-              <select
+              <CustomSelect
                 value={selectedMonth}
-                onChange={e => setSelectedMonth(Number(e.target.value))}
-                className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/80 outline-none"
-              >
-                {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
-              </select>
-              <select
+                onChange={v => setSelectedMonth(Number(v))}
+                options={MONTHS.map((m, i) => ({ value: i, label: m }))}
+              />
+              <CustomSelect
                 value={selectedYear}
-                onChange={e => setSelectedYear(Number(e.target.value))}
-                className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/80 outline-none"
-              >
-                {years.map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
+                onChange={v => setSelectedYear(Number(v))}
+                options={years.map(y => ({ value: y, label: String(y) }))}
+              />
             </div>
           )}
           {filterType === 'year' && (
-            <select
+            <CustomSelect
               value={selectedYear}
-              onChange={e => setSelectedYear(Number(e.target.value))}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/80 outline-none"
-            >
-              {years.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
+              onChange={v => setSelectedYear(Number(v))}
+              options={years.map(y => ({ value: y, label: String(y) }))}
+            />
           )}
         </div>
       </div>

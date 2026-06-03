@@ -36,10 +36,10 @@ export function CreditCardForm({
   }, [cardData, onCardDataChange]);
 
   const handleExpiryChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/\D/g, '');
+    const val = e.target.value.replace(/\D/g, '').slice(0, 4);
     if (val.length <= 2) {
-      onCardDataChange({ ...cardData, expiryMonth: val, expiryYear: cardData.expiryYear });
-    } else if (val.length <= 4) {
+      onCardDataChange({ ...cardData, expiryMonth: val, expiryYear: '' });
+    } else {
       onCardDataChange({
         ...cardData,
         expiryMonth: val.slice(0, 2),
@@ -57,10 +57,11 @@ export function CreditCardForm({
     onCardDataChange({ ...cardData, installments: e.target.value });
   }, [cardData, onCardDataChange]);
 
-  const expiryDisplay =
-    cardData.expiryMonth && cardData.expiryYear
-      ? `${cardData.expiryMonth}/${cardData.expiryYear}`
-      : '';
+  const expiryDisplay = (() => {
+    if (!cardData.expiryMonth && !cardData.expiryYear) return '';
+    if (cardData.expiryYear) return `${cardData.expiryMonth}/${cardData.expiryYear}`;
+    return cardData.expiryMonth;
+  })();
 
   return (
     <div className="pt-4 border-t border-white/5 mt-4 space-y-4">

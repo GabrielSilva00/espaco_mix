@@ -961,11 +961,16 @@ export async function updateMyCredentials(updates: {
 export function subscribeToEvents(callback: (events: Event[]) => void) {
   let cachedEvents: Event[] = [];
   
-  // Carrega os eventos iniciais
-  getEvents().then(events => {
-    cachedEvents = events;
-    callback(events);
-  });
+  // Carrega os eventos iniciais — callback com [] em caso de falha para liberar loading
+  getEvents()
+    .then(events => {
+      cachedEvents = events;
+      callback(events);
+    })
+    .catch(err => {
+      console.error('[subscribeToEvents] Falha ao carregar eventos:', err);
+      callback([]);
+    });
 
   const channel = supabase
     .channel('events-changes')
