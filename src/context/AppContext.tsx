@@ -371,7 +371,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     passportDoc: '',
   });
   const [registerStep, setRegisterStep] = useState(1);
-  const [verificationCode, setVerificationCode] = useState(['', '', '', '']);
+  const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', '']);
   const [verificationStep, setVerificationStep] = useState(false);
   const [authTab, setAuthTab] = useState<'login' | 'register' | 'staff'>('login');
   const [totpPending, setTotpPending] = useState(false);
@@ -720,7 +720,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
       setRegisterStep(1);
       setVerificationStep(false);
-      setVerificationCode(['', '', '', '']);
+      setVerificationCode(['', '', '', '', '', '']);
       setAdminError('');
       setForgotPasswordStep('none');
       setForgotPasswordData({ email: '', code: '', newPassword: '' });
@@ -1001,7 +1001,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const handleVerifyCode = async () => {
     const code = verificationCode.join('');
-    if (code.length < 4) { setAdminError('Preencha o código completo (4 dígitos)'); return; }
+    if (code.length < 6) { setAdminError('Preencha o código completo (6 dígitos)'); return; }
     setAdminError('');
     try {
       const checkResp = await fetch('/api/auth/check-verify-code', {
@@ -1025,7 +1025,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } as any);
       setVerificationStep(false);
       setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
-      setVerificationCode(['', '', '', '']);
+      setVerificationCode(['', '', '', '', '', '']);
       setAdminForm({ username: '', password: '' });
       setRegisterStep(1);
       showToast('Cadastro concluído! Faça login para continuar.', 'success');

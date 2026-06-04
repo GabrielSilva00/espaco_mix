@@ -810,7 +810,7 @@ export async function createExpressApp() {
       return;
     }
 
-    const code = String(Math.floor(1000 + Math.random() * 9000));
+    const code = String(Math.floor(100000 + Math.random() * 900000));
     otpStore.set(email, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
 
     if (!process.env.RESEND_API_KEY) {

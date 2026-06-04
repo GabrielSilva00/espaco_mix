@@ -137,7 +137,7 @@ export function AuthView() {
             <Mail className="w-12 h-12 text-[#d4af37] mx-auto opacity-80" />
             <h2 className="text-xl font-serif text-[#d4af37]">Verificação de E-mail</h2>
             <p className="text-[10px] uppercase tracking-[0.2em] opacity-60">
-              Enviamos um código de 4 dígitos para<br/><span className="text-[#d4af37] mt-2 block">{registerForm.email}</span>
+              Enviamos um código de 6 dígitos para<br/><span className="text-[#d4af37] mt-2 block">{registerForm.email}</span>
             </p>
 
             <div className="flex justify-center gap-4 py-4">
@@ -152,7 +152,7 @@ export function AuthView() {
                     const newCode = [...verificationCode];
                     newCode[idx] = e.target.value.replace(/\D/g, '');
                     setVerificationCode(newCode);
-                    if (e.target.value && idx < 3) document.getElementById(`code-${idx + 1}`)?.focus();
+                    if (e.target.value && idx < 5) document.getElementById(`code-${idx + 1}`)?.focus();
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Backspace' && !digit && idx > 0) {
