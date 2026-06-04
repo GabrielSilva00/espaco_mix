@@ -18,7 +18,7 @@ async function createOrUpdateUser(
   email: string,
   password: string,
   name: string,
-  role: 'admin' | 'developer'
+  role: 'admin' | 'developer' | 'client'
 ) {
   let userId: string | undefined;
 
@@ -38,14 +38,19 @@ async function createOrUpdateUser(
     // Usuário já existe no Auth — atualiza somente o perfil pelo email
   }
 
+  const isApprovedCreator = role !== 'client';
+
   if (userId) {
+    // Remove perfil órfão com mesmo email mas id diferente (se existir)
+    await supabase.from('profiles').delete().eq('email', email).neq('id', userId);
+
     // Usuário recém-criado: upsert completo com id
     const { error } = await supabase.from('profiles').upsert({
       id: userId,
       email,
       name,
       role,
-      is_approved_event_creator: true,
+      is_approved_event_creator: isApprovedCreator,
       created_at: new Date().toISOString(),
     });
     if (error) throw error;
@@ -53,7 +58,7 @@ async function createOrUpdateUser(
     // Usuário já existia: garante role correto pelo email
     const { error } = await supabase
       .from('profiles')
-      .update({ role, is_approved_event_creator: true })
+      .update({ role, is_approved_event_creator: isApprovedCreator })
       .eq('email', email);
     if (error) throw error;
   }
@@ -78,9 +83,17 @@ async function seed() {
     'developer'
   );
 
+  await createOrUpdateUser(
+    'TESTUSER6796046344632108919@testuser.com',
+    'tT7uCeTglU',
+    'Conta Teste MP',
+    'client'
+  );
+
   console.log('\nSeed concluído!');
   console.log('Login admin: usuário "admin" | senha "admin"');
   console.log('Login dev:   usuário "dev@espacomix.com" | senha "dev123"');
+  console.log('Login MP:    usuário "TESTUSER6796046344632108919@testuser.com" | senha "tT7uCeTglU"');
 }
 
 seed().catch((err) => {
