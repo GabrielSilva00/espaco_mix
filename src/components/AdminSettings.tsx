@@ -107,6 +107,7 @@ export function AdminSettings({
   const [settings, setSettings] = useState(defaultSettings);
 
   useEffect(() => {
+    if (!userRole) return;
     getSystemConfig()
       .then((c) => {
         setSettings((prev) => ({
@@ -166,7 +167,7 @@ export function AdminSettings({
         }));
       })
       .catch((err) => console.error('[AdminSettings] Erro ao carregar config:', (err as Error)?.message));
-  }, []);
+  }, [userRole]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
