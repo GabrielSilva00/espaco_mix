@@ -309,9 +309,18 @@ export const supabase = createClient(supabaseUrl, supabaseAnon, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    storageKey: 'eventix-auth',
   },
   realtime: {
     params: { eventsPerSecond: 10 },
+  },
+  global: {
+    fetch: (url, options = {}) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      return fetch(url, { ...options, signal: controller.signal })
+        .finally(() => clearTimeout(timeout));
+    },
   },
 });
 

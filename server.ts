@@ -813,6 +813,16 @@ export async function createExpressApp() {
     const code = String(Math.floor(1000 + Math.random() * 9000));
     otpStore.set(email, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
 
+    if (!process.env.RESEND_API_KEY) {
+      console.log(`\n[OTP DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`[OTP DEV]  E-mail : ${email}`);
+      console.log(`[OTP DEV]  Código : ${code}`);
+      console.log(`[OTP DEV]  Expira : ${new Date(Date.now() + 600000).toLocaleTimeString()}`);
+      console.log(`[OTP DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+      res.json({ sent: true, devMode: true });
+      return;
+    }
+
     const { Resend } = await import("resend");
     const resend = new Resend(process.env.RESEND_API_KEY);
 

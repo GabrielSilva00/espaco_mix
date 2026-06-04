@@ -543,7 +543,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               try { await signOut(); } catch {}
               try {
                 Object.keys(localStorage).forEach(k => {
-                  if (k.startsWith('sb-')) localStorage.removeItem(k);
+                  if (k.startsWith('sb-') || k === 'eventix-auth') localStorage.removeItem(k);
                 });
               } catch {}
               return;
@@ -625,7 +625,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Limpar token inválido do localStorage (previne loop de refresh_token 400)
         try {
           Object.keys(localStorage).forEach(k => {
-            if (k.startsWith('sb-')) localStorage.removeItem(k);
+            if (k.startsWith('sb-') || k === 'eventix-auth') localStorage.removeItem(k);
           });
         } catch {}
         setUserRole(null);
