@@ -1,102 +1,104 @@
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 if (!supabaseUrl || !serviceKey) {
-  throw new Error(
-    'Defina VITE_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (ou VITE_SUPABASE_ANON_KEY) no .env'
-  );
+  throw new Error('Defina VITE_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no .env');
 }
 
 const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-async function createOrUpdateUser(
+type Role = 'admin' | 'developer' | 'client';
+
+async function upsertUser(
   email: string,
   password: string,
   name: string,
-  role: 'admin' | 'developer' | 'client'
+  role: Role,
+  extra?: Record<string, any>
 ) {
-  let userId: string | undefined;
+  const normalizedEmail = email.toLowerCase();
 
-  try {
-    const { data: authData } = await (supabase.auth as any).admin.createUser({
-      email,
+  let userId: string | undefined;
+  const { data: createData, error: createError } =
+    await (supabase.auth as any).admin.createUser({
+      email: normalizedEmail,
       password,
       email_confirm: true,
       user_metadata: { name },
     });
-    userId = authData?.user?.id;
-  } catch (err: any) {
-    const alreadyExists =
-      err.code === 'email_exists' ||
-      err.message?.toLowerCase().includes('already registered');
-    if (!alreadyExists) throw err;
-    // Usuário já existe no Auth — atualiza somente o perfil pelo email
-  }
 
-  const isApprovedCreator = role !== 'client';
-
-  if (userId) {
-    // Remove perfil órfão com mesmo email mas id diferente (se existir)
-    await supabase.from('profiles').delete().eq('email', email).neq('id', userId);
-
-    // Usuário recém-criado: upsert completo com id
-    const { error } = await supabase.from('profiles').upsert({
-      id: userId,
-      email,
-      name,
-      role,
-      is_approved_event_creator: isApprovedCreator,
-      created_at: new Date().toISOString(),
-    });
-    if (error) throw error;
+  if (createError) {
+    const msg = (createError as any).message?.toLowerCase() ?? '';
+    if (msg.includes('already') || msg.includes('email_exists')) {
+      const { data: list } = await (supabase.auth as any).admin.listUsers({ perPage: 1000 });
+      const found = (list?.users ?? []).find((u: any) => u.email === normalizedEmail);
+      userId = found?.id;
+      if (!userId) throw new Error(`Usuário ${normalizedEmail} não encontrado após conflito`);
+      await (supabase.auth as any).admin.updateUserById(userId, { password });
+    } else {
+      throw createError;
+    }
   } else {
-    // Usuário já existia: garante role correto pelo email
-    const { error } = await supabase
-      .from('profiles')
-      .update({ role, is_approved_event_creator: isApprovedCreator })
-      .eq('email', email);
-    if (error) throw error;
+    userId = createData?.user?.id;
   }
 
-  console.log(`✓ ${role.toUpperCase()} | ${email} | senha: ${password}`);
+  if (!userId) throw new Error(`Falha ao obter userId para ${normalizedEmail}`);
+
+  const { error: profileError } = await supabase.from('profiles').upsert({
+    id: userId,
+    email: normalizedEmail,
+    name,
+    role,
+    is_approved_event_creator: role !== 'client',
+    phone: extra?.phone ?? '(11) 99999-0000',
+    birth_date: extra?.birth_date ?? '1990-01-01',
+    nationality: 'br',
+    sex: 'M',
+    cpf: extra?.cpf,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'id' });
+
+  if (profileError) throw profileError;
+
+  console.log(`✅ ${role.padEnd(9)} | ${normalizedEmail} | senha: ${password}`);
 }
 
 async function seed() {
-  console.log('Criando/atualizando usuários especiais...\n');
+  console.log('\n🚀 Criando usuários de produção...\n');
 
-  await createOrUpdateUser(
-    'admin@espacomix.internal',
-    'admin',
-    'Administrador',
-    'admin'
-  );
-
-  await createOrUpdateUser(
-    'dev@espacomix.com',
-    'dev123',
+  await upsertUser(
+    'acesso@developer.com',
+    'acessodeveloper123',
     'Developer',
-    'developer'
+    'developer',
+    { phone: '(11) 99999-0001' }
   );
 
-  await createOrUpdateUser(
-    'TESTUSER6796046344632108919@testuser.com',
+  await upsertUser(
+    'acesso@admin.com',
+    'acessoadmin123',
+    'Administrador',
+    'admin',
+    { phone: '(11) 99999-0002' }
+  );
+
+  await upsertUser(
+    'testuser6796046344632108919@testuser.com',
     'tT7uCeTglU',
-    'Conta Teste MP',
-    'client'
+    'TESTUSER6796046344632108919',
+    'client',
+    { phone: '(11) 99999-0003', cpf: '12345678909', birth_date: '1995-05-15' }
   );
 
-  console.log('\nSeed concluído!');
-  console.log('Login admin: usuário "admin" | senha "admin"');
-  console.log('Login dev:   usuário "dev@espacomix.com" | senha "dev123"');
-  console.log('Login MP:    usuário "TESTUSER6796046344632108919@testuser.com" | senha "tT7uCeTglU"');
+  console.log('\n✅ Seed concluído!\n');
+  console.log('  DEV   → email: acesso@developer.com | senha: acessodeveloper123');
+  console.log('  ADMIN → email: acesso@admin.com     | senha: acessoadmin123');
+  console.log('  MP    → email: testuser6796046344632108919@testuser.com | senha: tT7uCeTglU\n');
 }
 
-seed().catch((err) => {
-  console.error('Falha ao seedar:', err);
-  process.exit(1);
-});
+seed().catch(err => { console.error('❌ Falha:', err); process.exit(1); });

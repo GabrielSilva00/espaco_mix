@@ -541,12 +541,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const profile = await getMyProfile();
             // Admin e developer nunca são restaurados automaticamente — devem fazer login manual
             if (profile?.role === 'admin' || profile?.role === 'developer') {
-              try { await signOut(); } catch {}
+              // NÃO chamar signOut() — dispara SIGNED_OUT e reinicia o loop de 429
               try {
-                Object.keys(localStorage).forEach(k => {
-                  if (k.startsWith('sb-')) localStorage.removeItem(k);
-                });
+                ['eventix-auth-v2', 'eventix-auth'].forEach(k => localStorage.removeItem(k));
+                Object.keys(localStorage)
+                  .filter(k => k.startsWith('sb-'))
+                  .forEach(k => localStorage.removeItem(k));
               } catch {}
+              if (!sessionStorage.getItem('auth-cleared')) {
+                sessionStorage.setItem('auth-cleared', '1');
+                window.location.reload();
+              }
               return;
             }
             // Clientes comuns têm sessão restaurada normalmente
@@ -573,16 +578,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const errMsg = String(err).toLowerCase();
             console.error('[Context] Erro ao verificar sessão inicial:', err);
             // Limpar sessão corrompida em todos os casos de erro
-            try { await signOut(); } catch {}
             try {
+              ['eventix-auth-v2', 'eventix-auth'].forEach(k => localStorage.removeItem(k));
               Object.keys(localStorage)
-                .filter(k => k === 'eventix-auth' || k.startsWith('sb-') || k.includes('supabase'))
+                .filter(k => k.startsWith('sb-') || k.includes('supabase'))
                 .forEach(k => localStorage.removeItem(k));
+              sessionStorage.clear();
             } catch {}
             if (errMsg.includes('infinite recursion') || errMsg.includes('policies')) {
               console.error('[Context] Sessão corrompida por erro de RLS — recarregando');
-              sessionStorage.clear();
-              setTimeout(() => window.location.reload(), 200);
+              if (!sessionStorage.getItem('rls-reload')) {
+                sessionStorage.setItem('rls-reload', '1');
+                setTimeout(() => window.location.reload(), 300);
+              }
             }
           }
         }
@@ -626,7 +634,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Limpar token inválido do localStorage (previne loop de refresh_token 400)
         try {
           Object.keys(localStorage).forEach(k => {
-            if (k.startsWith('sb-') || k === 'eventix-auth') localStorage.removeItem(k);
+            if (k.startsWith('sb-') || k === 'eventix-auth' || k === 'eventix-auth-v2') localStorage.removeItem(k);
           });
         } catch {}
         setUserRole(null);
@@ -634,10 +642,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsApprovedEventCreator(false);
         setSessionUser(null);
         setIsStaff(false);
+        sessionStorage.removeItem('auth-cleared');
         // Recarregar eventos para a visão pública (não limpar — usuário anônimo ainda vê eventos)
-        getEvents()
-          .then(data => setEvents(data.map(mapDbEventToApp)))
-          .catch(() => setEvents([]));
+        if (!loadingEvents) {
+          getEvents()
+            .then(data => setEvents(data.map(mapDbEventToApp)))
+            .catch(() => setEvents([]));
+        }
       }
     });
 

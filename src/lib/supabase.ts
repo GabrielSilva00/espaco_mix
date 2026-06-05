@@ -309,6 +309,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnon, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    storageKey: 'eventix-auth-v2',
   },
   realtime: {
     params: { eventsPerSecond: 10 },
