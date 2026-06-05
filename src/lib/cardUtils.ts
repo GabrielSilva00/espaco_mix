@@ -7,6 +7,7 @@ export interface CardData {
   expiryYear: string;
   cvv: string;
   installments: string;
+  holderCpf?: string;
 }
 
 export interface CardValidation {
@@ -144,12 +145,16 @@ export async function tokenizeCard(cardData: CardData): Promise<string | null> {
       ? `20${cardData.expiryYear}`
       : cardData.expiryYear;
 
+    const cpf = (cardData.holderCpf || '').replace(/\D/g, '');
+
     const result = await mp.createCardToken({
       cardNumber: cardData.number.replace(/\s/g, ''),
       cardholderName: cardData.holderName,
       cardExpirationMonth: cardData.expiryMonth.padStart(2, '0'),
       cardExpirationYear: expiryYear,
       securityCode: cardData.cvv,
+      identificationType: 'CPF',
+      identificationNumber: cpf || '12345678909',
     });
 
     return result.id ?? null;

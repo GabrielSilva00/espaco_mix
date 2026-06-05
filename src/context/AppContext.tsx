@@ -1355,7 +1355,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else {
         if (!cardData) throw new Error('Dados do cartão não informados');
         const cardBrand = detectCardBrand(cardData.number);
-        const cardToken = await tokenizeCard(cardData);
+        const cardToken = await tokenizeCard({ ...cardData, holderCpf: cardData.holderCpf || guestData.cpf });
         if (!cardToken) throw new Error('Falha ao tokenizar cartão. Verifique os dados e tente novamente.');
         const paymentFetch = fetch('/api/payment/mercadopago', {
           method: 'POST',
