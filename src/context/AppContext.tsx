@@ -8,6 +8,7 @@ import {
   getSystemConfig, updateSystemConfig,
   getPendingApplications, approveProducer, rejectProducer,
   subscribeToEvents, subscribeToEventReservations, subscribeToPendingApplications,
+  subscribeToProfile,
   type Profile,
 } from '../lib/supabase';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
@@ -633,7 +634,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsApprovedEventCreator(false);
         setSessionUser(null);
         setIsStaff(false);
-        setEvents([]);
+        // Recarregar eventos para a visão pública (não limpar — usuário anônimo ainda vê eventos)
+        getEvents()
+          .then(data => setEvents(data.map(mapDbEventToApp)))
+          .catch(() => setEvents([]));
       }
     });
 
@@ -787,6 +791,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .then(cfg => setSiteConfig(prev => ({ ...prev, venueMaxCapacity: cfg.venue_max_capacity ?? null, platformName: cfg.site_name ?? prev.platformName })))
       .catch(e => console.error('[Context] Erro ao carregar config:', (e as Error)?.message));
   }, []);
+
+  // Realtime: sincroniza mudanças no perfil do usuário logado sem precisar recarregar
+  useEffect(() => {
+    if (!loggedInUserId) return;
+    const unsubscribe = subscribeToProfile(loggedInUserId, (profile) => {
+      const r = profile.role as UserRole;
+      setUserRole(r);
+      setIsApprovedEventCreator(profile.is_approved_event_creator);
+      setSessionUser({
+        id: profile.id,
+        email: profile.email,
+        name: profile.name,
+        role: r,
+        isApprovedEventCreator: profile.is_approved_event_creator,
+        avatarUrl: profile.avatar_url,
+      });
+    });
+    return () => { unsubscribe(); };
+  }, [loggedInUserId]);
+
+  // Auto-sincroniza credenciais MP com o servidor sempre que admin/developer faz login
+  useEffect(() => {
+    if (userRole !== 'admin' && userRole !== 'developer') return;
+    const token = localStorage.getItem('mp_access_token');
+    const key = localStorage.getItem('mp_public_key');
+    if (!token || !key) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.access_token) return;
+      fetch('/api/admin/set-mp-credentials', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ accessToken: token, publicKey: key }),
+      }).catch(() => {});
+    });
+  }, [userRole, loggedInUserId]);
 
   // Session persistence
   useEffect(() => {

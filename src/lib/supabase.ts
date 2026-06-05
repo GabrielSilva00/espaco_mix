@@ -1035,6 +1035,24 @@ export function subscribeToEvents(callback: (events: Event[]) => void) {
   return () => supabase.removeChannel(channel);
 }
 
+/** Ouvir mudanças no perfil de um usuário específico em tempo real */
+export function subscribeToProfile(userId: string, callback: (profile: Profile) => void) {
+  supabase.getChannels()
+    .filter(ch => ch.topic === `realtime:profile-${userId}`)
+    .forEach(ch => supabase.removeChannel(ch));
+
+  const channel = supabase
+    .channel(`profile-${userId}`)
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+      (payload) => callback(payload.new as Profile)
+    )
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
+}
+
 /** Ouvir mudanças nas reservas de um evento */
 export function subscribeToEventReservations(
   eventId: number,
