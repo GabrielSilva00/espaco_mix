@@ -53,6 +53,7 @@ async function upsertUser(
     id: userId,
     email: normalizedEmail,
     name,
+    username: extra?.username,
     role,
     is_approved_event_creator: role !== 'client',
     phone: extra?.phone ?? '(11) 99999-0000',
@@ -76,7 +77,7 @@ async function seed() {
     'acessodeveloper123',
     'Developer',
     'developer',
-    { phone: '(11) 99999-0001' }
+    { phone: '(11) 99999-0001', username: 'developer' }
   );
 
   await upsertUser(
@@ -84,7 +85,7 @@ async function seed() {
     'acessoadmin123',
     'Administrador',
     'admin',
-    { phone: '(11) 99999-0002' }
+    { phone: '(11) 99999-0002', username: 'admin' }
   );
 
   await upsertUser(
@@ -92,7 +93,7 @@ async function seed() {
     'tT7uCeTglU',
     'TESTUSER6796046344632108919',
     'client',
-    { phone: '(11) 99999-0003', cpf: '12345678909', birth_date: '1995-05-15' }
+    { phone: '(11) 99999-0003', cpf: '12345678909', birth_date: '1995-05-15', username: 'testuser' }
   );
 
   console.log('\n✅ Seed concluído!\n');

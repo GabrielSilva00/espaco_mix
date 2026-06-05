@@ -13,6 +13,7 @@ export interface Profile {
   id: string;
   name: string;
   email: string;
+  username?: string;
   phone?: string;
   cpf?: string;
   birth_date?: string;
@@ -348,10 +349,22 @@ export async function signIn(email: string, password: string) {
   return data;
 }
 
-/** Logout */
+/** Logout — scope 'local' evita chamada global ao servidor (fonte de 429) */
 export async function signOut() {
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: 'local' });
   if (error) throw error;
+}
+
+/** Resolve um nome de usuário para o e-mail correspondente (login por username) */
+export async function resolveUsernameToEmail(username: string): Promise<string | null> {
+  const response = await fetch('/api/auth/resolve-username', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => ({}));
+  return (data as any).email ?? null;
 }
 
 /** Pegar sessão atual */
@@ -373,6 +386,40 @@ export async function getMyProfile(): Promise<Profile | null> {
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Perfil completo do usuário logado, com cpf/phone/birth_date DESCRIPTOGRAFADOS
+ * (busca o perfil base e mescla os campos sensíveis decifrados pelo servidor).
+ */
+export async function getMyFullProfile(): Promise<Profile | null> {
+  const base = await getMyProfile();
+  if (!base) return null;
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) return base;
+
+    const response = await fetch('/api/profile/sensitive', {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!response.ok) return base;
+
+    const json = await response.json().catch(() => ({}));
+    const decrypted = (json as any).profile;
+    if (!decrypted) return base;
+
+    return {
+      ...base,
+      cpf: decrypted.cpf ?? base.cpf,
+      phone: decrypted.phone ?? base.phone,
+      birth_date: decrypted.birth_date ?? base.birth_date,
+    };
+  } catch {
+    return base;
+  }
 }
 
 /** Login especial para admin/staff (por username, não e-mail) */

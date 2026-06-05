@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   supabase,
-  signIn, signOut, signUp, getMyProfile,
+  signIn, signOut, signUp, getMyProfile, resolveUsernameToEmail,
   getEvents, getEventBatches, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations,
   getStaffAccounts, createStaffAccount,
@@ -975,10 +975,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminError('');
-    const email = adminForm.username.includes('@')
-      ? adminForm.username
-      : `${adminForm.username}@espacomix.internal`;
+    const input = adminForm.username.trim();
     try {
+      // Aceita e-mail direto ou nome de usuário (resolvido para e-mail no servidor)
+      let email = input;
+      if (!input.includes('@')) {
+        const resolved = await resolveUsernameToEmail(input);
+        if (!resolved) { setAdminError('Usuário não encontrado'); return; }
+        email = resolved;
+      }
       await signIn(email, adminForm.password);
       const profile: Profile | null = await getMyProfile();
       if (!profile) throw new Error('Perfil não encontrado');
@@ -1005,9 +1010,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLoggedInUserId(null);
     setIsStaff(false);
     setIsApprovedEventCreator(false);
+    setSessionUser(null);
     setCurrentView('home');
     setDashboardMode('list');
-    try { localStorage.removeItem('eventix-session'); } catch {}
+    // Limpeza completa das chaves de sessão (evita token inválido travando o reload)
+    try {
+      ['eventix-session', 'eventix-auth', 'eventix-auth-v2'].forEach(k => localStorage.removeItem(k));
+      Object.keys(localStorage)
+        .filter(k => k.startsWith('sb-') || k.includes('supabase'))
+        .forEach(k => localStorage.removeItem(k));
+      sessionStorage.removeItem('auth-cleared');
+    } catch {}
     setTimeout(() => { window.location.href = '/'; }, 80);
   };
 

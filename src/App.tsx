@@ -28,15 +28,47 @@ function isDefaultLayout(layout: TableLayoutElement[], def: TableLayoutElement[]
   return layout.every((el, i) => el.type === def[i].type);
 }
 
+/**
+ * React.lazy com retry: se o import de um chunk falhar (ex.: chunk obsoleto após
+ * novo deploy na Vercel), tenta novamente 1x; persistindo a falha, força um único
+ * reload completo da página para puxar o index.html/manifest atualizados.
+ */
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>,
+  chunkName: string,
+) {
+  return React.lazy(async () => {
+    try {
+      return await factory();
+    } catch (err) {
+      try {
+        return await factory();
+      } catch (err2) {
+        const flag = `chunk-reload-${chunkName}`;
+        if (!sessionStorage.getItem(flag)) {
+          sessionStorage.setItem(flag, '1');
+          window.location.reload();
+          // Promise que nunca resolve enquanto a página recarrega
+          return await new Promise<{ default: T }>(() => {});
+        }
+        throw err2;
+      }
+    }
+  });
+}
+
 // Lazy-loaded: carregados sob demanda para reduzir o bundle inicial
-const DashboardView = React.lazy(() =>
-  import('./modules/dashboard/DashboardView').then(m => ({ default: m.DashboardView }))
+const DashboardView = lazyWithRetry(
+  () => import('./modules/dashboard/DashboardView').then(m => ({ default: m.DashboardView })),
+  'dashboard',
 );
-const CheckoutModal = React.lazy(() =>
-  import('./modules/payment/CheckoutModal').then(m => ({ default: m.CheckoutModal }))
+const CheckoutModal = lazyWithRetry(
+  () => import('./modules/payment/CheckoutModal').then(m => ({ default: m.CheckoutModal })),
+  'checkout',
 );
-const TableLayoutEditor = React.lazy(() =>
-  import('./components/TableLayoutEditor').then(m => ({ default: m.TableLayoutEditor }))
+const TableLayoutEditor = lazyWithRetry(
+  () => import('./components/TableLayoutEditor').then(m => ({ default: m.TableLayoutEditor })),
+  'table-editor',
 );
 
 export function App() {

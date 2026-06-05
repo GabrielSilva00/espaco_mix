@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { User, Edit2, Save, X, Camera, Phone, FileText, Calendar, Mail, ShieldCheck, Shield } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { updateProfile } from '../../lib/supabase';
+import { updateProfile, getMyFullProfile } from '../../lib/supabase';
 import { supabase } from '../../lib/supabase';
 
 export function ProfileView() {
@@ -13,15 +13,39 @@ export function ProfileView() {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const avatarRef = useRef<HTMLInputElement>(null);
 
-  const [form, setForm] = useState({
+  // Dados atuais carregados do banco (cpf/phone/birth_date descriptografados)
+  const [data, setData] = useState({
     name: sessionUser?.name || '',
     phone: '',
     cpf: '',
     birth_date: '',
   });
+  const [form, setForm] = useState(data);
+
+  // Carrega o perfil completo (com dados sensíveis descriptografados) ao abrir
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const profile = await getMyFullProfile();
+        if (!profile || cancelled) return;
+        const loaded = {
+          name: profile.name || '',
+          phone: profile.phone || '',
+          cpf: profile.cpf || '',
+          birth_date: profile.birth_date || '',
+        };
+        setData(loaded);
+        setForm(loaded);
+      } catch {
+        /* mantém valores atuais em caso de falha */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [loggedInUserId]);
 
   const startEdit = () => {
-    setForm({ name: sessionUser?.name || '', phone: '', cpf: '', birth_date: '' });
+    setForm(data);
     setEditing(true);
   };
 
@@ -32,13 +56,20 @@ export function ProfileView() {
     if (!form.name.trim()) { showToast('Nome é obrigatório', 'error'); return; }
     setSaving(true);
     try {
-      const updated = await updateProfile(loggedInUserId, {
+      await updateProfile(loggedInUserId, {
         name: form.name.trim(),
         phone: form.phone || undefined,
         cpf: form.cpf || undefined,
         birth_date: form.birth_date || undefined,
       });
-      setSessionUser(prev => prev ? { ...prev, name: updated.name } : prev);
+      const saved = {
+        name: form.name.trim(),
+        phone: form.phone,
+        cpf: form.cpf,
+        birth_date: form.birth_date,
+      };
+      setData(saved);
+      setSessionUser(prev => prev ? { ...prev, name: saved.name } : prev);
       showToast('Perfil atualizado com sucesso!', 'success');
       setEditing(false);
     } catch (err: any) {
@@ -160,7 +191,7 @@ export function ProfileView() {
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-[#d4af37] transition"
                 />
               ) : (
-                <p className="text-sm text-white">{sessionUser?.name || '—'}</p>
+                <p className="text-sm text-white">{data.name || sessionUser?.name || '—'}</p>
               )}
             </Field>
 
@@ -174,7 +205,7 @@ export function ProfileView() {
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-[#d4af37] transition"
                 />
               ) : (
-                <p className="text-sm text-white/70">{form.phone || '—'}</p>
+                <p className="text-sm text-white/70">{data.phone || '—'}</p>
               )}
             </Field>
 
@@ -189,7 +220,7 @@ export function ProfileView() {
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-[#d4af37] transition"
                 />
               ) : (
-                <p className="text-sm text-white/70">{form.cpf || '—'}</p>
+                <p className="text-sm text-white/70">{data.cpf || '—'}</p>
               )}
             </Field>
 
@@ -203,7 +234,7 @@ export function ProfileView() {
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-[#d4af37] transition"
                 />
               ) : (
-                <p className="text-sm text-white/70">{form.birth_date ? new Date(form.birth_date).toLocaleDateString('pt-BR') : '—'}</p>
+                <p className="text-sm text-white/70">{data.birth_date ? new Date(data.birth_date).toLocaleDateString('pt-BR') : '—'}</p>
               )}
             </Field>
           </div>

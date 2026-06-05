@@ -266,6 +266,40 @@ export async function createExpressApp() {
     res.json({ valid });
   });
 
+  // ── Resolve Username → E-mail (login por nome de usuário) ───────────────────
+  app.post("/api/auth/resolve-username", authLimiter, async (req, res) => {
+    const { username } = req.body as { username?: string };
+    if (!username || typeof username !== "string" || !username.trim()) {
+      res.status(400).json({ error: "Usuário ausente." });
+      return;
+    }
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceRoleKey) {
+      res.status(503).json({ error: "Serviço de autenticação não configurado." });
+      return;
+    }
+
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+      const { data, error } = await adminClient
+        .from("profiles")
+        .select("email")
+        .ilike("username", username.trim())
+        .maybeSingle();
+
+      if (error) throw error;
+      // Retorna apenas o e-mail (nunca outros dados do perfil)
+      res.json({ email: data?.email ?? null });
+    } catch (err: any) {
+      console.error("[AUTH] Erro ao resolver username:", err.message);
+      res.status(500).json({ error: "Erro ao resolver usuário." });
+    }
+  });
+
   // ── User Registration ─────────────────────────────────────────────────────
   app.post("/api/users/register", authLimiter, async (req, res) => {
     const { name, email, cpf, phone, birthDate, lgpdConsent } = req.body as {
@@ -648,6 +682,45 @@ export async function createExpressApp() {
   }, (req, res) => {
     // Sempre responde 200 para evitar retries do Mercado Pago
     res.status(200).json({ received: true });
+  });
+
+  // ── Profile Sensitive Data — leitura (descriptografa CPF / phone / birth_date) ──
+  app.get("/api/profile/sensitive", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      res.status(503).json({ error: "Serviço de perfil não configurado." });
+      return;
+    }
+
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+      const { data, error } = await adminClient
+        .from("profiles")
+        .select("*")
+        .eq("id", user.uid)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        res.status(404).json({ error: "Perfil não encontrado." });
+        return;
+      }
+
+      const profile = { ...data };
+      if (profile.cpf?.startsWith("enc:")) profile.cpf = decryptData(profile.cpf);
+      if (profile.phone?.startsWith("enc:")) profile.phone = decryptData(profile.phone);
+      if (profile.birth_date?.startsWith("enc:")) profile.birth_date = decryptData(profile.birth_date);
+
+      res.json({ success: true, profile });
+    } catch (err: any) {
+      console.error("[PROFILE] Erro ao buscar perfil:", err.message);
+      res.status(500).json({ error: "Erro ao buscar perfil." });
+    }
   });
 
   // ── Profile Sensitive Data (encrypts CPF / phone / birth_date) ──────────────

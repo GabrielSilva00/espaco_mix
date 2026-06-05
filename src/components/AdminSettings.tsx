@@ -3,7 +3,8 @@ import {
   Settings, Image as ImageIcon, Save, Check, Filter,
   Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, CreditCard, Mail, Loader2
 } from 'lucide-react';
-import { getSystemConfig, updateSystemConfig, updateMyCredentials } from '../lib/supabase';
+import { getSystemConfig, updateSystemConfig, updateMyCredentials, getMyFullProfile, updateProfile } from '../lib/supabase';
+import { User, Phone, FileText } from 'lucide-react';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { MercadoPagoSettings } from './MercadoPagoSettings';
 
@@ -23,6 +24,56 @@ export function AdminSettings({
   const [credForm, setCredForm] = useState({ email: '', password: '', confirmPassword: '' });
   const [credStatus, setCredStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [credError, setCredError] = useState('');
+
+  // ── Meus Dados (perfil do admin) ─────────────────────────────────────────
+  const [myProfile, setMyProfile] = useState<{ id: string; email: string; username?: string } | null>(null);
+  const [profileData, setProfileData] = useState({ name: '', phone: '', cpf: '', birth_date: '' });
+  const [profileForm, setProfileForm] = useState({ name: '', phone: '', cpf: '', birth_date: '' });
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
+
+  useEffect(() => {
+    if (activeTab !== 'conta') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const p = await getMyFullProfile();
+        if (!p || cancelled) return;
+        setMyProfile({ id: p.id, email: p.email, username: p.username });
+        const loaded = {
+          name: p.name || '',
+          phone: p.phone || '',
+          cpf: p.cpf || '',
+          birth_date: p.birth_date || '',
+        };
+        setProfileData(loaded);
+        setProfileForm(loaded);
+      } catch { /* ignora */ }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
+  const saveMyProfile = async () => {
+    if (!myProfile) return;
+    if (!profileForm.name.trim()) { setProfileError('Nome é obrigatório'); return; }
+    setProfileError('');
+    setProfileSaving(true);
+    try {
+      await updateProfile(myProfile.id, {
+        name: profileForm.name.trim(),
+        phone: profileForm.phone || undefined,
+        cpf: profileForm.cpf || undefined,
+        birth_date: profileForm.birth_date || undefined,
+      });
+      setProfileData({ ...profileForm, name: profileForm.name.trim() });
+      setProfileEditing(false);
+    } catch (err: any) {
+      setProfileError(err?.message || 'Erro ao salvar dados.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   const defaultSettings = {
     // General
@@ -949,6 +1000,69 @@ export function AdminSettings({
           <MercadoPagoSettings />
         ) : (
           // ABA MINHA CONTA
+          <div className="space-y-6">
+          {/* Meus Dados */}
+          <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8 max-w-lg">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] flex items-center gap-3">
+                <span className="p-2 bg-[#d4af37]/10 rounded-lg"><User className="w-4 h-4" /></span>
+                Meus Dados
+              </h3>
+              {!profileEditing ? (
+                <button
+                  onClick={() => { setProfileForm(profileData); setProfileEditing(true); }}
+                  className="px-4 py-2 border border-white/10 rounded-xl text-[10px] uppercase tracking-widest hover:bg-white/5 transition text-white/70"
+                >Editar</button>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setProfileEditing(false); setProfileError(''); }}
+                    className="px-3 py-2 border border-white/10 rounded-xl text-[10px] uppercase tracking-widest hover:bg-white/5 transition text-white/50"
+                  >Cancelar</button>
+                  <button
+                    onClick={saveMyProfile}
+                    disabled={profileSaving}
+                    className="px-4 py-2 bg-[#d4af37] text-black rounded-xl text-[10px] uppercase tracking-widest font-bold hover:brightness-110 transition disabled:opacity-60"
+                  >{profileSaving ? 'Salvando…' : 'Salvar'}</button>
+                </div>
+              )}
+            </div>
+            <div className="space-y-4">
+              <ProfileRow icon={<User className="w-4 h-4" />} label="Nome Completo">
+                {profileEditing ? (
+                  <input value={profileForm.name} onChange={e => setProfileForm(f => ({ ...f, name: e.target.value }))}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50 transition" />
+                ) : <p className="text-sm text-white">{profileData.name || '—'}</p>}
+              </ProfileRow>
+              <ProfileRow icon={<Shield className="w-4 h-4" />} label="Usuário">
+                <p className="text-sm text-white/70">{myProfile?.username || '—'}</p>
+              </ProfileRow>
+              <ProfileRow icon={<Mail className="w-4 h-4" />} label="E-mail">
+                <p className="text-sm text-white/70">{myProfile?.email || '—'}</p>
+              </ProfileRow>
+              <ProfileRow icon={<Phone className="w-4 h-4" />} label="Telefone">
+                {profileEditing ? (
+                  <input value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} placeholder="(11) 99999-9999"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50 transition" />
+                ) : <p className="text-sm text-white/70">{profileData.phone || '—'}</p>}
+              </ProfileRow>
+              <ProfileRow icon={<FileText className="w-4 h-4" />} label="CPF">
+                {profileEditing ? (
+                  <input value={profileForm.cpf} onChange={e => setProfileForm(f => ({ ...f, cpf: e.target.value }))} placeholder="000.000.000-00" maxLength={14}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50 transition" />
+                ) : <p className="text-sm text-white/70">{profileData.cpf || '—'}</p>}
+              </ProfileRow>
+              <ProfileRow icon={<Calendar className="w-4 h-4" />} label="Data de Nascimento">
+                {profileEditing ? (
+                  <input type="date" value={profileForm.birth_date} onChange={e => setProfileForm(f => ({ ...f, birth_date: e.target.value }))}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]/50 transition" />
+                ) : <p className="text-sm text-white/70">{profileData.birth_date ? new Date(profileData.birth_date).toLocaleDateString('pt-BR') : '—'}</p>}
+              </ProfileRow>
+              {profileError && <p className="text-red-400 text-xs">{profileError}</p>}
+            </div>
+          </section>
+
+          {/* Alterar Credenciais */}
           <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8 max-w-lg">
             <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] mb-8 flex items-center gap-3">
               <span className="p-2 bg-[#d4af37]/10 rounded-lg"><Shield className="w-4 h-4" /></span>
@@ -959,6 +1073,8 @@ export function AdminSettings({
                 <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Novo E-mail / Usuário</label>
                 <input
                   type="email"
+                  name="new-credential-email"
+                  autoComplete="off"
                   placeholder="Deixe em branco para não alterar"
                   value={credForm.email}
                   onChange={e => setCredForm(f => ({ ...f, email: e.target.value }))}
@@ -969,6 +1085,8 @@ export function AdminSettings({
                 <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Nova Senha</label>
                 <input
                   type="password"
+                  name="new-credential-password"
+                  autoComplete="new-password"
                   placeholder="Deixe em branco para não alterar"
                   value={credForm.password}
                   onChange={e => setCredForm(f => ({ ...f, password: e.target.value }))}
@@ -979,6 +1097,8 @@ export function AdminSettings({
                 <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Confirmar Nova Senha</label>
                 <input
                   type="password"
+                  name="confirm-credential-password"
+                  autoComplete="new-password"
                   placeholder="Repita a nova senha"
                   value={credForm.confirmPassword}
                   onChange={e => setCredForm(f => ({ ...f, confirmPassword: e.target.value }))}
@@ -1031,8 +1151,21 @@ export function AdminSettings({
               </p>
             </div>
           </section>
+          </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ProfileRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+  return (
+    <div className="p-4 rounded-xl border border-white/8 bg-white/[0.02]">
+      <div className="flex items-center gap-2 mb-2 text-white/30">
+        {icon}
+        <p className="text-[9px] uppercase tracking-widest">{label}</p>
+      </div>
+      {children}
     </div>
   );
 }

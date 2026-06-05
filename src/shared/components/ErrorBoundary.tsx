@@ -17,12 +17,21 @@ export class ErrorBoundary extends React.Component<Props, State> {
     this.state = { hasError: false, message: '' };
   }
 
+  static isChunkError(message: string): boolean {
+    return /Failed to fetch dynamically imported module|Importing a module script failed|ChunkLoadError|error loading dynamically imported module/i.test(message);
+  }
+
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, message: error.message };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack);
+    // Erro de chunk obsoleto (após novo deploy): recarrega uma única vez por sessão
+    if (ErrorBoundary.isChunkError(error.message) && !sessionStorage.getItem('chunk-reload-boundary')) {
+      sessionStorage.setItem('chunk-reload-boundary', '1');
+      window.location.reload();
+    }
   }
 
   render() {
