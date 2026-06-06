@@ -844,11 +844,30 @@ export async function updateReservationPayment(
   if (error) throw error;
 }
 
-/** Check-in de ingresso */
+/** Check-in de ingresso — só autoriza entrada se a reserva estiver PAGA (approved) */
 export async function checkInTicket(ticketId: string): Promise<TicketItem> {
+  // 1. Valida o estado do ingresso e o pagamento da reserva associada
+  const { data: ticket, error: tErr } = await supabase
+    .from('ticket_items')
+    .select('id, status, reservation_id, reservations!inner(payment_status)')
+    .eq('id', ticketId)
+    .maybeSingle();
+
+  if (tErr) throw tErr;
+  if (!ticket) throw new Error('Ingresso não encontrado.');
+
+  const payStatus = (ticket as any).reservations?.payment_status;
+  if (payStatus !== 'approved') {
+    throw new Error('Pagamento não confirmado — entrada não autorizada.');
+  }
+  if (ticket.status === 'cancelled') {
+    throw new Error('Ingresso cancelado — entrada não autorizada.');
+  }
+
+  // 2. Marca o check-in (não altera o status do ingresso; preserva transferido etc.)
   const { data, error } = await supabase
     .from('ticket_items')
-    .update({ status: 'active', checked_in_at: new Date().toISOString() })
+    .update({ checked_in_at: new Date().toISOString() })
     .eq('id', ticketId)
     .select()
     .single();
@@ -857,16 +876,17 @@ export async function checkInTicket(ticketId: string): Promise<TicketItem> {
   return data as TicketItem;
 }
 
-/** Buscar ticket por QR code ID */
-export async function getTicketById(ticketId: string): Promise<TicketItem | null> {
+/** Buscar ticket por QR code ID (inclui o payment_status da reserva p/ validação) */
+export async function getTicketById(ticketId: string): Promise<(TicketItem & { paymentStatus?: string }) | null> {
   const { data, error } = await supabase
     .from('ticket_items')
-    .select('*')
+    .select('*, reservations!inner(payment_status)')
     .eq('id', ticketId)
     .single();
 
   if (error) return null;
-  return data as TicketItem;
+  const paymentStatus = (data as any).reservations?.payment_status;
+  return { ...(data as TicketItem), paymentStatus };
 }
 
 // ═══════════════════════════════════════════════════════════════

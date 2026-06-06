@@ -1424,12 +1424,82 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       };
 
+      // Seleção enviada ao servidor para recálculo autoritativo do preço (anti-fraude).
+      // O servidor ignora `amount` e recalcula a partir dos preços do banco.
+      const selection = {
+        eventId: activeEvent?.id,
+        tables: selectedTables,
+        singleTickets,
+        maleTickets,
+        femaleTickets,
+        sectorId: expandedSectorId,
+      };
+
+      // Persiste a reserva como 'pending' no banco ANTES de cobrar (fonte da verdade).
+      // O trigger de RLS força payment_status='pending'; o webhook/servidor confirmam
+      // o pagamento depois. O id retornado vai como external_reference ao Mercado Pago.
+      const buildDbTicketItems = (): any[] => {
+        const items: any[] = [];
+        const ownerFor = (isFirst: boolean) =>
+          (identificationOption === 'same_as_buyer' || isFirst)
+            ? { owner_name: guestData.name, owner_cpf: guestData.cpf, owner_email: guestData.email }
+            : { owner_name: '', owner_cpf: '', owner_email: '' };
+        let idx = 0;
+        selectedTables.forEach((tableId) => {
+          const tbl = derivedTables.find(t => t.id === tableId);
+          const seats = tbl?.capacity ?? 4;
+          for (let i = 0; i < seats; i++) {
+            items.push({
+              reservation_id: '', event_id: activeEvent?.id ?? 0,
+              name: `Mesa #${tableId} — Assento ${i + 1}`,
+              is_table: true, table_number: tableId, occupant_index: i,
+              status: 'active', ...ownerFor(idx === 0),
+            });
+            idx++;
+          }
+        });
+        const ticketCount = singleTickets + maleTickets + femaleTickets;
+        for (let i = 0; i < ticketCount; i++) {
+          items.push({
+            reservation_id: '', event_id: activeEvent?.id ?? 0,
+            name: 'Ingresso Individual', is_table: false,
+            status: 'active', ...ownerFor(idx === 0),
+          });
+          idx++;
+        }
+        return items;
+      };
+
+      let dbReservationId: string;
+      try {
+        const created = await createReservationInDb({
+          event_id: activeEvent?.id ?? 0,
+          user_id: sessionUser?.id,
+          buyer_name: guestData.name,
+          buyer_email: guestData.email,
+          buyer_cpf: guestData.cpf,
+          tables: selectedTables,
+          single_tickets: singleTickets,
+          male_tickets: maleTickets,
+          female_tickets: femaleTickets,
+          total: grandTotal,
+          platform_fee: taxAmount,
+          net_amount: subTotal,
+          payment_status: 'pending',
+          payment_method: (selectedPaymentMethod ?? undefined) as any,
+        } as any, buildDbTicketItems());
+        dbReservationId = created.id;
+      } catch (e: any) {
+        console.error('[Reserva] Falha ao registrar reserva:', e?.message);
+        throw new Error('Não foi possível registrar a reserva. Tente novamente.');
+      }
+
       if (selectedPaymentMethod === 'pix') {
         const res = await fetch('/api/payment/pix', {
           method: 'POST',
           signal,
           headers: authHeaders,
-          body: JSON.stringify({ amount: grandTotal, description: activeEvent?.title || 'Ingresso', guestData }),
+          body: JSON.stringify({ amount: grandTotal, description: activeEvent?.title || 'Ingresso', guestData, selection, reservationId: dbReservationId }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Erro ao gerar PIX');
@@ -1454,6 +1524,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             paymentMethod: selectedPaymentMethod,
             installments: cardData.installments,
             guestData,
+            selection,
+            reservationId: dbReservationId,
           }),
         });
         const paymentTimeout = new Promise<never>((_, reject) =>
@@ -1464,15 +1536,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) throw new Error(data.error || 'Erro ao processar pagamento');
 
         if (data.status === 'approved' || data.status === 'in_process' || data.status === 'pending') {
-          const resId = data.paymentId ? `RES-MP-${data.paymentId}` : `RES-${Date.now()}`;
-          finalizeSuccess(resId);
+          finalizeSuccess(dbReservationId);
           fetch('/api/email/send-confirmation', {
             method: 'POST',
             headers: authHeaders,
             body: JSON.stringify({
               buyerName: guestData.name,
               buyerEmail: guestData.email,
-              reservationId: resId,
+              reservationId: dbReservationId,
               eventTitle: activeEvent?.title ?? '',
               eventDate: activeEvent?.date ?? '',
               eventTime: activeEvent?.time ?? '',
