@@ -44,9 +44,28 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Cacheia assets estáticos (JS, CSS, fontes)
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Precacheia apenas assets com hash no nome (JS/CSS/ícones/fontes) —
+        // são imutáveis, então cache-first é seguro. O HTML é deliberadamente
+        // EXCLUÍDO do precache: o documento é sempre buscado da rede
+        // (NetworkFirst abaixo) para nunca servir um index.html antigo
+        // apontando para bundles/config defasados (causava login/eventos quebrados).
+        globPatterns: ['**/*.{js,css,ico,png,svg,woff2}'],
+        // Desliga o handler de navegação baseado no index.html precacheado;
+        // quem trata navegação é a regra NetworkFirst de runtimeCaching.
+        navigateFallback: null,
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
+          {
+            // Documento HTML (navegações): sempre da rede; cai no cache só se offline.
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'html-cache',
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 10 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
           {
             // Cache de fontes Google
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
