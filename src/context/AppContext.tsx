@@ -790,6 +790,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Carrega lotes/setores do evento ao entrar na página de compra.
+  // getEvents() não traz batches (carregados sob demanda); sem isto o card de
+  // Ingressos nunca aparece no fluxo público e a compra fica impossível.
+  useEffect(() => {
+    if (currentView !== 'booking') return;
+    const ev = activeEvent;
+    if (!ev || (ev.batches?.length ?? 0) > 0) return;
+    let cancelled = false;
+    getEventBatches(ev.id)
+      .then(rawBatches => {
+        if (cancelled) return;
+        const mapped = mapDbEventToApp({ batches: rawBatches });
+        setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, batches: mapped.batches } : e));
+        setFormEvent(prev => prev && prev.id === ev.id ? { ...prev, batches: mapped.batches } : prev);
+      })
+      .catch(e => console.error('[Context] Erro ao carregar lotes do evento:', (e as Error)?.message));
+    return () => { cancelled = true; };
+  }, [currentView, activeEvent?.id]);
+
   useEffect(() => {
     if (userRole !== 'admin' && userRole !== 'developer') { setPendingApprovalsCount(0); return; }
     getPendingApplications().then(apps => setPendingApprovalsCount(apps.length)).catch(e => console.error('[Context] Erro ao buscar aprovações:', (e as Error)?.message));

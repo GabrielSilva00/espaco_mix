@@ -107,14 +107,19 @@ export function formatCardNumber(value: string): string {
   return cleaned.replace(/(.{4})/g, '$1 ').trim();
 }
 
-// Detectar bandeira do cartão
+// Detectar bandeira do cartão.
+// A detecção é por prefixo (BIN). A ordem importa: Elo compartilha faixas 50xx/65xx
+// com Mastercard/Discover, então é checada antes. Mastercard cobre 51-55, a faixa
+// nova 2221-2720 e os BINs 50xx usados pelos cartões de teste do Mercado Pago
+// (ex.: 5031 7557…), que a regex antiga `^5[1-5]` classificava como "unknown".
 export function detectCardBrand(cardNumber: string): 'visa' | 'mastercard' | 'amex' | 'elo' | 'unknown' {
-  const cleaned = cardNumber.replace(/\s/g, '');
+  const cleaned = cardNumber.replace(/\D/g, '');
 
-  if (/^4\d{12}(?:\d{3})?$/.test(cleaned)) return 'visa';
-  if (/^5[1-5]\d{14}$/.test(cleaned)) return 'mastercard';
-  if (/^3[47]\d{13}$/.test(cleaned)) return 'amex';
-  if (/^6(?:011|5\d\d)\d{12}$/.test(cleaned)) return 'elo';
+  // Amex e Elo primeiro: Elo tem BINs que começam com 4 (Visa) e 5/6 (Mastercard).
+  if (/^3[47]/.test(cleaned)) return 'amex';
+  if (/^(4011|4312|4389|438935|451416|457393|45763[12]|504175|5041|5066|5067|509|627780|636297|636368|650|6516|6550)/.test(cleaned)) return 'elo';
+  if (/^4/.test(cleaned)) return 'visa';
+  if (/^(5[0-5]|2(2[2-9]|[3-6]\d|7[01]|720))/.test(cleaned)) return 'mastercard';
 
   return 'unknown';
 }

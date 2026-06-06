@@ -185,7 +185,10 @@ export async function createExpressApp() {
     message: { error: "Muitas tentativas de autenticação. Aguarde 15 minutos." },
   });
 
-  app.use(globalLimiter);
+  // Aplica o limite global APENAS às rotas de API. No dev o Express serve
+  // todos os módulos/assets via Vite middleware; limitá-los derrubaria o app
+  // (cada page load = dezenas de requisições). Em produção o Express só atende /api.
+  app.use("/api", globalLimiter);
 
   // ── Auth Middleware ───────────────────────────────────────────────────────
   const requireAuth = async (

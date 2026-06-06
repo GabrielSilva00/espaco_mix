@@ -273,37 +273,38 @@ export function CheckoutModal() {
                     </button>
 
                     {/* Cartão de Crédito */}
-                    <AnimatePresence>
-                      <button
-                        onClick={() => {
-                          setLocalPaymentMethod('credit_card');
-                          setErrors(prev => ({ ...prev, payment: '' }));
-                          import('@mercadopago/sdk-js').catch(() => {});
-                        }}
-                        className={`w-full p-3 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${localPaymentMethod === 'credit_card' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
-                      >
-                        <div className="flex items-center gap-3 md:gap-4">
-                          <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center transition ${localPaymentMethod === 'credit_card' ? 'bg-[#d4af37] text-black' : 'bg-white/10 text-white'}`}>
-                            <CreditCard className="w-4 h-4 md:w-5 md:h-5" />
-                          </div>
-                          <div className="text-left">
-                            <p className="font-bold uppercase tracking-widest text-[9px] md:text-[10px]">Cartão de Crédito</p>
-                            <p className="text-[9px] md:text-[10px] opacity-40">Até 12x no cartão</p>
-                          </div>
+                    <button
+                      onClick={() => {
+                        setLocalPaymentMethod('credit_card');
+                        setErrors(prev => ({ ...prev, payment: '' }));
+                        import('@mercadopago/sdk-js').catch(() => {});
+                      }}
+                      className={`w-full p-3 rounded-xl md:rounded-2xl border transition-all flex items-center justify-between group ${localPaymentMethod === 'credit_card' ? 'bg-[#d4af37]/10 border-[#d4af37]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
+                    >
+                      <div className="flex items-center gap-3 md:gap-4">
+                        <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center transition ${localPaymentMethod === 'credit_card' ? 'bg-[#d4af37] text-black' : 'bg-white/10 text-white'}`}>
+                          <CreditCard className="w-4 h-4 md:w-5 md:h-5" />
                         </div>
-                        <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${localPaymentMethod === 'credit_card' ? 'border-[#d4af37] bg-[#d4af37]' : 'border-white/10'}`}>
-                          {localPaymentMethod === 'credit_card' && <Check className="w-3 h-3 text-black" />}
+                        <div className="text-left">
+                          <p className="font-bold uppercase tracking-widest text-[9px] md:text-[10px]">Cartão de Crédito</p>
+                          <p className="text-[9px] md:text-[10px] opacity-40">Até 12x no cartão</p>
                         </div>
-                      </button>
+                      </div>
+                      <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${localPaymentMethod === 'credit_card' ? 'border-[#d4af37] bg-[#d4af37]' : 'border-white/10'}`}>
+                        {localPaymentMethod === 'credit_card' && <Check className="w-3 h-3 text-black" />}
+                      </div>
+                    </button>
 
+                    <AnimatePresence>
                       {localPaymentMethod === 'credit_card' && (
-                        <motion.div 
+                        <motion.div
+                          key="cc-form"
                           initial={{ opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: 'auto' }}
                           exit={{ opacity: 0, height: 0 }}
                           className="px-2 pb-2 overflow-hidden"
                         >
-                          <CreditCardForm 
+                          <CreditCardForm
                             cardData={cardData}
                             onCardDataChange={(newCardData) => {
                               setCardData(newCardData);
