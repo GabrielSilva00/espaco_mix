@@ -28,6 +28,79 @@
 
 ---
 
+## 🧪 Guia de Teste de Compra (sandbox) — ATUAL
+
+> Esta é a referência atualizada para testar uma compra ponta a ponta. O fluxo
+> hoje: o **frontend tokeniza o cartão** com a *Public Key* (SDK do MP) e o
+> **backend processa** com o *Access Token*. O **preço é recalculado no
+> servidor** (o `amount` do cliente é ignorado) e a **reserva nasce `pending`**,
+> sendo confirmada pelo servidor (cartão) ou pelo webhook (PIX).
+
+### 1. Credenciais de TESTE
+Painel → **Suas integrações** → sua aplicação → **Credenciais de teste**. Copie as duas que começam com `TEST-` (Public Key e Access Token).
+
+### 2. Configurar
+**Via `.env` (recomendado p/ teste local):**
+```env
+VITE_MERCADOPAGO_PUBLIC_KEY=TEST-sua-public-key   # frontend (tokenização)
+MERCADOPAGO_ACCESS_TOKEN=TEST-seu-access-token     # backend (processamento)
+```
+Ou, logado como **admin**, pela aba "Pagamentos" (`set-mp-credentials` — exige papel admin).
+
+### 3. Subir o app (2 terminais)
+```bash
+npm run dev:server   # backend: API + webhook + recálculo de preço
+npm run dev          # frontend
+```
+
+### 4. Pré-condições
+- **Estar logado** — o pagamento exige autenticação (`requireAuth`).
+- **Evento ativo** com lote/setor e preço configurado (o servidor recalcula a partir do banco).
+
+### 5. Cartão de teste (Brasil)
+
+| Bandeira | Número | CVV | Validade |
+|---|---|---|---|
+| Mastercard | `5031 4332 1540 6351` | `123` | `11/30` |
+| Visa | `4235 6477 2802 5682` | `123` | `11/30` |
+| Elo (débito) | `5067 7667 8388 8311` | `123` | `11/30` |
+
+O **resultado é controlado pelo NOME do titular**:
+
+| Titular | Resultado |
+|---|---|
+| `APRO` | ✅ Aprovado |
+| `CONT` | ⏳ Pendente |
+| `OTHE` | ❌ Recusado (erro geral) |
+| `FUND` | ❌ Saldo insuficiente |
+| `SECU` | ❌ CVV inválido |
+| `EXPI` | ❌ Validade |
+
+CPF do titular: `123.456.789-09` (genérico de teste).
+
+**Caminho feliz:** Mastercard acima + titular **`APRO`** + CPF `12345678909`.
+
+### 6. O que validar
+- **Preço correto:** o valor cobrado deve bater com o carrinho. Adulterar o `amount` no DevTools (Network) não muda nada — o servidor ignora e loga `[SECURITY] Divergência de valor`.
+- **Reserva `pending`:** logo após enviar, confira a tabela `reservations` (Supabase) — deve haver linha `payment_status='pending'`.
+- **Vira `approved`:** com `APRO`, o servidor atualiza a reserva e grava o `payment_id`.
+- **Recusa:** com `OTHE`, a reserva fica `cancelled` e a UI mostra erro.
+- **Check-in:** reserva `pending`/`cancelled` é **recusada** no check-in ("Pagamento não confirmado").
+
+### 7. PIX
+Checkout → **PIX** → exibe o QR (sandbox). Nasce `pending`; a confirmação chega pelo **webhook** via `external_reference`. Para simular a aprovação, use **Webhooks → Simular notificação** no painel do MP (ver seção 8 abaixo).
+
+### 8. Webhook (confirmação assíncrona)
+O webhook precisa de URL pública. Em local, use um túnel:
+```bash
+npx localtunnel --port 3000     # ou: ngrok http 3000
+```
+- Cadastre `https://SEU_TUNEL/api/webhook/mercadopago` no painel (evento **Pagamentos**) e configure `MERCADOPAGO_WEBHOOK_SECRET`.
+- Use **Simular notificação**. Nos logs deve aparecer `[WEBHOOK] Pagamento … → approved`. Se o secret estiver errado: `[WEBHOOK] Assinatura inválida`.
+- Sem o secret, o webhook ainda confirma o status consultando a API do MP, mas registra aviso de assinatura não verificada.
+
+---
+
 ## 🚀 Passo a Passo de Uso
 
 ### 1️⃣ Obter Credenciais do Mercado Pago
