@@ -950,7 +950,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
     setRegisterStep(1);
     setVerificationStep(false);
-    setVerificationCode(['', '', '', '']);
+    setVerificationCode(['', '', '', '', '', '']);
     setTotpPending(false);
     setTotpInput('');
     setForgotPasswordStep('none');

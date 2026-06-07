@@ -473,7 +473,7 @@ export function CheckoutModal() {
                             setGuestData({ name: newUser.name || 'Usuário', email: newUser.email, cpf: newUser.cpf || '000.000.000-00' });
                             setVerificationStep(false);
                             setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
-                            setVerificationCode(['', '', '', '']);
+                            setVerificationCode(['', '', '', '', '', '']);
                             setAdminForm({ username: '', password: '' });
                             showToast(`Bem-vindo(a), ${newUser.name.split(' ')[0]}!`, 'success');
                             setCheckoutStep('payment-method');
