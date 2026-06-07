@@ -267,6 +267,7 @@ interface AppContextValue {
   handleRegister: (e: React.FormEvent) => void;
   handleVerifyCode: () => Promise<void>;
   handleResendCode: () => Promise<void>;
+  handleCheckoutVerifyAndRegister: () => Promise<boolean>;
   handleEditEvent: (evt: Event) => Promise<void>;
   handleCreateEvent: () => void;
   handleSaveEvent: (isDraft?: boolean) => Promise<void>;
@@ -1150,6 +1151,81 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Cadastro durante o checkout: valida OTP, cria a conta REAL no Supabase e já
+  // deixa o usuário logado (sessão ativa exigida para pagar). Retorna true em sucesso.
+  const handleCheckoutVerifyAndRegister = async (): Promise<boolean> => {
+    const code = verificationCode.join('');
+    if (code.length < 6) { setAdminError('Preencha o código completo (6 dígitos)'); return false; }
+    if (!verifyTicket) { setAdminError('Sessão de verificação expirada. Reenvie o código.'); return false; }
+    setAdminError('');
+    try {
+      // 1. Valida o OTP no servidor
+      const checkResp = await fetch('/api/auth/check-verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: registerForm.email, code, ticket: verifyTicket.ticket, exp: verifyTicket.exp }),
+      });
+      const checkData = await checkResp.json().catch(() => ({}));
+      if (!checkResp.ok || !(checkData as any).valid) {
+        setAdminError((checkData as any).error ?? 'Código inválido.');
+        return false;
+      }
+
+      // 2. Cria a conta real no Supabase
+      const result = await signUp(registerForm.email, registerForm.password, registerForm.name, {
+        phone: registerForm.phone.replace(/\D/g, ''),
+        cpf: registerForm.nationality === 'br' ? registerForm.cpf.replace(/\D/g, '') : undefined,
+        birth_date: registerForm.birthDate,
+        sex: registerForm.sex,
+        nationality: registerForm.nationality,
+        country: registerForm.nationality === 'foreign' ? registerForm.country : undefined,
+        passport_doc: registerForm.nationality === 'foreign' ? registerForm.passportDoc : undefined,
+      } as any);
+
+      // 3. Garante sessão ativa (se a confirmação de e-mail do Supabase estiver
+      //    desabilitada, o signUp já loga; senão, faz signIn explícito).
+      let user = (result as any)?.user ?? null;
+      let session = (result as any)?.session ?? null;
+      if (!session) {
+        const signInRes = await signIn(registerForm.email, registerForm.password);
+        user = (signInRes as any)?.user ?? user;
+        session = (signInRes as any)?.session ?? null;
+      }
+      if (!user || !session) {
+        setAdminError('Conta criada, mas não foi possível iniciar a sessão. Faça login para continuar.');
+        return false;
+      }
+
+      // 4. Reflete a sessão no app
+      const buyerName = registerForm.name || 'Usuário';
+      const buyerEmail = registerForm.email;
+      const buyerCpf = registerForm.cpf || '000.000.000-00';
+      setUserRole('client');
+      setIsApprovedEventCreator(false);
+      setSessionUser({
+        id: user.id,
+        email: user.email ?? buyerEmail,
+        name: buyerName,
+        role: 'client',
+        isApprovedEventCreator: false,
+      });
+      setLoggedInUserId(user.id);
+      setGuestData({ name: buyerName, email: buyerEmail, cpf: buyerCpf });
+
+      // 5. Limpa estado de verificação/cadastro
+      setVerificationStep(false);
+      setVerifyTicket(null);
+      setVerificationCode(['', '', '', '', '', '']);
+      setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
+      setAdminForm({ username: '', password: '' });
+      showToast(`Bem-vindo(a), ${buyerName.split(' ')[0]}!`, 'success');
+      return true;
+    } catch (err: any) {
+      setAdminError(err?.message ?? 'Erro ao criar conta.');
+      return false;
+    }
+  };
+
   const handleEditEvent = async (evt: Event) => {
     setFormEvent({ ...evt, batches: [] });
     setSelectedDashboardEvent(evt.id);
@@ -1715,7 +1791,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     totalTicketsSelected,
     previewSectors, expandedSector,
     showToastFn: showToast,
-    handleAdminLogin, handleLogout, handleRegister, handleVerifyCode, handleResendCode,
+    handleAdminLogin, handleLogout, handleRegister, handleVerifyCode, handleResendCode, handleCheckoutVerifyAndRegister,
     handleEditEvent, handleCreateEvent, handleSaveEvent, handleUpdateEventStatus, handleImageFileChange,
     handleAddStaff, handleCheckIn, handleUndoCheckIn, handleScannerError,
     toggleTableSelection, getTableStatus, handleCheckout, handleConfirmReservation, handleCreateReservation,
