@@ -47,12 +47,13 @@ export function CheckoutModal() {
     registerStep, setRegisterStep,
     verificationStep, setVerificationStep,
     verificationCode, setVerificationCode,
+    verifyTicket,
     forgotPasswordStep, setForgotPasswordStep,
     forgotPasswordData, setForgotPasswordData,
     totpPending, setTotpPending,
     totpInput, setTotpInput,
     adminError, setAdminError,
-    handleAdminLogin, handleRegister, handleVerifyCode,
+    handleAdminLogin, handleRegister, handleVerifyCode, handleResendCode,
     handleConfirmReservation, handleCreateReservation,
     showToast,
     setCurrentView, setAuthIntent,
@@ -443,47 +444,72 @@ export function CheckoutModal() {
                       </div>
                       {adminError && <p className="text-red-400 text-[10px] uppercase tracking-widest text-center">{adminError}</p>}
                       
-                      <button 
-                        onClick={() => {
+                      <button
+                        onClick={async () => {
                           if (verificationCode.join('').length < 6) {
                             setAdminError('Preencha o código completo (6 dígitos)');
                             return;
                           }
+                          if (!verifyTicket) { setAdminError('Sessão de verificação expirada. Reenvie o código.'); return; }
                           setAdminError('');
-                          setTimeout(() => {
-                            const newUser = {
-                              id: Math.random().toString(36).substr(2, 9),
-                              name: registerForm.name,
-                              email: registerForm.email,
-                              phone: registerForm.phone,
-                              cpf: registerForm.cpf,
-                              birthDate: registerForm.birthDate,
-                              // Senha nunca armazenada em memória
-                            };
-                            setUsers([...users, newUser]);
-                            setUserRole('client');
-                            setSessionUser({
-                              id: newUser.id,
-                              email: newUser.email,
-                              name: newUser.name || 'Conta',
-                              role: 'client',
-                              isApprovedEventCreator: false,
+                          // Valida o código no servidor antes de prosseguir
+                          try {
+                            const checkResp = await fetch('/api/auth/check-verify-code', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ email: registerForm.email, code: verificationCode.join(''), ticket: verifyTicket.ticket, exp: verifyTicket.exp }),
                             });
-                            setLoggedInUserId(newUser.id);
-                            setGuestData({ name: newUser.name || 'Usuário', email: newUser.email, cpf: newUser.cpf || '000.000.000-00' });
-                            setVerificationStep(false);
-                            setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
-                            setVerificationCode(['', '', '', '', '', '']);
-                            setAdminForm({ username: '', password: '' });
-                            showToast(`Bem-vindo(a), ${newUser.name.split(' ')[0]}!`, 'success');
-                            setCheckoutStep('payment-method');
-                          }, 500);
+                            const checkData = await checkResp.json().catch(() => ({}));
+                            if (!checkResp.ok || !(checkData as any).valid) {
+                              setAdminError((checkData as any).error ?? 'Código inválido.');
+                              return;
+                            }
+                          } catch {
+                            setAdminError('Erro de conexão ao verificar código.');
+                            return;
+                          }
+                          const newUser = {
+                            id: Math.random().toString(36).substr(2, 9),
+                            name: registerForm.name,
+                            email: registerForm.email,
+                            phone: registerForm.phone,
+                            cpf: registerForm.cpf,
+                            birthDate: registerForm.birthDate,
+                            // Senha nunca armazenada em memória
+                          };
+                          setUsers([...users, newUser]);
+                          setUserRole('client');
+                          setSessionUser({
+                            id: newUser.id,
+                            email: newUser.email,
+                            name: newUser.name || 'Conta',
+                            role: 'client',
+                            isApprovedEventCreator: false,
+                          });
+                          setLoggedInUserId(newUser.id);
+                          setGuestData({ name: newUser.name || 'Usuário', email: newUser.email, cpf: newUser.cpf || '000.000.000-00' });
+                          setVerificationStep(false);
+                          setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
+                          setVerificationCode(['', '', '', '', '', '']);
+                          setAdminForm({ username: '', password: '' });
+                          showToast(`Bem-vindo(a), ${newUser.name.split(' ')[0]}!`, 'success');
+                          setCheckoutStep('payment-method');
                         }}
                         className="w-full bg-[#d4af37] text-black py-4 rounded-xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 shadow-[0_0_20px_rgba(212,175,55,0.2)] transition"
                       >
                         Confirmar Cadastro
                       </button>
-                      <button 
+                      <p className="text-[10px] uppercase tracking-widest text-white/40 text-center mt-3">
+                        Não recebeu?{' '}
+                        <button
+                          type="button"
+                          onClick={handleResendCode}
+                          className="text-[#d4af37] hover:brightness-110 transition font-bold"
+                        >
+                          Reenviar código
+                        </button>
+                      </p>
+                      <button
                         onClick={() => setVerificationStep(false)}
                         className="text-[10px] uppercase tracking-widest text-white/40 hover:text-white transition mt-4"
                       >

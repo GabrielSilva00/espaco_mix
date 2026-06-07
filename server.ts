@@ -142,6 +142,16 @@ function safeJsonParse(s: string): any {
   }
 }
 
+// ─── Assinatura stateless de OTP (HMAC) ──────────────────────────────────────
+// Em vez de guardar o código em memória (que não sobrevive ao serverless da
+// Vercel — instâncias diferentes para enviar e verificar), assinamos
+// email+código+expiração e devolvemos o "ticket" ao cliente. A verificação
+// recalcula a assinatura, sem precisar de estado compartilhado.
+function signOtp(email: string, code: string, exp: number): string {
+  const key = process.env.ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "otp-fallback-secret";
+  return crypto.createHmac("sha256", key).update(`${email.trim().toLowerCase()}:${code}:${exp}`).digest("hex");
+}
+
 // ─── Escape de HTML (previne injeção em corpos de e-mail) ────────────────────
 function escapeHtml(str: string): string {
   return String(str)
@@ -1198,10 +1208,7 @@ export async function createExpressApp() {
     });
   });
 
-  // ── OTP de verificação de e-mail no cadastro ─────────────────────────────
-  // Map: email → { code, expiresAt }
-  const otpStore = new Map<string, { code: string; expiresAt: number }>();
-
+  // ── OTP de verificação de e-mail no cadastro (stateless via HMAC) ─────────
   app.post("/api/auth/send-verify-code", authLimiter, async (req, res) => {
     const { email } = req.body as { email?: string };
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -1210,15 +1217,16 @@ export async function createExpressApp() {
     }
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
-    otpStore.set(email, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
+    const exp = Date.now() + 10 * 60 * 1000;
+    const ticket = signOtp(email, code, exp);
 
     if (!process.env.RESEND_API_KEY) {
       console.log(`\n[OTP DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       console.log(`[OTP DEV]  E-mail : ${email}`);
       console.log(`[OTP DEV]  Código : ${code}`);
-      console.log(`[OTP DEV]  Expira : ${new Date(Date.now() + 600000).toLocaleTimeString()}`);
+      console.log(`[OTP DEV]  Expira : ${new Date(exp).toLocaleTimeString()}`);
       console.log(`[OTP DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
-      res.json({ sent: true, devMode: true });
+      res.json({ sent: true, devMode: true, ticket, exp });
       return;
     }
 
@@ -1253,7 +1261,7 @@ export async function createExpressApp() {
         res.status(502).json({ error: `Não foi possível enviar o e-mail: ${(error as any).message ?? (error as any).name ?? "erro do provedor"}` });
         return;
       }
-      res.json({ sent: true });
+      res.json({ sent: true, ticket, exp });
     } catch (err: any) {
       console.error("[OTP] Erro ao enviar código:", err.message);
       res.status(500).json({ error: "Erro ao enviar e-mail de verificação." });
@@ -1261,25 +1269,28 @@ export async function createExpressApp() {
   });
 
   app.post("/api/auth/check-verify-code", authLimiter, (req, res) => {
-    const { email, code } = req.body as { email?: string; code?: string };
-    if (!email || !code) {
-      res.status(400).json({ valid: false, error: "Dados ausentes." });
+    const { email, code, ticket, exp } = req.body as {
+      email?: string; code?: string; ticket?: string; exp?: number;
+    };
+    if (!email || !code || !ticket || !exp) {
+      res.status(400).json({ valid: false, error: "Dados ausentes. Solicite um novo código." });
       return;
     }
 
-    const entry = otpStore.get(email);
-    if (!entry || Date.now() > entry.expiresAt) {
-      otpStore.delete(email);
-      res.status(400).json({ valid: false, error: "Código expirado ou inexistente. Solicite um novo." });
+    if (Date.now() > Number(exp)) {
+      res.status(400).json({ valid: false, error: "Código expirado. Solicite um novo." });
       return;
     }
 
-    if (entry.code !== code) {
+    const expected = signOtp(email, String(code), Number(exp));
+    const ok =
+      ticket.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(ticket), Buffer.from(expected));
+    if (!ok) {
       res.status(400).json({ valid: false, error: "Código incorreto." });
       return;
     }
 
-    otpStore.delete(email);
     res.json({ valid: true });
   });
 

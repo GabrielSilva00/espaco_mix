@@ -35,6 +35,7 @@ export function AuthView() {
     handleAdminLogin,
     handleRegister,
     handleVerifyCode,
+    handleResendCode,
     showToast,
     setUserRole,
     setIsApprovedEventCreator,
@@ -171,6 +172,16 @@ export function AuthView() {
             >
               Confirmar Cadastro
             </button>
+            <p className="text-[10px] uppercase tracking-widest text-white/40">
+              Não recebeu?{' '}
+              <button
+                type="button"
+                onClick={handleResendCode}
+                className="text-[#d4af37] hover:brightness-110 transition font-bold"
+              >
+                Reenviar código
+              </button>
+            </p>
             <button
               onClick={() => setVerificationStep(false)}
               className="text-[10px] uppercase tracking-widest text-white/40 hover:text-white transition mt-4"

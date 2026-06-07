@@ -134,6 +134,7 @@ interface AppContextValue {
   setRegisterStep: React.Dispatch<React.SetStateAction<number>>;
   verificationCode: string[];
   setVerificationCode: React.Dispatch<React.SetStateAction<string[]>>;
+  verifyTicket: { ticket: string; exp: number } | null;
   verificationStep: boolean;
   setVerificationStep: React.Dispatch<React.SetStateAction<boolean>>;
   authTab: 'login' | 'register' | 'staff';
@@ -265,6 +266,7 @@ interface AppContextValue {
   handleLogout: () => Promise<void>;
   handleRegister: (e: React.FormEvent) => void;
   handleVerifyCode: () => Promise<void>;
+  handleResendCode: () => Promise<void>;
   handleEditEvent: (evt: Event) => Promise<void>;
   handleCreateEvent: () => void;
   handleSaveEvent: (isDraft?: boolean) => Promise<void>;
@@ -374,6 +376,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [registerStep, setRegisterStep] = useState(1);
   const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', '']);
   const [verificationStep, setVerificationStep] = useState(false);
+  // Ticket assinado (HMAC) do OTP — devolvido pelo servidor no envio e reenviado na verificação
+  const [verifyTicket, setVerifyTicket] = useState<{ ticket: string; exp: number } | null>(null);
   const [authTab, setAuthTab] = useState<'login' | 'register' | 'staff'>('login');
   const [totpPending, setTotpPending] = useState(false);
   const [totpInput, setTotpInput] = useState('');
@@ -1072,11 +1076,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: registerForm.email }),
         });
+        const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-          const data = await resp.json().catch(() => ({}));
           setAdminError((data as any).error ?? 'Erro ao enviar código. Tente novamente.');
           return;
         }
+        setVerifyTicket({ ticket: (data as any).ticket, exp: (data as any).exp });
+        setVerificationCode(['', '', '', '', '', '']);
         setVerificationStep(true);
       } catch {
         setAdminError('Erro de conexão. Verifique sua internet.');
@@ -1084,15 +1090,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const handleResendCode = async () => {
+    if (!registerForm.email) { setAdminError('E-mail não informado.'); return; }
+    try {
+      const resp = await fetch('/api/auth/send-verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: registerForm.email }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        setAdminError((data as any).error ?? 'Erro ao reenviar código.');
+        return;
+      }
+      setVerifyTicket({ ticket: (data as any).ticket, exp: (data as any).exp });
+      setVerificationCode(['', '', '', '', '', '']);
+      setAdminError('');
+      showToast('Novo código enviado para o seu e-mail.', 'success');
+    } catch {
+      setAdminError('Erro de conexão ao reenviar código.');
+    }
+  };
+
   const handleVerifyCode = async () => {
     const code = verificationCode.join('');
     if (code.length < 6) { setAdminError('Preencha o código completo (6 dígitos)'); return; }
+    if (!verifyTicket) { setAdminError('Sessão de verificação expirada. Reenvie o código.'); return; }
     setAdminError('');
     try {
       const checkResp = await fetch('/api/auth/check-verify-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: registerForm.email, code }),
+        body: JSON.stringify({ email: registerForm.email, code, ticket: verifyTicket.ticket, exp: verifyTicket.exp }),
       });
       const checkData = await checkResp.json().catch(() => ({}));
       if (!checkResp.ok || !(checkData as any).valid) {
@@ -1109,6 +1138,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         passport_doc: registerForm.nationality === 'foreign' ? registerForm.passportDoc : undefined,
       } as any);
       setVerificationStep(false);
+      setVerifyTicket(null);
       setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
       setVerificationCode(['', '', '', '', '', '']);
       setAdminForm({ username: '', password: '' });
@@ -1629,6 +1659,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     registerForm, setRegisterForm,
     registerStep, setRegisterStep,
     verificationCode, setVerificationCode,
+    verifyTicket,
     verificationStep, setVerificationStep,
     authTab, setAuthTab,
     totpPending, setTotpPending,
@@ -1684,7 +1715,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     totalTicketsSelected,
     previewSectors, expandedSector,
     showToastFn: showToast,
-    handleAdminLogin, handleLogout, handleRegister, handleVerifyCode,
+    handleAdminLogin, handleLogout, handleRegister, handleVerifyCode, handleResendCode,
     handleEditEvent, handleCreateEvent, handleSaveEvent, handleUpdateEventStatus, handleImageFileChange,
     handleAddStaff, handleCheckIn, handleUndoCheckIn, handleScannerError,
     toggleTableSelection, getTableStatus, handleCheckout, handleConfirmReservation, handleCreateReservation,
