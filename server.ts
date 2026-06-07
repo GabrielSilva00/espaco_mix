@@ -1224,10 +1224,15 @@ export async function createExpressApp() {
 
     const { Resend } = await import("resend");
     const resend = new Resend(process.env.RESEND_API_KEY);
+    const senderName = process.env.EMAIL_SENDER_NAME || "Espaço Mix";
+    const senderAddress = process.env.EMAIL_SENDER_ADDRESS || "onboarding@resend.dev";
 
     try {
-      await resend.emails.send({
-        from: "Espaço Mix <onboarding@resend.dev>",
+      // O SDK do Resend NÃO lança em erro: retorna { data, error }. Precisamos
+      // checar `error` explicitamente, senão um envio rejeitado (ex.: domínio
+      // não verificado) passaria como sucesso e o usuário nunca receberia o código.
+      const { error } = await resend.emails.send({
+        from: `${senderName} <${senderAddress}>`,
         to: email,
         subject: "Seu código de verificação — Espaço Mix",
         html: `
@@ -1243,6 +1248,11 @@ export async function createExpressApp() {
           </div>
         `,
       });
+      if (error) {
+        console.error("[OTP] Resend rejeitou o envio:", error);
+        res.status(502).json({ error: `Não foi possível enviar o e-mail: ${(error as any).message ?? (error as any).name ?? "erro do provedor"}` });
+        return;
+      }
       res.json({ sent: true });
     } catch (err: any) {
       console.error("[OTP] Erro ao enviar código:", err.message);
