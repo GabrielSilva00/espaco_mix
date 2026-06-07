@@ -5,6 +5,7 @@ import {
   Users, Mail, RefreshCcw, ShieldAlert, Tag,
 } from 'lucide-react';
 import { useApp } from './context/AppContext';
+import { supabase } from './lib/supabase';
 import { AdminSidebar } from './shared/components/AdminSidebar';
 import { Navbar } from './shared/components/Navbar';
 import { Toast } from './shared/components/Toast';
@@ -585,9 +586,14 @@ export function App() {
                   try {
                     showToast('Enviando mensagens...', 'info');
                     const serverUrl = window.location.origin.replace(':5173', ':3000');
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const token = session?.access_token;
                     const res = await fetch(`${serverUrl}/api/messages/broadcast`, {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: {
+                        'Content-Type': 'application/json',
+                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                      },
                       body: JSON.stringify({ eventId: selectedDashboardEvent, message: messageText }),
                     });
                     const data = await res.json();

@@ -100,6 +100,151 @@ const allowMockPayments = process.env.ALLOW_MOCK_PAYMENTS === "true";
 let runtimeMpAccessToken = "";
 let runtimeMpPublicKey = "";
 
+// ─── Cliente Supabase com service role (admin) ───────────────────────────────
+async function getAdminClient() {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) return null;
+  const { createClient } = await import("@supabase/supabase-js");
+  return createClient(supabaseUrl, serviceRoleKey);
+}
+
+// ─── Papel do usuário (autorização) ──────────────────────────────────────────
+async function getProfileRole(uid: string): Promise<string | null> {
+  const admin = await getAdminClient();
+  if (!admin) return null;
+  const { data } = await admin.from("profiles").select("role").eq("id", uid).maybeSingle();
+  return (data?.role as string) ?? null;
+}
+
+// ─── Mapeia status do Mercado Pago → status interno da reserva ───────────────
+function mpStatusToReservation(mpStatus: string): string | null {
+  const map: Record<string, string> = {
+    approved: "approved",
+    authorized: "approved",
+    pending: "pending",
+    in_process: "pending",
+    in_mediation: "pending",
+    rejected: "cancelled",
+    cancelled: "cancelled",
+    refunded: "refunded",
+    charged_back: "refunded",
+  };
+  return map[mpStatus] ?? null;
+}
+
+// ─── Parse de JSON tolerante a falhas ────────────────────────────────────────
+function safeJsonParse(s: string): any {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return {};
+  }
+}
+
+// ─── Escape de HTML (previne injeção em corpos de e-mail) ────────────────────
+function escapeHtml(str: string): string {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// ─── Cálculo autoritativo do valor do pedido (anti-fraude) ───────────────────
+// Recalcula o total no servidor a partir dos preços do banco, ignorando
+// qualquer valor enviado pelo cliente. Espelha a lógica de derivedTables /
+// ticketsTotal do frontend (AppContext.tsx).
+const PLATFORM_FEE_RATE = 0.10;
+const DEFAULT_TICKET_PRICE = 50; // EVENT_TICKET_PRICE (fallback sem setor)
+
+interface OrderSelection {
+  eventId?: number | string;
+  tables?: unknown;
+  singleTickets?: number;
+  maleTickets?: number;
+  femaleTickets?: number;
+  sectorId?: string;
+}
+
+async function computeOrderTotal(sel: OrderSelection): Promise<number> {
+  const admin = await getAdminClient();
+  if (!admin) throw new Error("Serviço de validação de preço não configurado.");
+
+  if (sel.eventId === undefined || sel.eventId === null || sel.eventId === "") {
+    throw new Error("Evento do pedido não informado.");
+  }
+
+  const { data: event, error: evErr } = await admin
+    .from("events")
+    .select("price_type, has_tables, table_total, total_bistros, table_price, bistro_price, table_seats, table_layout")
+    .eq("id", sel.eventId)
+    .maybeSingle();
+  if (evErr || !event) throw new Error("Evento não encontrado.");
+
+  const tables = Array.isArray(sel.tables) ? sel.tables.map(Number) : [];
+  const singleTickets = Math.max(0, Math.floor(Number(sel.singleTickets) || 0));
+  const maleTickets = Math.max(0, Math.floor(Number(sel.maleTickets) || 0));
+  const femaleTickets = Math.max(0, Math.floor(Number(sel.femaleTickets) || 0));
+
+  // ── Mesas ──────────────────────────────────────────────────────────────
+  let tablesTotal = 0;
+  if (tables.length > 0) {
+    const tablePrice = event.table_price ?? 300;
+    const bistroPrice = event.bistro_price ?? 200;
+    const layout: any[] = Array.isArray(event.table_layout) ? event.table_layout : [];
+    const layoutTables = layout.filter(
+      (el) => el?.type === "round-table" || el?.type === "rect-table" || el?.type === "bistro-table"
+    );
+
+    const priceById = new Map<number, number>();
+    if (layoutTables.length > 0) {
+      layoutTables.forEach((el, i) => {
+        const def = el.type === "bistro-table" ? bistroPrice : tablePrice;
+        priceById.set(i + 1, typeof el.price === "number" ? el.price : def);
+      });
+    } else {
+      const totalTables = event.table_total ?? 20;
+      const totalBistros = event.total_bistros ?? 0;
+      for (let i = 0; i < totalTables; i++) priceById.set(i + 1, tablePrice);
+      for (let i = 0; i < totalBistros; i++) priceById.set(totalTables + i + 1, bistroPrice);
+    }
+
+    for (const id of tables) {
+      const p = priceById.get(id);
+      if (p === undefined) throw new Error("Mesa selecionada inválida.");
+      tablesTotal += p;
+    }
+  }
+
+  // ── Ingressos ──────────────────────────────────────────────────────────
+  let ticketsTotal = 0;
+  if (singleTickets > 0 || maleTickets > 0 || femaleTickets > 0) {
+    let sector: any = null;
+    if (sel.sectorId) {
+      const { data } = await admin
+        .from("sectors")
+        .select("price, price_male, price_female, event_id")
+        .eq("id", sel.sectorId)
+        .maybeSingle();
+      sector = data;
+      if (sector && Number(sector.event_id) !== Number(sel.eventId)) {
+        throw new Error("Setor não pertence ao evento.");
+      }
+    }
+    if (event.price_type === "gender") {
+      ticketsTotal = maleTickets * (sector?.price_male ?? 0) + femaleTickets * (sector?.price_female ?? 0);
+    } else {
+      ticketsTotal = singleTickets * (sector?.price ?? DEFAULT_TICKET_PRICE);
+    }
+  }
+
+  const subTotal = tablesTotal + ticketsTotal;
+  const grandTotal = subTotal + subTotal * PLATFORM_FEE_RATE;
+  return Math.round(grandTotal * 100) / 100;
+}
+
 // ─── Express app factory ─────────────────────────────────────────────────────
 
 export async function createExpressApp() {
@@ -230,6 +375,37 @@ export async function createExpressApp() {
       (req as any).user = { uid: "dev-user", email: "dev@localhost" };
     }
 
+    next();
+  };
+
+  // ── Admin Middleware (usar SEMPRE após requireAuth) ───────────────────────
+  const requireAdmin = async (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    const user = (req as any).user;
+    if (!user?.uid) {
+      res.status(401).json({ error: "Não autenticado." });
+      return;
+    }
+    const admin = await getAdminClient();
+    if (!admin) {
+      // Sem service role: só liberamos em desenvolvimento. Em produção, falha fechado.
+      if (!isProduction) {
+        next();
+        return;
+      }
+      res.status(503).json({ error: "Serviço de autorização não configurado." });
+      return;
+    }
+    const { data } = await admin.from("profiles").select("role").eq("id", user.uid).maybeSingle();
+    const role = data?.role;
+    if (role !== "admin" && role !== "developer") {
+      res.status(403).json({ error: "Acesso restrito a administradores." });
+      return;
+    }
+    (req as any).userRole = role;
     next();
   };
 
@@ -463,7 +639,7 @@ export async function createExpressApp() {
   });
 
   // ── Mercado Pago - Test Connection ────────────────────────────────────────
-  app.post("/api/admin/test-mercadopago", requireAuth, async (req, res) => {
+  app.post("/api/admin/test-mercadopago", requireAuth, requireAdmin, async (req, res) => {
     const { accessToken, publicKey } = req.body as { accessToken?: string; publicKey?: string };
 
     if (!accessToken || !publicKey) {
@@ -493,7 +669,7 @@ export async function createExpressApp() {
   });
 
   // ── Definir credenciais MP em memória (painel admin) ─────────────────────
-  app.post("/api/admin/set-mp-credentials", requireAuth, (req, res) => {
+  app.post("/api/admin/set-mp-credentials", requireAuth, requireAdmin, (req, res) => {
     const { accessToken, publicKey } = req.body as { accessToken?: string; publicKey?: string };
     if (!accessToken || !publicKey) {
       res.status(400).json({ error: "accessToken e publicKey são obrigatórios." });
@@ -510,11 +686,13 @@ export async function createExpressApp() {
     const {
       cardToken,
       cardBrand,
-      amount,
+      amount: clientAmount,
       description,
       paymentMethod,
       installments,
-      guestData
+      guestData,
+      selection,
+      reservationId,
     } = req.body as {
       cardToken?: string;
       cardBrand?: string;
@@ -523,6 +701,8 @@ export async function createExpressApp() {
       paymentMethod?: string;
       installments?: string;
       guestData?: { name?: string; email?: string; cpf?: string };
+      selection?: OrderSelection;
+      reservationId?: string;
     };
 
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN || runtimeMpAccessToken;
@@ -533,14 +713,28 @@ export async function createExpressApp() {
       return;
     }
 
-    if (!cardToken || !amount || !description) {
+    if (!cardToken || !description) {
       res.status(400).json({ error: "Dados incompletos para pagamento." });
+      return;
+    }
+
+    // Valor SEMPRE recalculado no servidor a partir dos preços do banco.
+    // O valor enviado pelo cliente é descartado (anti-fraude).
+    let amount: number;
+    try {
+      amount = await computeOrderTotal(selection ?? {});
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message ?? "Não foi possível validar o valor do pedido." });
       return;
     }
 
     if (amount <= 0 || amount > 999999) {
       res.status(400).json({ error: "Valor inválido para pagamento." });
       return;
+    }
+
+    if (Number.isFinite(Number(clientAmount)) && Math.abs(Number(clientAmount) - amount) > 0.01) {
+      console.warn(`[SECURITY] Divergência de valor (cartão): cliente=${clientAmount} servidor=${amount}`);
     }
 
     try {
@@ -556,6 +750,7 @@ export async function createExpressApp() {
         statement_descriptor: description.slice(0, 22),
         transaction_amount: Math.round(amount * 100) / 100,
         description,
+        ...(reservationId ? { external_reference: reservationId } : {}),
         payer: {
           email: guestData?.email || "comprador@mercadopago.com",
           first_name: (guestData?.name || "").split(" ")[0],
@@ -592,6 +787,20 @@ export async function createExpressApp() {
 
       console.log("[MERCADOPAGO] ✓ Pagamento processado:", data.id);
 
+      // Atualiza a reserva (service role) com o status real — não confia no cliente.
+      // O webhook é a rede de segurança caso esta atualização falhe.
+      if (reservationId) {
+        const newStatus = mpStatusToReservation(data.status);
+        const admin = await getAdminClient();
+        if (admin && newStatus) {
+          const { error: upErr } = await admin
+            .from("reservations")
+            .update({ payment_status: newStatus, payment_id: String(data.id), updated_at: new Date().toISOString() })
+            .eq("id", reservationId);
+          if (upErr) console.error("[MERCADOPAGO] Falha ao atualizar reserva:", upErr.message);
+        }
+      }
+
       res.json({
         success: true,
         paymentId: data.id,
@@ -607,15 +816,30 @@ export async function createExpressApp() {
 
   // ── Mercado Pago - PIX ────────────────────────────────────────────────────
   app.post("/api/payment/pix", paymentLimiter, requireAuth, async (req, res) => {
-    const { amount, description, guestData } = req.body as {
+    const { amount: clientAmount, description, guestData, selection, reservationId } = req.body as {
       amount?: number;
       description?: string;
       guestData?: { name?: string; email?: string; cpf?: string };
+      selection?: OrderSelection;
+      reservationId?: string;
     };
 
-    if (!amount || amount <= 0) {
+    // Valor SEMPRE recalculado no servidor (anti-fraude) — ignora o do cliente.
+    let amount: number;
+    try {
+      amount = await computeOrderTotal(selection ?? {});
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message ?? "Não foi possível validar o valor do pedido." });
+      return;
+    }
+
+    if (amount <= 0 || amount > 999999) {
       res.status(400).json({ error: "Valor inválido para pagamento PIX." });
       return;
+    }
+
+    if (Number.isFinite(Number(clientAmount)) && Math.abs(Number(clientAmount) - amount) > 0.01) {
+      console.warn(`[SECURITY] Divergência de valor (PIX): cliente=${clientAmount} servidor=${amount}`);
     }
 
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN || runtimeMpAccessToken;
@@ -636,6 +860,7 @@ export async function createExpressApp() {
           payment_method_id: "pix",
           transaction_amount: Math.round(amount * 100) / 100,
           description: (description || "Ingresso").slice(0, 255),
+          ...(reservationId ? { external_reference: reservationId } : {}),
           payer: {
             email: guestData?.email || "comprador@email.com",
             first_name: (guestData?.name || "").split(" ")[0] || "Comprador",
@@ -659,6 +884,18 @@ export async function createExpressApp() {
       const qrCode = data.point_of_interaction?.transaction_data?.qr_code ?? "";
       const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCode)}&size=250x250`;
 
+      // Vincula o payment_id à reserva (service role) para o webhook casar a confirmação.
+      if (reservationId) {
+        const admin = await getAdminClient();
+        if (admin) {
+          const { error: upErr } = await admin
+            .from("reservations")
+            .update({ payment_id: String(data.id), updated_at: new Date().toISOString() })
+            .eq("id", reservationId);
+          if (upErr) console.error("[PIX] Falha ao vincular payment_id à reserva:", upErr.message);
+        }
+      }
+
       console.log(`[PIX] Gerado paymentId=${data.id} status=${data.status}`);
       res.json({
         paymentId: data.id,
@@ -672,9 +909,11 @@ export async function createExpressApp() {
     }
   });
 
-  // ── Mercado Pago - Webhook (SEM AUTENTICAÇÃO, SEM CORS, ACEITA QUALQUER CONTENT-TYPE) ──
+  // ── Mercado Pago - Webhook ────────────────────────────────────────────────
+  // Sem auth de usuário, mas valida a ASSINATURA do MP e confirma o status real
+  // consultando a API (nunca confia no corpo recebido). Atualiza a reserva via
+  // service role — a única forma legítima de marcar um pagamento como aprovado.
   app.post("/api/webhook/mercadopago", (req, res, next) => {
-    // Aceita JSON, x-www-form-urlencoded, ou texto puro
     if (req.is('application/json')) {
       express.json()(req, res, next);
     } else if (req.is('application/x-www-form-urlencoded')) {
@@ -682,9 +921,93 @@ export async function createExpressApp() {
     } else {
       express.text({ type: '*/*' })(req, res, next);
     }
-  }, (req, res) => {
-    // Sempre responde 200 para evitar retries do Mercado Pago
+  }, async (req, res) => {
+    // Responde 200 imediatamente para evitar retries; processa em seguida.
     res.status(200).json({ received: true });
+
+    try {
+      // 1. Extrai o ID do pagamento (corpo ou querystring)
+      const body: any = typeof req.body === "string" ? safeJsonParse(req.body) : req.body;
+      const topic = body?.type ?? body?.topic ?? req.query.type ?? req.query.topic;
+      const paymentId =
+        body?.data?.id ?? body?.["data.id"] ?? req.query["data.id"] ?? req.query.id;
+
+      // Só tratamos notificações de pagamento
+      if (topic && String(topic).indexOf("payment") === -1) return;
+      if (!paymentId) return;
+
+      // 2. Valida a assinatura HMAC do Mercado Pago (se o secret estiver configurado)
+      const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+      if (secret) {
+        const sigHeader = String(req.headers["x-signature"] ?? "");
+        const requestId = String(req.headers["x-request-id"] ?? "");
+        const parts = Object.fromEntries(
+          sigHeader.split(",").map((kv) => kv.split("=").map((s) => s.trim())) as [string, string][]
+        );
+        const ts = parts["ts"];
+        const v1 = parts["v1"];
+        const manifest = `id:${String(paymentId).toLowerCase()};request-id:${requestId};ts:${ts};`;
+        const expected = crypto.createHmac("sha256", secret).update(manifest).digest("hex");
+        const ok =
+          !!v1 &&
+          v1.length === expected.length &&
+          crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expected));
+        if (!ok) {
+          console.warn("[WEBHOOK] Assinatura inválida — notificação descartada.");
+          return;
+        }
+      } else {
+        console.warn("[WEBHOOK] MERCADOPAGO_WEBHOOK_SECRET não configurado — assinatura não verificada.");
+      }
+
+      // 3. Confirma o status REAL consultando a API do MP (não confia no corpo)
+      const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN || runtimeMpAccessToken;
+      if (!accessToken) {
+        console.error("[WEBHOOK] Access Token não configurado — impossível confirmar pagamento.");
+        return;
+      }
+      const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!mpRes.ok) {
+        console.error("[WEBHOOK] Falha ao consultar pagamento no MP:", mpRes.status);
+        return;
+      }
+      const payment: any = await mpRes.json();
+      const mpStatus: string = payment?.status ?? "";
+      const externalRef: string | undefined = payment?.external_reference ?? undefined;
+
+      // 4. Mapeia status do MP → status interno da reserva
+      const newStatus = mpStatusToReservation(mpStatus);
+      if (!newStatus) return;
+
+      // 5. Atualiza a reserva (service role) — casa por payment_id ou external_reference
+      const admin = await getAdminClient();
+      if (!admin) {
+        console.error("[WEBHOOK] Service role não configurado — reserva não atualizada.");
+        return;
+      }
+      const pidStr = String(paymentId);
+      let query = admin.from("reservations").update({
+        payment_status: newStatus,
+        payment_id: pidStr,
+        updated_at: new Date().toISOString(),
+      });
+      // Prioriza external_reference (id da reserva); senão casa pelo payment_id já salvo
+      if (externalRef) {
+        query = query.eq("id", externalRef);
+      } else {
+        query = query.eq("payment_id", pidStr);
+      }
+      const { error } = await query;
+      if (error) {
+        console.error("[WEBHOOK] Erro ao atualizar reserva:", error.message);
+        return;
+      }
+      console.log(`[WEBHOOK] Pagamento ${pidStr} → ${newStatus} (ref=${externalRef ?? "via payment_id"})`);
+    } catch (err: any) {
+      console.error("[WEBHOOK] Erro ao processar notificação:", err?.message);
+    }
   });
 
   // ── Profile Sensitive Data — leitura (descriptografa CPF / phone / birth_date) ──
@@ -901,10 +1224,15 @@ export async function createExpressApp() {
 
     const { Resend } = await import("resend");
     const resend = new Resend(process.env.RESEND_API_KEY);
+    const senderName = process.env.EMAIL_SENDER_NAME || "Espaço Mix";
+    const senderAddress = process.env.EMAIL_SENDER_ADDRESS || "onboarding@resend.dev";
 
     try {
-      await resend.emails.send({
-        from: "Espaço Mix <onboarding@resend.dev>",
+      // O SDK do Resend NÃO lança em erro: retorna { data, error }. Precisamos
+      // checar `error` explicitamente, senão um envio rejeitado (ex.: domínio
+      // não verificado) passaria como sucesso e o usuário nunca receberia o código.
+      const { error } = await resend.emails.send({
+        from: `${senderName} <${senderAddress}>`,
         to: email,
         subject: "Seu código de verificação — Espaço Mix",
         html: `
@@ -920,6 +1248,11 @@ export async function createExpressApp() {
           </div>
         `,
       });
+      if (error) {
+        console.error("[OTP] Resend rejeitou o envio:", error);
+        res.status(502).json({ error: `Não foi possível enviar o e-mail: ${(error as any).message ?? (error as any).name ?? "erro do provedor"}` });
+        return;
+      }
       res.json({ sent: true });
     } catch (err: any) {
       console.error("[OTP] Erro ao enviar código:", err.message);
@@ -951,7 +1284,7 @@ export async function createExpressApp() {
   });
 
   // ── Email - Confirmação de Compra ─────────────────────────────────────────
-  app.post("/api/email/send-confirmation", async (req, res) => {
+  app.post("/api/email/send-confirmation", requireAuth, async (req, res) => {
     const { buyerName, buyerEmail, reservationId, eventTitle, eventDate, eventTime, eventLocation, total, paymentMethod } =
       req.body as Partial<ConfirmationData>;
 
@@ -999,12 +1332,14 @@ export async function createExpressApp() {
   });
 
   // ─── Broadcast de mensagens para compradores de um evento ─────────────────
-  app.post("/api/messages/broadcast", async (req, res) => {
+  app.post("/api/messages/broadcast", requireAuth, requireAdmin, async (req, res) => {
     const { eventId, message, subject } = req.body as { eventId?: number; message?: string; subject?: string };
     if (!eventId || !message?.trim()) {
       res.status(400).json({ error: "eventId e message são obrigatórios." });
       return;
     }
+    const safeSubject = escapeHtml((subject || "Aviso importante sobre o seu evento").slice(0, 200));
+    const safeMessage = escapeHtml(message.slice(0, 5000));
     try {
       const { createClient } = await import("@supabase/supabase-js");
       const adminClient = createClient(
@@ -1021,7 +1356,6 @@ export async function createExpressApp() {
 
       let sent = 0;
       let errors = 0;
-      const broadcastSubject = subject || "Aviso importante sobre o seu evento";
 
       for (const r of reservations ?? []) {
         try {
@@ -1030,10 +1364,10 @@ export async function createExpressApp() {
           await resend.emails.send({
             from: `${process.env.EMAIL_SENDER_NAME || "Espaço Mix"} <${process.env.EMAIL_SENDER_ADDRESS || "noreply@espacomix.com.br"}>`,
             to: r.buyer_email,
-            subject: broadcastSubject,
+            subject: safeSubject,
             html: `<div style="font-family:sans-serif;max-width:600px;margin:auto;padding:32px;background:#0d0d0d;color:#fff;border-radius:12px">
-              <h2 style="color:#d4af37;margin-bottom:16px">${broadcastSubject}</h2>
-              <p style="color:#ccc;line-height:1.6;white-space:pre-wrap">${message}</p>
+              <h2 style="color:#d4af37;margin-bottom:16px">${safeSubject}</h2>
+              <p style="color:#ccc;line-height:1.6;white-space:pre-wrap">${safeMessage}</p>
               <hr style="border-color:#333;margin:24px 0"/>
               <p style="color:#666;font-size:12px">Este é um aviso enviado pelo organizador do evento.</p>
             </div>`,
@@ -1085,6 +1419,15 @@ export async function createExpressApp() {
         return;
       }
 
+      // 2b. Autorização: só o dono da reserva ou um admin pode estornar (anti-IDOR)
+      const requester = (req as any).user;
+      const requesterRole = await getProfileRole(requester.uid);
+      const isAdmin = requesterRole === "admin" || requesterRole === "developer";
+      if (!isAdmin && (reservation as any).user_id !== requester.uid) {
+        res.status(403).json({ error: "Você não tem permissão para estornar esta reserva." });
+        return;
+      }
+
       const eventDate = new Date((reservation as any).events?.date);
       const hoursUntil = (eventDate.getTime() - Date.now()) / 3600000;
       if (hoursUntil < (settings.cancel_max_delay ?? 0)) {
@@ -1109,7 +1452,7 @@ export async function createExpressApp() {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+            Authorization: `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN || process.env.MP_ACCESS_TOKEN || runtimeMpAccessToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(mpBody),

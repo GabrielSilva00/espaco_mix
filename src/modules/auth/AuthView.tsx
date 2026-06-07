@@ -51,7 +51,7 @@ export function AuthView() {
       >
         <div className="absolute top-0 right-0 w-32 h-32 bg-[#d4af37] opacity-5 blur-3xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
 
-        {authTab !== 'staff' && (
+        {authTab !== 'staff' && !totpPending && !verificationStep && !(authTab === 'register' && registerStep === 2) && (
           <div className="flex bg-white/5 p-1 rounded-xl mb-6">
             <button
               onClick={() => setAuthTab('login')}
