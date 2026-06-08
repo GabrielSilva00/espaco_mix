@@ -299,6 +299,23 @@ async function computeOrderTotal(sel: OrderSelection): Promise<number> {
   return Math.round(grandTotal * 100) / 100;
 }
 
+// ─── Mesas ocupadas de um evento (reservas pagas OU pendentes) ───────────────
+// Retorna apenas NÚMEROS de mesa (sem dados pessoais) — usado para bloquear
+// dupla reserva no checkout e marcar mesas como indisponíveis no mapa.
+async function getOccupiedTables(admin: any, eventId: number | string): Promise<number[]> {
+  const { data, error } = await admin
+    .from("reservations")
+    .select("tables, payment_status")
+    .eq("event_id", eventId)
+    .in("payment_status", ["approved", "pending"]);
+  if (error) throw error;
+  const set = new Set<number>();
+  (data ?? []).forEach((r: any) => {
+    (Array.isArray(r.tables) ? r.tables : []).forEach((t: any) => set.add(Number(t)));
+  });
+  return [...set];
+}
+
 // ─── Express app factory ─────────────────────────────────────────────────────
 
 export async function createExpressApp() {
@@ -794,6 +811,21 @@ export async function createExpressApp() {
     const netAmount = Math.round((grandTotal / (1 + PLATFORM_FEE_RATE)) * 100) / 100;
     const platformFee = Math.round((grandTotal - netAmount) * 100) / 100;
 
+    // Bloqueia dupla reserva: rejeita se alguma mesa pedida já está ocupada.
+    const requestedTables = Array.isArray(reservation.tables) ? reservation.tables.map(Number) : [];
+    if (requestedTables.length > 0) {
+      try {
+        const occupied = new Set(await getOccupiedTables(admin, reservation.event_id));
+        const conflict = requestedTables.filter((t) => occupied.has(t));
+        if (conflict.length > 0) {
+          res.status(409).json({ error: `Mesa(s) já reservada(s): ${conflict.join(", ")}. Atualize o mapa e escolha outra.` });
+          return;
+        }
+      } catch (e: any) {
+        console.error("[RESERVA] Falha ao checar mesas ocupadas:", e?.message);
+      }
+    }
+
     try {
       const { data: res1, error: resErr } = await admin
         .from("reservations")
@@ -844,6 +876,19 @@ export async function createExpressApp() {
     } catch (err: any) {
       console.error("[RESERVA] Falha ao criar reserva:", err?.message ?? err);
       res.status(500).json({ error: "Não foi possível registrar a reserva." });
+    }
+  });
+
+  // ── Mesas ocupadas de um evento (público — só números, sem dados pessoais) ─
+  app.get("/api/events/:eventId/occupied-tables", async (req, res) => {
+    const admin = await getAdminClient();
+    if (!admin) { res.json({ tables: [] }); return; }
+    try {
+      const tables = await getOccupiedTables(admin, req.params.eventId);
+      res.json({ tables });
+    } catch (e: any) {
+      console.error("[OCCUPIED] Erro:", e?.message);
+      res.json({ tables: [] });
     }
   });
 

@@ -24,6 +24,7 @@ import { TableLayoutEditor } from '../../components/TableLayoutEditor';
 import { downloadPDFList } from '../../shared/utils/pdf';
 import { generateDefaultLayout, getLayoutViewBox } from '../../shared/utils/defaultLayout';
 import { ReportsPanel } from './ReportsPanel';
+import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { isEventPast } from '../../shared/utils/eventMapper';
 import type { Event, Buyer, Reservation } from '../../types';
 
@@ -255,6 +256,7 @@ function DevOverviewPanel({ events, buyers, reservations, systemLogs, clearSyste
 }
 
 export function DashboardView() {
+  const isMobile = useIsMobile();
   const {
     dashboardMode, setDashboardMode,
     currentView,
@@ -1966,7 +1968,9 @@ export function DashboardView() {
                             </div>
                           </div>
 
-                          {/* Preview do Mapa */}
+                          {/* Preview do Mapa — oculto no mobile: o editor visual
+                              (drag & drop) não é usável em telas pequenas. */}
+                          {!isMobile && (
                           <div className="pt-4 mt-2 border-t border-white/5">
                             <p className="text-[10px] uppercase font-bold text-[#C9A84C] mb-3 tracking-widest">Preview do Mapa</p>
                             {(() => {
@@ -2065,6 +2069,7 @@ export function DashboardView() {
                               Abrir Editor Visual (Drag &amp; Drop)
                             </button>
                           </div>
+                          )}
                         </div>
                       )}
                     </div>

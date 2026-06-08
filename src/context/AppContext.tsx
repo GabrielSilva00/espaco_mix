@@ -360,6 +360,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Tables / cart
   const [tables, setTables] = useState<TableDef[]>([]);
   const [selectedTables, setSelectedTables] = useState<number[]>([]);
+  // Números de mesa já ocupados (reservas pagas/pendentes) do evento ativo —
+  // vindos do servidor (RLS impede o cliente de ler reservas alheias direto).
+  const [occupiedTableIds, setOccupiedTableIds] = useState<number[]>([]);
   const [singleTickets, setSingleTickets] = useState(0);
   const [maleTickets, setMaleTickets] = useState(0);
   const [femaleTickets, setFemaleTickets] = useState(0);
@@ -543,6 +546,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     el => el.type === 'round-table' || el.type === 'rect-table' || el.type === 'bistro-table'
   );
 
+  const isOccupied = (id: number) => occupiedTableIds.includes(id);
   const derivedTables: TableDef[] = layoutTableElements.length > 0
     ? layoutTableElements.map((el, i) => {
         const existing = tables.find(t => t.id === i + 1);
@@ -552,7 +556,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return {
           id: i + 1,
           capacity: el.capacity ?? activeEvent?.tableConfig?.seatsPerTable ?? 4,
-          status: existing?.status || 'available',
+          status: (isOccupied(i + 1) ? 'reserved' : (existing?.status || 'available')) as 'available' | 'reserved',
           price: el.price ?? existing?.price ?? defaultPrice,
         };
       })
@@ -562,7 +566,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return {
             id: i + 1,
             capacity: activeEvent?.tableConfig?.seatsPerTable ?? existing?.capacity ?? 4,
-            status: (existing?.status || 'available') as 'available' | 'reserved',
+            status: (isOccupied(i + 1) ? 'reserved' : (existing?.status || 'available')) as 'available' | 'reserved',
             price: existing?.price ?? activeEvent?.tableConfig?.tablePrice ?? 300,
           };
         }),
@@ -572,7 +576,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return {
             id,
             capacity: 2,
-            status: (existing?.status || 'available') as 'available' | 'reserved',
+            status: (isOccupied(id) ? 'reserved' : (existing?.status || 'available')) as 'available' | 'reserved',
             price: existing?.price ?? activeEvent?.tableConfig?.bistroPrice ?? 200,
           };
         }),
@@ -922,6 +926,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .catch(e => console.error('[Reservas] Falha ao carregar do banco:', (e as Error)?.message));
     return () => { cancelled = true; };
   }, [loggedInUserId, userRole, isApprovedEventCreator]);
+
+  // Mesas ocupadas do evento ativo (bloqueia mesa já vendida no mapa).
+  useEffect(() => {
+    const eventId = activeEvent?.id;
+    if (!eventId) { setOccupiedTableIds([]); return; }
+    let cancelled = false;
+    fetch(`/api/events/${eventId}/occupied-tables`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setOccupiedTableIds(Array.isArray(d?.tables) ? d.tables.map(Number) : []); })
+      .catch(() => { if (!cancelled) setOccupiedTableIds([]); });
+    return () => { cancelled = true; };
+  }, [activeEvent?.id, paymentStatus]);
 
   // Session persistence
   useEffect(() => {
