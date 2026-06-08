@@ -10,7 +10,7 @@ import { useApp } from '../../context/AppContext';
 import { GoogleIcon } from '../../components/GoogleIcon';
 import { EVENT_TICKET_PRICE } from '../../shared/constants/app';
 import { downloadTicketPDF } from '../../shared/utils/pdf';
-import { signIn, getMyProfile } from '../../lib/supabase';
+import { signIn, getMyProfile, signInWithGoogle } from '../../lib/supabase';
 import { CardData, validateCardData, formatCardNumber } from '../../lib/cardUtils';
 import { SessionRestoredNotification } from './SessionRestoredNotification';
 import { CreditCardForm } from './CreditCardForm';
@@ -626,8 +626,9 @@ export function CheckoutModal() {
                             <span className="text-[9px] uppercase tracking-widest">ou</span>
                             <div className="h-[1px] flex-1 bg-white"></div>
                           </div>
-                          <button 
+                          <button
                             type="button"
+                            onClick={() => signInWithGoogle().catch((e) => setAdminError(e?.message || 'Falha ao entrar com Google'))}
                             className="w-full bg-white text-black py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-neutral-200 transition flex justify-center items-center gap-2"
                           >
                             <GoogleIcon className="w-4 h-4" /> Entrar com Google
@@ -642,8 +643,9 @@ export function CheckoutModal() {
                             <span className="text-[9px] uppercase tracking-widest">ou</span>
                             <div className="h-[1px] flex-1 bg-white"></div>
                           </div>
-                          <button 
+                          <button
                             type="button"
+                            onClick={() => signInWithGoogle().catch((e) => setAdminError(e?.message || 'Falha ao cadastrar com Google'))}
                             className="w-full bg-white text-black py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-neutral-200 transition flex justify-center items-center gap-2"
                           >
                             <GoogleIcon className="w-4 h-4" /> Cadastrar com Google

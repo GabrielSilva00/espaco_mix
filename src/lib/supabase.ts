@@ -356,6 +356,17 @@ export async function signIn(email: string, password: string) {
   return data;
 }
 
+/** Login/cadastro com Google (OAuth). Requer o provedor Google habilitado no
+ *  painel do Supabase (Auth > Providers > Google) com as credenciais OAuth. */
+export async function signInWithGoogle() {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  });
+  if (error) throw error;
+  return data;
+}
+
 /** Logout — scope 'local' evita chamada global ao servidor (fonte de 429) */
 export async function signOut() {
   const { error } = await supabase.auth.signOut({ scope: 'local' });
@@ -856,7 +867,10 @@ export async function createReservation(
   }
 
   const json = await response.json();
-  return (json as any).reservation as Reservation;
+  const created = (json as any).reservation as Reservation;
+  // Anexa os ticket_items criados (com ids reais do banco) — usados no QR Code.
+  (created as any).ticket_items = (json as any).ticketItems ?? [];
+  return created;
 }
 
 /** Buscar reservas do usuário logado */

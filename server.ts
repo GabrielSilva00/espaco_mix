@@ -819,6 +819,7 @@ export async function createExpressApp() {
 
       // ticket_items: sanitiza e força reservation_id/event_id no servidor.
       const items = Array.isArray(ticketItems) ? ticketItems.slice(0, 500) : [];
+      let insertedItems: any[] = [];
       if (items.length > 0) {
         const toInsert = items.map((t) => ({
           reservation_id: res1.id,
@@ -832,14 +833,82 @@ export async function createExpressApp() {
           owner_email: t?.owner_email ?? null,
           status: String(t?.status ?? "active"),
         }));
-        const { error: tiErr } = await admin.from("ticket_items").insert(toInsert);
+        // .select() retorna os ids reais (gerados no banco) — usados no QR Code
+        // para que o check-in encontre o ingresso.
+        const { data: ins, error: tiErr } = await admin.from("ticket_items").insert(toInsert).select();
         if (tiErr) throw tiErr;
+        insertedItems = ins ?? [];
       }
 
-      res.status(201).json({ reservation: res1 });
+      res.status(201).json({ reservation: res1, ticketItems: insertedItems });
     } catch (err: any) {
       console.error("[RESERVA] Falha ao criar reserva:", err?.message ?? err);
       res.status(500).json({ error: "Não foi possível registrar a reserva." });
+    }
+  });
+
+  // ── Check-in de ingresso (valida o QR contra o banco) ─────────────────────
+  // O QR do ingresso carrega o id do ticket_items. Valida pagamento aprovado e
+  // duplicidade, e marca checked_in_at. Só admin/developer ou o organizador do
+  // evento pode fazer check-in.
+  app.post("/api/checkin", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const { ticketId } = req.body as { ticketId?: string };
+    if (!ticketId || typeof ticketId !== "string") {
+      res.status(400).json({ result: "notfound" });
+      return;
+    }
+    const admin = await getAdminClient();
+    if (!admin) {
+      res.status(503).json({ result: "error", error: "Serviço não configurado." });
+      return;
+    }
+    try {
+      const { data: ticket, error } = await admin
+        .from("ticket_items")
+        .select("id, reservation_id, event_id, name, owner_name, status, checked_in_at")
+        .eq("id", ticketId.trim())
+        .maybeSingle();
+      if (error) throw error;
+      if (!ticket) { res.json({ result: "notfound" }); return; }
+
+      const { data: reservation } = await admin
+        .from("reservations")
+        .select("id, payment_status, buyer_name, event_id")
+        .eq("id", ticket.reservation_id)
+        .maybeSingle();
+
+      // Autorização: admin/developer OU organizador (created_by) do evento.
+      const role = await getProfileRole(user.uid);
+      let allowed = role === "admin" || role === "developer";
+      if (!allowed) {
+        const { data: ev } = await admin
+          .from("events")
+          .select("created_by")
+          .eq("id", ticket.event_id)
+          .maybeSingle();
+        allowed = ev?.created_by === user.uid;
+      }
+      if (!allowed) { res.status(403).json({ result: "forbidden" }); return; }
+
+      const name = ticket.owner_name || reservation?.buyer_name || "Convidado";
+      if (!reservation || reservation.payment_status !== "approved") {
+        res.json({ result: "unpaid", name, ticketName: ticket.name });
+        return;
+      }
+      if (ticket.checked_in_at) {
+        res.json({ result: "duplicate", name, ticketName: ticket.name, checkedInAt: ticket.checked_in_at });
+        return;
+      }
+      const { error: upErr } = await admin
+        .from("ticket_items")
+        .update({ checked_in_at: new Date().toISOString() })
+        .eq("id", ticket.id);
+      if (upErr) throw upErr;
+      res.json({ result: "ok", name, ticketName: ticket.name });
+    } catch (err: any) {
+      console.error("[CHECKIN] Erro:", err?.message ?? err);
+      res.status(500).json({ result: "error", error: "Erro ao validar ingresso." });
     }
   });
 

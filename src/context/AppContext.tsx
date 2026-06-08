@@ -197,7 +197,7 @@ interface AppContextValue {
   setCheckInSearchInput: React.Dispatch<React.SetStateAction<string>>;
   checkInFilter: 'all' | 'pendentes' | 'check-ins';
   setCheckInFilter: React.Dispatch<React.SetStateAction<'all' | 'pendentes' | 'check-ins'>>;
-  checkInResult: { type: 'success' | 'error' | 'warning'; message: string; data?: Buyer } | null;
+  checkInResult: { type: 'success' | 'error' | 'warning'; message: string; data?: { name?: string; type?: string } } | null;
   checkinTab: 'scanner' | 'list';
   setCheckinTab: React.Dispatch<React.SetStateAction<'scanner' | 'list'>>;
   checkInHistory: { id: string; name: string; type: string; time: Date }[];
@@ -436,7 +436,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [checkInSearch, setCheckInSearch] = useState('');
   const [checkInSearchInput, setCheckInSearchInput] = useState('');
   const [checkInFilter, setCheckInFilter] = useState<'all' | 'pendentes' | 'check-ins'>('pendentes');
-  const [checkInResult, setCheckInResult] = useState<{ type: 'success' | 'error' | 'warning'; message: string; data?: Buyer } | null>(null);
+  const [checkInResult, setCheckInResult] = useState<{ type: 'success' | 'error' | 'warning'; message: string; data?: { name?: string; type?: string } } | null>(null);
   const [checkinTab, setCheckinTab] = useState<'scanner' | 'list'>('scanner');
   const [checkInHistory, setCheckInHistory] = useState<{ id: string; name: string; type: string; time: Date }[]>([]);
   const [scannerKey, setScannerKey] = useState(0);
@@ -1384,37 +1384,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const handleCheckIn = async (input: string) => {
     if (!input) return;
-    const buyer = buyers.find(b => b.id === input || b.cpf === input);
     setCheckInInput('');
-    if (!buyer) {
-      setCheckInResult({ type: 'error', message: 'TICKET INVÁLIDO OU NÃO ENCONTRADO' });
-      setTimeout(() => setCheckInResult(null), 3000);
-      if ('vibrate' in navigator) navigator.vibrate([100, 100, 100]);
-      return;
+    const vibrate = (p: number | number[]) => { if ('vibrate' in navigator) navigator.vibrate(p as any); };
+    try {
+      // Valida o ingresso REAL no banco (o QR carrega o id do ticket_items).
+      const token = await getAccessTokenSafe();
+      const resp = await fetch('/api/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ ticketId: input.trim() }),
+      });
+      const d = await resp.json().catch(() => ({} as any));
+      const data = { name: (d as any).name, type: (d as any).ticketName };
+      switch ((d as any).result) {
+        case 'ok':
+          setCheckInResult({ type: 'success', message: '✔ PODE ENTRAR!', data });
+          setCheckInHistory(prev => [{ id: input.trim(), name: data.name || '', type: data.type || '', time: new Date() }, ...prev]);
+          vibrate(200);
+          break;
+        case 'duplicate':
+          setCheckInResult({ type: 'error', message: 'DUPLICATA - CHECK-IN JÁ REALIZADO', data });
+          vibrate([300, 100, 300]);
+          break;
+        case 'unpaid':
+          setCheckInResult({ type: 'warning', message: 'PAGAMENTO PENDENTE - NÃO AUTORIZADO', data });
+          vibrate([200, 100, 200]);
+          break;
+        case 'forbidden':
+          setCheckInResult({ type: 'error', message: 'SEM PERMISSÃO PARA CHECK-IN' });
+          vibrate([100, 100, 100]);
+          break;
+        default:
+          setCheckInResult({ type: 'error', message: 'TICKET INVÁLIDO OU NÃO ENCONTRADO' });
+          vibrate([100, 100, 100]);
+      }
+    } catch {
+      setCheckInResult({ type: 'error', message: 'ERRO DE CONEXÃO AO VALIDAR INGRESSO' });
+      vibrate([100, 100, 100]);
     }
-    if (buyer.status !== 'Pago') {
-      setCheckInResult({ type: 'warning', message: 'PAGAMENTO PENDENTE - NÃO AUTORIZADO', data: buyer });
-      setTimeout(() => setCheckInResult(null), 3000);
-      if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
-      return;
-    }
-    if (buyer.checkedIn) {
-      setCheckInResult({ type: 'error', message: 'DUPLICATA - CHECK-IN JÁ FOI REALIZADO TKT#' + buyer.id.substring(0, 6), data: buyer });
-      setTimeout(() => setCheckInResult(null), 3000);
-      if ('vibrate' in navigator) navigator.vibrate([300, 100, 300]);
-      return;
-    }
-    setCheckInResult({ type: 'success', message: '✔ PODE ENTRAR!', data: buyer });
-    setBuyers(prev => prev.map(b => b.id === buyer.id ? { ...b, checkedIn: true } : b));
-    setCheckInHistory(prev => [{ id: buyer.id, name: buyer.name, type: buyer.type, time: new Date() }, ...prev]);
-    if ('vibrate' in navigator) navigator.vibrate(200);
-    setTimeout(() => setCheckInResult(null), 2500);
+    setTimeout(() => setCheckInResult(null), 3000);
   };
 
   const handleUndoCheckIn = (id: string) => {
-    setBuyers(prev => prev.map(b => b.id === id ? { ...b, checkedIn: false } : b));
     setCheckInHistory(prev => prev.filter(h => h.id !== id));
-    showToast('Check-in desfeito com sucesso.', 'info');
+    showToast('Check-in removido do histórico local.', 'info');
   };
 
   const handleScannerError = (err: unknown) => {
@@ -1503,20 +1516,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cpf: guestData.cpf || '',
     };
 
-    const finalizeSuccess = (resId = `RES-${Date.now()}`) => {
+    const finalizeSuccess = (resId = `RES-${Date.now()}`, dbTickets: any[] = []) => {
       const generatedTickets: TicketItem[] = [];
       const getOwnerData = (isFirst: boolean) => {
         if (identificationOption === 'same_as_buyer') return { ownerName: buyer.name, ownerCpf: buyer.cpf, ownerEmail: buyer.email };
         if (isFirst) return { ownerName: buyer.name, ownerCpf: buyer.cpf, ownerEmail: buyer.email };
         return { ownerName: '', ownerCpf: '', ownerEmail: '' };
       };
+      // Usa o id REAL do ticket no banco (para o QR Code casar no check-in);
+      // cai num id local só se o servidor não retornou os ticket_items.
+      const ticketIdAt = (idx: number) =>
+        dbTickets[idx]?.id ?? `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
       let tIndex = 0;
       selectedTables.forEach((tableId) => {
         const tbl = derivedTables.find(t => t.id === tableId);
         const seats = tbl?.capacity ?? 4;
         for (let i = 0; i < seats; i++) {
           generatedTickets.push({
-            id: `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+            id: ticketIdAt(tIndex),
             name: `Mesa #${tableId} — Assento ${i + 1}`,
             isTable: true,
             tableNumber: tableId,
@@ -1530,7 +1547,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const ticketCount = singleTickets + maleTickets + femaleTickets;
       for (let i = 0; i < ticketCount; i++) {
         generatedTickets.push({
-          id: `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+          id: ticketIdAt(tIndex),
           name: `Ingresso Individual`,
           isTable: false,
           status: 'active',
@@ -1619,6 +1636,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
 
       let dbReservationId: string;
+      let dbTicketItems: any[] = [];
       try {
         const created = await createReservationInDb({
           event_id: activeEvent?.id ?? 0,
@@ -1639,6 +1657,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           sector_id: expandedSectorId ?? undefined,
         } as any, buildDbTicketItems());
         dbReservationId = created.id;
+        dbTicketItems = (created as any).ticket_items ?? [];
       } catch (e: any) {
         console.error('[Reserva] Falha ao registrar reserva:', e?.message);
         throw new Error('Não foi possível registrar a reserva. Tente novamente.');
@@ -1686,7 +1705,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) throw new Error(data.error || `Erro ao processar pagamento (HTTP ${res.status})`);
 
         if (data.status === 'approved' || data.status === 'in_process' || data.status === 'pending') {
-          finalizeSuccess(dbReservationId);
+          finalizeSuccess(dbReservationId, dbTicketItems);
           fetch('/api/email/send-confirmation', {
             method: 'POST',
             headers: authHeaders,
