@@ -3,7 +3,7 @@ import {
   supabase,
   signIn, signOut, signUp, getMyProfile, resolveUsernameToEmail, updateProfile, getAccessTokenSafe,
   getEvents, getEventBatches, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
-  createReservation as createReservationInDb, getMyReservations, getEventReservations,
+  createReservation as createReservationInDb, getMyReservations, getEventReservations, getAllReservations,
   getStaffAccounts, createStaffAccount,
   getSystemConfig, updateSystemConfig,
   getPendingApplications, approveProducer, rejectProducer,
@@ -15,7 +15,7 @@ import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { mapDbEventToApp, mapAppEventToDb } from '../shared/utils/eventMapper';
 import { validateGuestData as validateGuestDataUtil } from '../shared/utils/validators';
 import { type CardData, tokenizeCard, detectCardBrand } from '../lib/cardUtils';
-import { mockTables, MOCK_BUYERS, EVENT_TICKET_PRICE, CART_EXPIRATION_MS } from '../shared/constants/app';
+import { EVENT_TICKET_PRICE, CART_EXPIRATION_MS } from '../shared/constants/app';
 import type {
   Event, Buyer, Reservation, StaffAccount, SessionUser, SiteConfig,
   TableDef, TableStatus, TicketItem, Sector, GuestData, PixData,
@@ -25,6 +25,62 @@ import type {
 import { loadDeveloperConfig, saveDeveloperConfig } from '../services/developerConfig';
 import type { DeveloperConfig } from '../types/developer';
 import Lenis from 'lenis';
+
+// Converte uma reserva do banco (snake_case + ticket_items) no shape do app
+// (camelCase) que as views consomem (dashboard, "Minhas Reservas").
+function mapDbReservationToApp(r: any): Reservation {
+  const items: any[] = Array.isArray(r.ticket_items) ? r.ticket_items : [];
+  return {
+    id: r.id,
+    date: r.created_at,
+    tables: Array.isArray(r.tables) ? r.tables : [],
+    singleTickets: r.single_tickets ?? 0,
+    ticketsObj: items.map((t) => ({
+      id: t.id,
+      name: t.name,
+      isTable: !!t.is_table,
+      tableNumber: t.table_number ?? undefined,
+      occupantIndex: t.occupant_index ?? undefined,
+      ownerName: t.owner_name ?? '',
+      ownerCpf: t.owner_cpf ?? '',
+      ownerEmail: t.owner_email ?? '',
+      status: (t.status ?? 'active') as TicketItem['status'],
+      pendingTransferEmail: t.pending_transfer_email ?? undefined,
+      originalBuyerId: t.original_buyer_id ?? undefined,
+    })),
+    total: Number(r.total) || 0,
+    checkedIn: items.length > 0 && items.some((t) => !!t.checked_in_at),
+    eventId: r.event_id,
+    buyerName: r.buyer_name,
+    paymentStatus: r.payment_status,
+    paymentMethod: r.payment_method,
+    platformFee: r.platform_fee,
+    netAmount: r.net_amount,
+    createdAt: r.created_at,
+  };
+}
+
+// Converte uma reserva do banco (com ticket_items) em um "Buyer" para os painéis
+// do dashboard (vendas/clientes/check-in) — tudo a partir de dados reais.
+function mapReservationToBuyer(r: any): Buyer {
+  const items: any[] = Array.isArray(r.ticket_items) ? r.ticket_items : [];
+  const statusMap: Record<string, Buyer['status']> = {
+    approved: 'Pago', pending: 'Pendente', in_process: 'Pendente',
+    cancelled: 'Cancelado', refunded: 'Cancelado',
+  };
+  const hasTables = Array.isArray(r.tables) && r.tables.length > 0;
+  return {
+    id: r.id,
+    name: r.buyer_name || '—',
+    email: r.buyer_email || '',
+    cpf: r.buyer_cpf || '',
+    type: hasTables ? 'Mesa' : 'Ingresso',
+    value: Number(r.total) || 0,
+    status: statusMap[r.payment_status] ?? 'Pendente',
+    checkedIn: items.length > 0 && items.some((t) => !!t.checked_in_at),
+    purchaseDate: r.created_at,
+  };
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -302,7 +358,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [siteConfig, setSiteConfig] = useState<SiteConfig>({ venueMaxCapacity: null, platformName: 'Espaço Mix', platformLogo: null });
 
   // Tables / cart
-  const [tables, setTables] = useState<TableDef[]>(mockTables);
+  const [tables, setTables] = useState<TableDef[]>([]);
   const [selectedTables, setSelectedTables] = useState<number[]>([]);
   const [singleTickets, setSingleTickets] = useState(0);
   const [maleTickets, setMaleTickets] = useState(0);
@@ -344,7 +400,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const clearSystemLogs = () => setSystemLogs([]);
 
   // Buyers / reservations
-  const [buyers, setBuyers] = useState<Buyer[]>(import.meta.env.DEV ? MOCK_BUYERS : []);
+  const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [selectedBuyerForDetails, setSelectedBuyerForDetails] = useState<Buyer | null>(null);
 
@@ -847,6 +903,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => {});
     });
   }, [userRole, loggedInUserId]);
+
+  // Carrega RESERVAS REAIS do banco para o dashboard / "Minhas Reservas".
+  // admin/developer/organizador veem todas as visíveis (RLS escopa); cliente vê
+  // as suas. Também deriva a lista de `buyers` (vendas/clientes/check-in) dos
+  // dados reais — nada de mock.
+  useEffect(() => {
+    if (!loggedInUserId) { setReservations([]); setBuyers([]); return; }
+    let cancelled = false;
+    const isStaffRole = userRole === 'admin' || userRole === 'developer' || isApprovedEventCreator;
+    const load = isStaffRole ? getAllReservations() : getMyReservations(loggedInUserId);
+    load
+      .then(rows => {
+        if (cancelled) return;
+        setReservations((rows as any[]).map(mapDbReservationToApp));
+        setBuyers((rows as any[]).map(mapReservationToBuyer));
+      })
+      .catch(e => console.error('[Reservas] Falha ao carregar do banco:', (e as Error)?.message));
+    return () => { cancelled = true; };
+  }, [loggedInUserId, userRole, isApprovedEventCreator]);
 
   // Session persistence
   useEffect(() => {

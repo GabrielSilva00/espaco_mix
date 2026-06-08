@@ -885,6 +885,18 @@ export async function getMyReservations(userId: string): Promise<Reservation[]> 
   return (data ?? []) as Reservation[];
 }
 
+/** Todas as reservas visíveis ao usuário logado.
+ *  A RLS escopa automaticamente: admin/developer vê TODAS; organizador vê as
+ *  dos seus eventos; cliente vê só as suas. Usado pelo dashboard (dados reais). */
+export async function getAllReservations(): Promise<Reservation[]> {
+  const { data, error } = await supabase
+    .from('reservations')
+    .select(`*, ticket_items(*)`)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as Reservation[];
+}
+
 /** Buscar reservas de um evento (para admin/organizador) */
 export async function getEventReservations(eventId: number): Promise<Reservation[]> {
   const { data, error } = await supabase

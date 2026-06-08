@@ -329,8 +329,6 @@ export function BookingView() {
                             const sectorMinPrice = activeEvent!.priceType === 'gender'
                               ? Math.min(sector.priceMale || Infinity, sector.priceFemale || Infinity)
                               : sector.price;
-                            const mockRemaining = Math.floor(Math.random() * 50) + 1;
-                            const isEndingSoon = mockRemaining < 20;
 
                             return (
                               <div
@@ -353,11 +351,6 @@ export function BookingView() {
                                   <div className="flex-1 pr-4">
                                     <div className="flex items-center gap-3 mb-1">
                                       <h3 className="text-base font-semibold text-white">{sector.name}</h3>
-                                      {isEndingSoon && (
-                                        <span className="text-[9px] uppercase tracking-widest bg-red-500/10 text-red-400 px-2 py-0.5 rounded-full border border-red-500/20 whitespace-nowrap animate-pulse">
-                                          Últimos
-                                        </span>
-                                      )}
                                     </div>
                                     <p className="text-xs text-white/40 line-clamp-1">
                                       {isExpanded ? 'Inclui acesso à área selecionada.' : 'Selecione para ver opções'}
