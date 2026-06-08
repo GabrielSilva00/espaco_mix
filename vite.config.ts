@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -8,6 +9,10 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    // HTTPS no dev: o SDK do Mercado Pago recusa tokenizar cartão em conexão
+    // não-segura (http://localhost inclusive). Com isso, o checkout de cartão
+    // funciona localmente em https://localhost:5173 (aceite o certificado).
+    basicSsl(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon-180x180.png'],

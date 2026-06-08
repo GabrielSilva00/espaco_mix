@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   supabase,
-  signIn, signOut, signUp, getMyProfile, resolveUsernameToEmail, updateProfile,
+  signIn, signOut, signUp, getMyProfile, resolveUsernameToEmail, updateProfile, getAccessTokenSafe,
   getEvents, getEventBatches, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations,
   getStaffAccounts, createStaffAccount,
@@ -1008,11 +1008,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const handleLogout = async () => {
-    try {
-      await signOut();
-    } catch (e) {
-      console.warn('[Auth] signOut error (ignorado):', e);
-    }
+    // Limpa o estado e o storage PRIMEIRO — não depende do signOut remoto, que
+    // pode TRAVAR no lock de sessão do supabase-js (navigator.locks) após as
+    // operações de auth da compra. Era isso que impedia o logout.
     setUserRole(null);
     setLoggedInUserId(null);
     setIsStaff(false);
@@ -1020,7 +1018,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSessionUser(null);
     setCurrentView('home');
     setDashboardMode('list');
-    // Limpeza completa das chaves de sessão (evita token inválido travando o reload)
     try {
       ['eventix-session', 'eventix-auth', 'eventix-auth-v2'].forEach(k => localStorage.removeItem(k));
       Object.keys(localStorage)
@@ -1028,6 +1025,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .forEach(k => localStorage.removeItem(k));
       sessionStorage.removeItem('auth-cleared');
     } catch {}
+    // signOut com timeout: se o lock estiver preso, não trava o logout.
+    try {
+      await Promise.race([signOut(), new Promise(res => setTimeout(res, 1200))]);
+    } catch (e) {
+      console.warn('[Auth] signOut error (ignorado):', e);
+    }
     setTimeout(() => { window.location.href = '/'; }, 80);
   };
 
@@ -1491,11 +1494,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPaymentStatus('processing');
     setPixData(null);
 
+    // Dados do comprador: convidado usa o formulário; logado usa o próprio
+    // perfil (sessionUser) como fallback — senão o servidor recusa a reserva
+    // por "nome e e-mail obrigatórios".
+    const buyer = {
+      name: guestData.name || sessionUser?.name || '',
+      email: guestData.email || sessionUser?.email || '',
+      cpf: guestData.cpf || '',
+    };
+
     const finalizeSuccess = (resId = `RES-${Date.now()}`) => {
       const generatedTickets: TicketItem[] = [];
       const getOwnerData = (isFirst: boolean) => {
-        if (identificationOption === 'same_as_buyer') return { ownerName: guestData.name, ownerCpf: guestData.cpf, ownerEmail: guestData.email };
-        if (isFirst) return { ownerName: guestData.name, ownerCpf: guestData.cpf, ownerEmail: guestData.email };
+        if (identificationOption === 'same_as_buyer') return { ownerName: buyer.name, ownerCpf: buyer.cpf, ownerEmail: buyer.email };
+        if (isFirst) return { ownerName: buyer.name, ownerCpf: buyer.cpf, ownerEmail: buyer.email };
         return { ownerName: '', ownerCpf: '', ownerEmail: '' };
       };
       let tIndex = 0;
@@ -1534,7 +1546,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ticketsObj: generatedTickets,
         total: grandTotal,
         eventId: activeEvent?.id ?? 1,
-        buyerName: guestData.name,
+        buyerName: buyer.name,
         paymentStatus: 'approved',
         paymentMethod: selectedPaymentMethod || 'credit_card',
         platformFee: taxAmount,
@@ -1552,8 +1564,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
+      // getAccessTokenSafe evita o travamento do getSession() (lock preso),
+      // que fazia o checkout girar para sempre sem nunca chamar a API.
+      const token = await getAccessTokenSafe();
       const authHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -1577,7 +1590,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const items: any[] = [];
         const ownerFor = (isFirst: boolean) =>
           (identificationOption === 'same_as_buyer' || isFirst)
-            ? { owner_name: guestData.name, owner_cpf: guestData.cpf, owner_email: guestData.email }
+            ? { owner_name: buyer.name, owner_cpf: buyer.cpf, owner_email: buyer.email }
             : { owner_name: '', owner_cpf: '', owner_email: '' };
         let idx = 0;
         selectedTables.forEach((tableId) => {
@@ -1610,9 +1623,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const created = await createReservationInDb({
           event_id: activeEvent?.id ?? 0,
           user_id: sessionUser?.id,
-          buyer_name: guestData.name,
-          buyer_email: guestData.email,
-          buyer_cpf: guestData.cpf,
+          buyer_name: buyer.name,
+          buyer_email: buyer.email,
+          buyer_cpf: buyer.cpf,
           tables: selectedTables,
           single_tickets: singleTickets,
           male_tickets: maleTickets,
@@ -1636,7 +1649,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           method: 'POST',
           signal,
           headers: authHeaders,
-          body: JSON.stringify({ amount: grandTotal, description: activeEvent?.title || 'Ingresso', guestData, selection, reservationId: dbReservationId }),
+          body: JSON.stringify({ amount: grandTotal, description: activeEvent?.title || 'Ingresso', guestData: buyer, selection, reservationId: dbReservationId }),
         });
         const data = await res.json().catch(() => ({} as any));
         if (!res.ok) throw new Error(data.error || `Erro ao gerar PIX (HTTP ${res.status})`);
@@ -1647,7 +1660,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else {
         if (!cardData) throw new Error('Dados do cartão não informados');
         const cardBrand = detectCardBrand(cardData.number);
-        const cardToken = await tokenizeCard({ ...cardData, holderCpf: cardData.holderCpf || guestData.cpf });
+        const cardToken = await tokenizeCard({ ...cardData, holderCpf: cardData.holderCpf || buyer.cpf });
         if (!cardToken) throw new Error('Falha ao tokenizar cartão. Verifique os dados e tente novamente.');
         const paymentFetch = fetch('/api/payment/mercadopago', {
           method: 'POST',
@@ -1660,7 +1673,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             description: activeEvent?.title || 'Ingresso',
             paymentMethod: selectedPaymentMethod,
             installments: cardData.installments,
-            guestData,
+            guestData: buyer,
             selection,
             reservationId: dbReservationId,
           }),
@@ -1678,8 +1691,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             method: 'POST',
             headers: authHeaders,
             body: JSON.stringify({
-              buyerName: guestData.name,
-              buyerEmail: guestData.email,
+              buyerName: buyer.name,
+              buyerEmail: buyer.email,
               reservationId: dbReservationId,
               eventTitle: activeEvent?.title ?? '',
               eventDate: activeEvent?.date ?? '',

@@ -380,6 +380,33 @@ export async function getSession() {
   return data.session;
 }
 
+/**
+ * Retorna o access_token de forma resiliente.
+ * `supabase.auth.getSession()` pode TRAVAR indefinidamente quando o lock de
+ * sessão (navigator.locks) fica preso (token expirado + refresh pendente,
+ * múltiplas abas, etc.) — isso fazia o checkout girar para sempre sem nunca
+ * chamar a API. Aqui damos um timeout e, se estourar, lemos o token direto
+ * do storage persistido (sem adquirir o lock).
+ */
+export async function getAccessTokenSafe(timeoutMs = 4000): Promise<string | null> {
+  try {
+    const viaSession = supabase.auth.getSession().then(r => r.data.session?.access_token ?? null);
+    const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs));
+    const token = await Promise.race([viaSession, timeout]);
+    if (token) return token;
+  } catch { /* cai no fallback */ }
+
+  // Fallback: lê a sessão persistida direto do localStorage (não usa o lock).
+  try {
+    const raw = localStorage.getItem('eventix-auth-v2');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.access_token ?? parsed?.currentSession?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Pegar perfil do usuário logado */
 export async function getMyProfile(): Promise<Profile | null> {
   const { data: { user } } = await supabase.auth.getUser();
@@ -414,8 +441,7 @@ export async function getMyFullProfile(): Promise<Profile | null> {
   });
 
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
+    const token = await getAccessTokenSafe();
     if (!token) return safeBase();
 
     const response = await fetch('/api/profile/sensitive', {
@@ -492,8 +518,7 @@ export async function updateProfile(userId: string, updates: Partial<Profile>) {
 
   // Dados sensíveis → roteados pelo servidor para criptografia
   if (Object.keys(sensitive).length > 0) {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
+    const token = await getAccessTokenSafe();
     if (!token) throw new Error('Sessão expirada. Faça login novamente.');
 
     const response = await fetch('/api/profile/sensitive', {
@@ -813,8 +838,8 @@ export async function createReservation(
   // Criada pelo servidor (service role): o cliente anônimo (convidado) não tem
   // política de RLS para ler de volta a reserva via .select() nem para inserir
   // ticket_items. O servidor também recalcula o total (anti-fraude).
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
+  // getAccessTokenSafe evita o travamento do getSession() (lock preso).
+  const token = await getAccessTokenSafe();
 
   const response = await fetch('/api/reservations', {
     method: 'POST',
