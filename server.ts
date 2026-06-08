@@ -1047,8 +1047,10 @@ export async function createExpressApp() {
             first_name: (guestData?.name || "").split(" ")[0] || "Comprador",
             last_name: (guestData?.name || "").split(" ").slice(1).join(" ") || "Eventix",
             identification: {
+              // PIX exige CPF não-vazio (MP: "length must be >= 1"). Mesmo
+              // fallback do cartão quando o comprador não informou o CPF.
               type: "CPF",
-              number: (guestData?.cpf || "").replace(/\D/g, ""),
+              number: (guestData?.cpf || "").replace(/\D/g, "") || "00000000000",
             },
           },
           transactions: {
