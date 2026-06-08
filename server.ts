@@ -1052,7 +1052,9 @@ export async function createExpressApp() {
             },
           },
           transactions: {
-            payments: [{ amount: amountStr, payment_method: { id: "pix", type: "bank_transfer" } }],
+            // expiration_time é OBRIGATÓRIO para o MP gerar o QR do PIX (sem ele,
+            // qr_code volta vazio). PT30M = expira em 30 minutos.
+            payments: [{ amount: amountStr, expiration_time: "PT30M", payment_method: { id: "pix", type: "bank_transfer" } }],
           },
         }),
       });
@@ -1123,8 +1125,8 @@ export async function createExpressApp() {
       const paymentId =
         body?.data?.id ?? body?.["data.id"] ?? req.query["data.id"] ?? req.query.id;
 
-      // Só tratamos notificações de pagamento
-      if (topic && String(topic).indexOf("payment") === -1) return;
+      // Aceita notificações de order (Orders API) e payment (legado)
+      if (topic && !/order|payment/i.test(String(topic))) return;
       if (!paymentId) return;
 
       // 2. Valida a assinatura HMAC do Mercado Pago (se o secret estiver configurado)
@@ -1151,25 +1153,39 @@ export async function createExpressApp() {
         console.warn("[WEBHOOK] MERCADOPAGO_WEBHOOK_SECRET não configurado — assinatura não verificada.");
       }
 
-      // 3. Confirma o status REAL consultando a API do MP (não confia no corpo)
+      // 3. Confirma o status REAL consultando a API do MP (não confia no corpo).
+      //    Tenta a Orders API (/v1/orders/{id}) e, se não for uma order, cai no
+      //    pagamento legado (/v1/payments/{id}, id numérico).
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN || runtimeMpAccessToken;
       if (!accessToken) {
         console.error("[WEBHOOK] Access Token não configurado — impossível confirmar pagamento.");
         return;
       }
-      const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!mpRes.ok) {
-        console.error("[WEBHOOK] Falha ao consultar pagamento no MP:", mpRes.status);
-        return;
-      }
-      const payment: any = await mpRes.json();
-      const mpStatus: string = payment?.status ?? "";
-      const externalRef: string | undefined = payment?.external_reference ?? undefined;
+      const headers = { Authorization: `Bearer ${accessToken}` };
+      let externalRef: string | undefined;
+      let normalized: string = "unknown";
+      let resolvedPaymentId = String(paymentId);
 
-      // 4. Mapeia status do MP → status interno da reserva
-      const newStatus = mpStatusToReservation(mpStatus);
+      const orderRes = await fetch(`https://api.mercadopago.com/v1/orders/${paymentId}`, { headers });
+      if (orderRes.ok) {
+        const order: any = await orderRes.json();
+        externalRef = order?.external_reference ?? undefined;
+        const pay = order?.transactions?.payments?.[0] ?? {};
+        resolvedPaymentId = pay?.id ?? resolvedPaymentId;
+        normalized = orderStatusToNormalized(pay?.status || order?.status);
+      } else {
+        const payRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, { headers });
+        if (!payRes.ok) {
+          console.error("[WEBHOOK] Falha ao consultar order/pagamento no MP:", orderRes.status, payRes.status);
+          return;
+        }
+        const payment: any = await payRes.json();
+        externalRef = payment?.external_reference ?? undefined;
+        normalized = orderStatusToNormalized(payment?.status);
+      }
+
+      // 4. Mapeia status normalizado → status interno da reserva
+      const newStatus = mpStatusToReservation(normalized);
       if (!newStatus) return;
 
       // 5. Atualiza a reserva (service role) — casa por payment_id ou external_reference
@@ -1178,7 +1194,7 @@ export async function createExpressApp() {
         console.error("[WEBHOOK] Service role não configurado — reserva não atualizada.");
         return;
       }
-      const pidStr = String(paymentId);
+      const pidStr = String(resolvedPaymentId);
       let query = admin.from("reservations").update({
         payment_status: newStatus,
         payment_id: pidStr,
@@ -1195,7 +1211,7 @@ export async function createExpressApp() {
         console.error("[WEBHOOK] Erro ao atualizar reserva:", error.message);
         return;
       }
-      console.log(`[WEBHOOK] Pagamento ${pidStr} → ${newStatus} (ref=${externalRef ?? "via payment_id"})`);
+      console.log(`[WEBHOOK] ${pidStr} → ${newStatus} (ref=${externalRef ?? "via payment_id"})`);
     } catch (err: any) {
       console.error("[WEBHOOK] Erro ao processar notificação:", err?.message);
     }
