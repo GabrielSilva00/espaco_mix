@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { User, Edit2, Save, X, Camera, Phone, FileText, Calendar, Mail, ShieldCheck, Shield } from 'lucide-react';
+import { User, AtSign, Edit2, Save, X, Camera, Phone, FileText, Calendar, Mail, ShieldCheck, Shield } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { updateProfile, getMyFullProfile } from '../../lib/supabase';
+import { updateProfile, getMyFullProfile, isUsernameAvailable } from '../../lib/supabase';
 import { supabase } from '../../lib/supabase';
 
 export function ProfileView() {
@@ -16,6 +16,7 @@ export function ProfileView() {
   // Dados atuais carregados do banco (cpf/phone/birth_date descriptografados)
   const [data, setData] = useState({
     name: sessionUser?.name || '',
+    username: '',
     phone: '',
     cpf: '',
     birth_date: '',
@@ -31,14 +32,15 @@ export function ProfileView() {
         if (!profile || cancelled) return;
         const loaded = {
           name: profile.name || '',
+          username: profile.username || '',
           phone: profile.phone || '',
           cpf: profile.cpf || '',
           birth_date: profile.birth_date || '',
         };
         setData(loaded);
         setForm(loaded);
-      } catch {
-        /* mantém valores atuais em caso de falha */
+      } catch (err: any) {
+        if (!cancelled) showToast('Não foi possível carregar seus dados: ' + (err?.message || String(err)), 'error');
       }
     })();
     return () => { cancelled = true; };
@@ -54,21 +56,33 @@ export function ProfileView() {
   const saveProfile = async () => {
     if (!loggedInUserId) return;
     if (!form.name.trim()) { showToast('Nome é obrigatório', 'error'); return; }
+    const username = form.username.trim();
     setSaving(true);
     try {
+      // Valida unicidade do username apenas se foi alterado
+      if (username && username.toLowerCase() !== (data.username || '').toLowerCase()) {
+        const available = await isUsernameAvailable(username, loggedInUserId);
+        if (!available) { showToast('Nome de usuário já em uso', 'error'); return; }
+      }
       await updateProfile(loggedInUserId, {
         name: form.name.trim(),
+        username: username || undefined,
         phone: form.phone || undefined,
         cpf: form.cpf || undefined,
         birth_date: form.birth_date || undefined,
       });
+      // Revalida lendo do servidor para confirmar a persistência real
+      // (em vez de confiar no estado local do formulário).
+      const fresh = await getMyFullProfile();
       const saved = {
-        name: form.name.trim(),
-        phone: form.phone,
-        cpf: form.cpf,
-        birth_date: form.birth_date,
+        name: fresh?.name ?? form.name.trim(),
+        username: fresh?.username ?? username,
+        phone: fresh?.phone ?? form.phone,
+        cpf: fresh?.cpf ?? form.cpf,
+        birth_date: fresh?.birth_date ?? form.birth_date,
       };
       setData(saved);
+      setForm(saved);
       setSessionUser(prev => prev ? { ...prev, name: saved.name } : prev);
       showToast('Perfil atualizado com sucesso!', 'success');
       setEditing(false);
@@ -192,6 +206,20 @@ export function ProfileView() {
                 />
               ) : (
                 <p className="text-sm text-white">{data.name || sessionUser?.name || '—'}</p>
+              )}
+            </Field>
+
+            {/* Nome de usuário */}
+            <Field icon={<AtSign className="w-4 h-4" />} label="Nome de Usuário">
+              {editing ? (
+                <input
+                  value={form.username}
+                  onChange={e => setForm(f => ({ ...f, username: e.target.value.replace(/\s/g, '') }))}
+                  placeholder="seu_usuario"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-[#d4af37] transition"
+                />
+              ) : (
+                <p className="text-sm text-white/70">{data.username ? '@' + data.username : '—'}</p>
               )}
             </Field>
 

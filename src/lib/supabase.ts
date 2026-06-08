@@ -15,8 +15,15 @@ export interface Profile {
   email: string;
   username?: string;
   phone?: string;
+  phone_country?: string;
   cpf?: string;
   birth_date?: string;
+  sex?: string;
+  /** 'br' | 'foreign' — flag que decide CPF vs passaporte (não é o país real) */
+  nationality?: string;
+  /** País real — preenchido apenas para estrangeiros */
+  country?: string;
+  passport_doc?: string;
   role: UserRole;
   is_approved_event_creator: boolean;
   avatar_url?: string;
@@ -396,20 +403,30 @@ export async function getMyFullProfile(): Promise<Profile | null> {
   const base = await getMyProfile();
   if (!base) return null;
 
+  // Fallback quando a descriptografia no servidor não está disponível:
+  // nunca devolver os campos sensíveis cifrados ("enc:...") — eles iriam
+  // parar no formulário editável e causariam dupla criptografia ao salvar.
+  const safeBase = (): Profile => ({
+    ...base,
+    cpf: base.cpf?.startsWith('enc:') ? '' : base.cpf,
+    phone: base.phone?.startsWith('enc:') ? '' : base.phone,
+    birth_date: base.birth_date?.startsWith('enc:') ? '' : base.birth_date,
+  });
+
   try {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    if (!token) return base;
+    if (!token) return safeBase();
 
     const response = await fetch('/api/profile/sensitive', {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` },
     });
-    if (!response.ok) return base;
+    if (!response.ok) return safeBase();
 
     const json = await response.json().catch(() => ({}));
     const decrypted = (json as any).profile;
-    if (!decrypted) return base;
+    if (!decrypted) return safeBase();
 
     return {
       ...base,
@@ -418,7 +435,7 @@ export async function getMyFullProfile(): Promise<Profile | null> {
       birth_date: decrypted.birth_date ?? base.birth_date,
     };
   } catch {
-    return base;
+    return safeBase();
   }
 }
 
@@ -514,6 +531,23 @@ export async function updateProfile(userId: string, updates: Partial<Profile>) {
     .single();
   if (error) throw error;
   return data;
+}
+
+/**
+ * Verifica se um nome de usuário está disponível (case-insensitive).
+ * Ignora o próprio usuário (currentUserId) para permitir salvar sem alterar o username.
+ */
+export async function isUsernameAvailable(username: string, currentUserId?: string): Promise<boolean> {
+  const value = username.trim();
+  if (!value) return false;
+  let query = supabase
+    .from('profiles')
+    .select('id')
+    .ilike('username', value);
+  if (currentUserId) query = query.neq('id', currentUserId);
+  const { data, error } = await query.limit(1);
+  if (error) throw error;
+  return (data?.length ?? 0) === 0;
 }
 
 export async function getAllProfiles(): Promise<Profile[]> {
@@ -776,30 +810,28 @@ export async function createReservation(
   reservation: Omit<Reservation, 'id' | 'created_at' | 'ticket_items'>,
   ticketItems: Omit<TicketItem, 'id' | 'created_at'>[]
 ): Promise<Reservation> {
-  // 1. Criar a reserva
-  const { data: res, error: resErr } = await supabase
-    .from('reservations')
-    .insert(reservation)
-    .select()
-    .single();
+  // Criada pelo servidor (service role): o cliente anônimo (convidado) não tem
+  // política de RLS para ler de volta a reserva via .select() nem para inserir
+  // ticket_items. O servidor também recalcula o total (anti-fraude).
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
 
-  if (resErr) throw resErr;
+  const response = await fetch('/api/reservations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ reservation, ticketItems }),
+  });
 
-  // 2. Criar os ticket_items
-  if (ticketItems.length > 0) {
-    const itemsToInsert = ticketItems.map(t => ({
-      ...t,
-      reservation_id: res.id,
-    }));
-
-    const { error: tiErr } = await supabase
-      .from('ticket_items')
-      .insert(itemsToInsert);
-
-    if (tiErr) throw tiErr;
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error((err as any).error ?? 'Não foi possível registrar a reserva.');
   }
 
-  return res as Reservation;
+  const json = await response.json();
+  return (json as any).reservation as Reservation;
 }
 
 /** Buscar reservas do usuário logado */

@@ -106,5 +106,13 @@ export default defineConfig({
     host: 'localhost',
     port: 5173,
     strictPort: true,
+    // Encaminha as chamadas de API para o backend Express (npm run dev:server).
+    // Sem isso, o POST /api/* recebe resposta vazia do Vite e o pagamento quebra.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+    },
   },
 });

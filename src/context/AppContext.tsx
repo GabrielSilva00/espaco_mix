@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   supabase,
-  signIn, signOut, signUp, getMyProfile, resolveUsernameToEmail,
+  signIn, signOut, signUp, getMyProfile, resolveUsernameToEmail, updateProfile,
   getEvents, getEventBatches, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations,
   getStaffAccounts, createStaffAccount,
@@ -544,22 +544,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           try {
             const profile = await getMyProfile();
-            // Admin e developer nunca são restaurados automaticamente — devem fazer login manual
-            if (profile?.role === 'admin' || profile?.role === 'developer') {
-              // NÃO chamar signOut() — dispara SIGNED_OUT e reinicia o loop de 429
-              try {
-                ['eventix-auth-v2', 'eventix-auth'].forEach(k => localStorage.removeItem(k));
-                Object.keys(localStorage)
-                  .filter(k => k.startsWith('sb-'))
-                  .forEach(k => localStorage.removeItem(k));
-              } catch {}
-              if (!sessionStorage.getItem('auth-cleared')) {
-                sessionStorage.setItem('auth-cleared', '1');
-                window.location.reload();
-              }
-              return;
-            }
-            // Clientes comuns têm sessão restaurada normalmente
+            // Todos os papéis (cliente, admin e developer) têm a sessão restaurada
+            // ao recarregar a página — o usuário permanece logado.
             if (profile) {
               const r = profile.role as UserRole;
               setUserRole(r);
@@ -591,11 +577,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               sessionStorage.clear();
             } catch {}
             if (errMsg.includes('infinite recursion') || errMsg.includes('policies')) {
-              console.error('[Context] Sessão corrompida por erro de RLS — recarregando');
-              if (!sessionStorage.getItem('rls-reload')) {
-                sessionStorage.setItem('rls-reload', '1');
-                setTimeout(() => window.location.reload(), 300);
-              }
+              console.error('[Context] Erro de RLS ao restaurar a sessão:', err);
+              showToast('Não foi possível restaurar sua sessão (erro de permissão no banco). Faça login novamente.', 'error');
             }
           }
         }
@@ -1129,23 +1112,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setAdminError((checkData as any).error ?? 'Código inválido.');
         return;
       }
+      // Campos NÃO-sensíveis vão no user_metadata → gravados pelo trigger handle_new_user.
       await signUp(registerForm.email, registerForm.password, registerForm.name, {
-        phone: registerForm.phone.replace(/\D/g, ''),
-        cpf: registerForm.nationality === 'br' ? registerForm.cpf.replace(/\D/g, '') : undefined,
-        birth_date: registerForm.birthDate,
-        sex: registerForm.sex,
-        nationality: registerForm.nationality,
+        sex: registerForm.sex || undefined,
+        nationality: registerForm.nationality || undefined,
         country: registerForm.nationality === 'foreign' ? registerForm.country : undefined,
         passport_doc: registerForm.nationality === 'foreign' ? registerForm.passportDoc : undefined,
+        phone_country: registerForm.phoneCountry || undefined,
       } as any);
+
+      // Inicia sessão para (a) manter o usuário logado e (b) gravar os dados sensíveis
+      // (cpf/phone/birth_date) criptografados pelo servidor em /api/profile/sensitive.
+      let sessUserId: string | null = null;
+      try {
+        const signInRes = await signIn(registerForm.email, registerForm.password);
+        sessUserId = (signInRes as any)?.user?.id ?? null;
+      } catch { /* confirmação de e-mail pode estar ativa — cai no fluxo de login manual */ }
+
+      if (sessUserId) {
+        const sensitive: { cpf?: string; phone?: string; birth_date?: string } = {};
+        const phone = registerForm.phone.replace(/\D/g, '');
+        if (phone) sensitive.phone = phone;
+        if (registerForm.nationality === 'br') {
+          const cpf = registerForm.cpf.replace(/\D/g, '');
+          if (cpf) sensitive.cpf = cpf;
+        }
+        if (registerForm.birthDate) sensitive.birth_date = registerForm.birthDate;
+        if (Object.keys(sensitive).length > 0) {
+          try { await updateProfile(sessUserId, sensitive); }
+          catch (e) {
+            console.error('[Cadastro] Falha ao gravar dados sensíveis:', (e as Error)?.message);
+            showToast('Conta criada, mas não foi possível salvar CPF/telefone/nascimento. Atualize no seu perfil.', 'error');
+          }
+        }
+      }
+
       setVerificationStep(false);
       setVerifyTicket(null);
       setRegisterForm({ name: '', email: '', cpf: '', phone: '', phoneCountry: '+55', birthDate: '', sex: '', password: '', confirmPassword: '', nationality: 'br', country: '', passportDoc: '' });
       setVerificationCode(['', '', '', '', '', '']);
       setAdminForm({ username: '', password: '' });
       setRegisterStep(1);
-      showToast('Cadastro concluído! Faça login para continuar.', 'success');
-      setAuthTab('login');
+      if (sessUserId) {
+        showToast('Cadastro concluído!', 'success');
+        setCurrentView('home');
+      } else {
+        showToast('Cadastro concluído! Faça login para continuar.', 'success');
+        setAuthTab('login');
+      }
     } catch (err: any) {
       setAdminError(err.message ?? 'Erro ao criar conta');
     }
@@ -1171,15 +1185,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      // 2. Cria a conta real no Supabase
+      // 2. Cria a conta real no Supabase (campos não-sensíveis via user_metadata → trigger)
       const result = await signUp(registerForm.email, registerForm.password, registerForm.name, {
-        phone: registerForm.phone.replace(/\D/g, ''),
-        cpf: registerForm.nationality === 'br' ? registerForm.cpf.replace(/\D/g, '') : undefined,
-        birth_date: registerForm.birthDate,
-        sex: registerForm.sex,
-        nationality: registerForm.nationality,
+        sex: registerForm.sex || undefined,
+        nationality: registerForm.nationality || undefined,
         country: registerForm.nationality === 'foreign' ? registerForm.country : undefined,
         passport_doc: registerForm.nationality === 'foreign' ? registerForm.passportDoc : undefined,
+        phone_country: registerForm.phoneCountry || undefined,
       } as any);
 
       // 3. Garante sessão ativa (se a confirmação de e-mail do Supabase estiver
@@ -1194,6 +1206,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!user || !session) {
         setAdminError('Conta criada, mas não foi possível iniciar a sessão. Faça login para continuar.');
         return false;
+      }
+
+      // 3b. Grava os dados sensíveis (cpf/phone/birth_date) criptografados no servidor.
+      const sensitive: { cpf?: string; phone?: string; birth_date?: string } = {};
+      const phoneDigits = registerForm.phone.replace(/\D/g, '');
+      if (phoneDigits) sensitive.phone = phoneDigits;
+      if (registerForm.nationality === 'br') {
+        const cpfDigits = registerForm.cpf.replace(/\D/g, '');
+        if (cpfDigits) sensitive.cpf = cpfDigits;
+      }
+      if (registerForm.birthDate) sensitive.birth_date = registerForm.birthDate;
+      if (Object.keys(sensitive).length > 0) {
+        try { await updateProfile(user.id, sensitive); }
+        catch (e) {
+          console.error('[Checkout] Falha ao gravar dados sensíveis:', (e as Error)?.message);
+          showToast('Não foi possível salvar CPF/telefone. Você pode completar no seu perfil depois.', 'error');
+        }
       }
 
       // 4. Reflete a sessão no app
@@ -1593,6 +1622,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           net_amount: subTotal,
           payment_status: 'pending',
           payment_method: (selectedPaymentMethod ?? undefined) as any,
+          // Usado pelo servidor para recalcular o preço de ingressos por setor.
+          sector_id: expandedSectorId ?? undefined,
         } as any, buildDbTicketItems());
         dbReservationId = created.id;
       } catch (e: any) {
@@ -1607,8 +1638,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: authHeaders,
           body: JSON.stringify({ amount: grandTotal, description: activeEvent?.title || 'Ingresso', guestData, selection, reservationId: dbReservationId }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Erro ao gerar PIX');
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) throw new Error(data.error || `Erro ao gerar PIX (HTTP ${res.status})`);
         setPixData({ qrCode: data.qrCodeUrl, copyPaste: data.qrCode });
         setCheckoutStep('processing');
         // Mostra QR code; pagamento confirmado via webhook. isProcessingPayment liberado para interação.
@@ -1638,8 +1669,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setTimeout(() => reject(new Error('Servidor não respondeu em 30 segundos. Verifique a conexão.')), 30000)
         );
         const res = await Promise.race([paymentFetch, paymentTimeout]);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Erro ao processar pagamento');
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) throw new Error(data.error || `Erro ao processar pagamento (HTTP ${res.status})`);
 
         if (data.status === 'approved' || data.status === 'in_process' || data.status === 'pending') {
           finalizeSuccess(dbReservationId);

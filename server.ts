@@ -64,6 +64,18 @@ function decryptData(value: string): string {
   return decrypted;
 }
 
+// Descriptografa sem derrubar a requisição: se a chave estiver ausente/errada
+// ou o valor corrompido, loga e devolve string vazia em vez de lançar 500.
+function safeDecrypt(value: string | null | undefined): string | null | undefined {
+  if (!value || !value.startsWith("enc:")) return value;
+  try {
+    return decryptData(value);
+  } catch (err: any) {
+    console.error("[PROFILE] Falha ao descriptografar campo sensível:", err?.message ?? err);
+    return "";
+  }
+}
+
 // ─── Hash de Senha (scrypt) ──────────────────────────────────────────────────
 
 async function hashPassword(password: string): Promise<string> {
@@ -131,6 +143,38 @@ function mpStatusToReservation(mpStatus: string): string | null {
     charged_back: "refunded",
   };
   return map[mpStatus] ?? null;
+}
+
+// ─── Normaliza status da Orders API (/v1/orders) → vocabulário legado ────────
+// A Orders API usa status próprios (processed/processing/failed...). Converte
+// para o vocabulário que o frontend já entende (approved/pending/rejected),
+// evitando mudanças no cliente.
+function orderStatusToNormalized(status?: string): "approved" | "pending" | "rejected" | "refunded" | "unknown" {
+  const map: Record<string, "approved" | "pending" | "rejected" | "refunded"> = {
+    processed: "approved",
+    accredited: "approved",
+    approved: "approved",
+    processing: "pending",
+    pending: "pending",
+    action_required: "pending",
+    at_terminal: "pending",
+    failed: "rejected",
+    rejected: "rejected",
+    cancelled: "rejected",
+    canceled: "rejected",
+    refunded: "refunded",
+    partially_refunded: "refunded",
+  };
+  return map[status ?? ""] ?? "unknown";
+}
+
+// ─── E-mail do pagador compatível com o ambiente ─────────────────────────────
+// Em sandbox o Mercado Pago EXIGE que o e-mail do pagador contenha "@testuser.com"
+// (senão: invalid_email_for_sandbox). Em produção usa o e-mail real do comprador.
+function payerEmailForEnv(email?: string): string {
+  if (isProduction) return email || "comprador@email.com";
+  const local = (email || "comprador").split("@")[0].replace(/[^a-zA-Z0-9._-]/g, "") || "comprador";
+  return `test_${local}@testuser.com`;
 }
 
 // ─── Parse de JSON tolerante a falhas ────────────────────────────────────────
@@ -691,6 +735,114 @@ export async function createExpressApp() {
     res.json({ success: true });
   });
 
+  // ── Criar reserva (convidado OU logado) ───────────────────────────────────
+  // Roteada pelo servidor (service role) porque o cliente anônimo não tem
+  // política de RLS para ler de volta a reserva criada (.select()) nem para
+  // inserir ticket_items. O total é SEMPRE recalculado aqui (anti-fraude).
+  app.post("/api/reservations", async (req, res) => {
+    const { reservation, ticketItems } = req.body as {
+      reservation?: any;
+      ticketItems?: any[];
+    };
+
+    if (!reservation || typeof reservation !== "object") {
+      res.status(400).json({ error: "Dados da reserva ausentes." });
+      return;
+    }
+
+    const buyerName = String(reservation.buyer_name ?? "").trim();
+    const buyerEmail = String(reservation.buyer_email ?? "").trim();
+    const buyerCpf = String(reservation.buyer_cpf ?? "").trim();
+    if (!buyerName || !buyerEmail) {
+      res.status(400).json({ error: "Nome e e-mail do comprador são obrigatórios." });
+      return;
+    }
+
+    const admin = await getAdminClient();
+    if (!admin) {
+      res.status(503).json({ error: "Serviço de reservas não configurado." });
+      return;
+    }
+
+    // Auth opcional: se houver token válido, associa a reserva ao usuário.
+    let userId: string | null = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.split(" ")[1];
+      try {
+        const { data: { user } } = await admin.auth.getUser(token);
+        if (user) userId = user.id;
+      } catch { /* token inválido → trata como convidado */ }
+    }
+
+    // Recálculo autoritativo do valor a partir dos preços do banco.
+    const selection: OrderSelection = {
+      eventId: reservation.event_id,
+      tables: reservation.tables,
+      singleTickets: reservation.single_tickets,
+      maleTickets: reservation.male_tickets,
+      femaleTickets: reservation.female_tickets,
+      sectorId: reservation.sector_id,
+    };
+    let grandTotal: number;
+    try {
+      grandTotal = await computeOrderTotal(selection);
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message ?? "Não foi possível validar o valor do pedido." });
+      return;
+    }
+    const netAmount = Math.round((grandTotal / (1 + PLATFORM_FEE_RATE)) * 100) / 100;
+    const platformFee = Math.round((grandTotal - netAmount) * 100) / 100;
+
+    try {
+      const { data: res1, error: resErr } = await admin
+        .from("reservations")
+        .insert({
+          event_id: reservation.event_id,
+          user_id: userId,
+          buyer_name: buyerName,
+          buyer_email: buyerEmail,
+          buyer_cpf: buyerCpf,
+          tables: Array.isArray(reservation.tables) ? reservation.tables : [],
+          single_tickets: Math.max(0, Math.floor(Number(reservation.single_tickets) || 0)),
+          male_tickets: Math.max(0, Math.floor(Number(reservation.male_tickets) || 0)),
+          female_tickets: Math.max(0, Math.floor(Number(reservation.female_tickets) || 0)),
+          total: grandTotal,
+          platform_fee: platformFee,
+          net_amount: netAmount,
+          payment_status: "pending",
+          payment_method: reservation.payment_method ?? null,
+        })
+        .select()
+        .single();
+      if (resErr) throw resErr;
+
+      // ticket_items: sanitiza e força reservation_id/event_id no servidor.
+      const items = Array.isArray(ticketItems) ? ticketItems.slice(0, 500) : [];
+      if (items.length > 0) {
+        const toInsert = items.map((t) => ({
+          reservation_id: res1.id,
+          event_id: reservation.event_id,
+          name: String(t?.name ?? "Ingresso"),
+          is_table: Boolean(t?.is_table),
+          table_number: t?.table_number ?? null,
+          occupant_index: t?.occupant_index ?? null,
+          owner_name: String(t?.owner_name ?? ""),
+          owner_cpf: String(t?.owner_cpf ?? ""),
+          owner_email: t?.owner_email ?? null,
+          status: String(t?.status ?? "active"),
+        }));
+        const { error: tiErr } = await admin.from("ticket_items").insert(toInsert);
+        if (tiErr) throw tiErr;
+      }
+
+      res.status(201).json({ reservation: res1 });
+    } catch (err: any) {
+      console.error("[RESERVA] Falha ao criar reserva:", err?.message ?? err);
+      res.status(500).json({ error: "Não foi possível registrar a reserva." });
+    }
+  });
+
   // ── Mercado Pago - Process Payment ────────────────────────────────────────
   app.post("/api/payment/mercadopago", paymentLimiter, requireAuth, async (req, res) => {
     const {
@@ -750,19 +902,21 @@ export async function createExpressApp() {
     try {
       const isDebit = paymentMethod === 'debit_card';
       const brandMap: Record<string, string> = { visa: 'visa', mastercard: 'master', amex: 'amex', elo: 'elo' };
-      const brandKey = brandMap[cardBrand || 'visa'] ?? 'visa';
-      const payment_method_id = isDebit ? `deb${brandKey}` : brandKey;
+      const brandId = brandMap[cardBrand || 'visa'] ?? 'visa';
+      const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
 
+      // Orders API (/v1/orders) — o /v1/payments legado foi descontinuado para
+      // novas integrações (retornava internal_error). Em sandbox usa-se a
+      // credencial APP_USR de um vendedor de teste.
       const payload = {
-        token: cardToken,
-        payment_method_id,
-        installments: parseInt(installments || "1", 10),
-        statement_descriptor: description.slice(0, 22),
-        transaction_amount: Math.round(amount * 100) / 100,
-        description,
+        type: "online",
+        processing_mode: "automatic",
+        total_amount: amountStr,
         ...(reservationId ? { external_reference: reservationId } : {}),
         payer: {
-          email: guestData?.email || "comprador@mercadopago.com",
+          // Nunca usar domínio @mercadopago.com (proibido pelo MP → erro 4390).
+          // Em sandbox, o e-mail é convertido para @testuser.com (exigência do MP).
+          email: payerEmailForEnv(guestData?.email || (req as any).user?.email),
           first_name: (guestData?.name || "").split(" ")[0],
           last_name: (guestData?.name || "").split(" ").slice(1).join(" "),
           identification: {
@@ -770,11 +924,24 @@ export async function createExpressApp() {
             type: "CPF",
           },
         },
+        transactions: {
+          payments: [
+            {
+              amount: amountStr,
+              payment_method: {
+                id: brandId,
+                type: isDebit ? "debit_card" : "credit_card",
+                token: cardToken,
+                installments: parseInt(installments || "1", 10),
+              },
+            },
+          ],
+        },
       };
 
-      console.log(`[MERCADOPAGO] Processando pagamento: R$ ${amount} | Método: ${paymentMethod}`);
+      console.log(`[MERCADOPAGO] Processando pagamento (orders): R$ ${amount} | Método: ${paymentMethod} | payer.email: ${payload.payer.email}`);
 
-      const response = await fetch("https://api.mercadopago.com/v1/payments", {
+      const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -787,25 +954,28 @@ export async function createExpressApp() {
       const data = await response.json();
 
       if (!response.ok) {
-        console.error("[MERCADOPAGO] Erro:", data);
+        console.error("[MERCADOPAGO] Erro:", JSON.stringify(data));
         res.status(response.status).json({
-          error: data.message || "Erro ao processar pagamento",
+          error: data.errors?.[0]?.message || data.message || "Erro ao processar pagamento",
           details: data,
         });
         return;
       }
 
-      console.log("[MERCADOPAGO] ✓ Pagamento processado:", data.id);
+      const payment = data.transactions?.payments?.[0] ?? {};
+      const normalized = orderStatusToNormalized(payment.status || data.status);
+      const paymentId = payment.id ?? data.id;
+      console.log(`[MERCADOPAGO] ✓ Order ${data.id} | pagamento ${paymentId} | status ${payment.status} → ${normalized}`);
 
       // Atualiza a reserva (service role) com o status real — não confia no cliente.
       // O webhook é a rede de segurança caso esta atualização falhe.
       if (reservationId) {
-        const newStatus = mpStatusToReservation(data.status);
+        const newStatus = mpStatusToReservation(normalized);
         const admin = await getAdminClient();
         if (admin && newStatus) {
           const { error: upErr } = await admin
             .from("reservations")
-            .update({ payment_status: newStatus, payment_id: String(data.id), updated_at: new Date().toISOString() })
+            .update({ payment_status: newStatus, payment_id: String(paymentId), updated_at: new Date().toISOString() })
             .eq("id", reservationId);
           if (upErr) console.error("[MERCADOPAGO] Falha ao atualizar reserva:", upErr.message);
         }
@@ -813,10 +983,10 @@ export async function createExpressApp() {
 
       res.json({
         success: true,
-        paymentId: data.id,
-        status: data.status,
-        statusDetail: data.status_detail,
-        amount: data.transaction_amount,
+        paymentId,
+        status: normalized,
+        statusDetail: payment.status_detail ?? data.status_detail,
+        amount: Number(data.total_amount ?? amount),
       });
     } catch (error) {
       console.error("[MERCADOPAGO] Erro ao processar:", error);
@@ -859,7 +1029,8 @@ export async function createExpressApp() {
     }
 
     try {
-      const response = await fetch("https://api.mercadopago.com/v1/payments", {
+      const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
+      const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -867,12 +1038,12 @@ export async function createExpressApp() {
           "X-Idempotency-Key": `pix-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         },
         body: JSON.stringify({
-          payment_method_id: "pix",
-          transaction_amount: Math.round(amount * 100) / 100,
-          description: (description || "Ingresso").slice(0, 255),
+          type: "online",
+          processing_mode: "automatic",
+          total_amount: amountStr,
           ...(reservationId ? { external_reference: reservationId } : {}),
           payer: {
-            email: guestData?.email || "comprador@email.com",
+            email: payerEmailForEnv(guestData?.email),
             first_name: (guestData?.name || "").split(" ")[0] || "Comprador",
             last_name: (guestData?.name || "").split(" ").slice(1).join(" ") || "Eventix",
             identification: {
@@ -880,36 +1051,46 @@ export async function createExpressApp() {
               number: (guestData?.cpf || "").replace(/\D/g, ""),
             },
           },
+          transactions: {
+            payments: [{ amount: amountStr, payment_method: { id: "pix", type: "bank_transfer" } }],
+          },
         }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        console.error("[PIX] Erro Mercado Pago:", data);
-        res.status(response.status).json({ error: data.message || "Erro ao gerar PIX" });
+        console.error("[PIX] Erro Mercado Pago:", JSON.stringify(data));
+        res.status(response.status).json({ error: data.errors?.[0]?.message || data.message || "Erro ao gerar PIX" });
         return;
       }
 
-      const qrCode = data.point_of_interaction?.transaction_data?.qr_code ?? "";
-      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCode)}&size=250x250`;
+      const payment = data.transactions?.payments?.[0] ?? {};
+      const pm = payment.payment_method ?? {};
+      const qrCode = pm.qr_code ?? "";
+      const qrCodeBase64 = pm.qr_code_base64 ?? "";
+      // Prioriza a imagem oficial do MP (base64); senão gera a partir do código copia-e-cola.
+      const qrCodeUrl = qrCodeBase64
+        ? `data:image/png;base64,${qrCodeBase64}`
+        : (qrCode ? `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCode)}&size=250x250` : "");
 
+      const paymentId = payment.id ?? data.id;
       // Vincula o payment_id à reserva (service role) para o webhook casar a confirmação.
       if (reservationId) {
         const admin = await getAdminClient();
         if (admin) {
           const { error: upErr } = await admin
             .from("reservations")
-            .update({ payment_id: String(data.id), updated_at: new Date().toISOString() })
+            .update({ payment_id: String(paymentId), updated_at: new Date().toISOString() })
             .eq("id", reservationId);
           if (upErr) console.error("[PIX] Falha ao vincular payment_id à reserva:", upErr.message);
         }
       }
 
-      console.log(`[PIX] Gerado paymentId=${data.id} status=${data.status}`);
+      console.log(`[PIX] Order ${data.id} | pagamento ${paymentId} status=${payment.status} | qr=${qrCode ? "ok" : "vazio"}`);
       res.json({
-        paymentId: data.id,
-        status: data.status,
+        paymentId,
+        status: orderStatusToNormalized(payment.status || data.status),
         qrCode,
         qrCodeUrl,
       });
@@ -1048,9 +1229,9 @@ export async function createExpressApp() {
       }
 
       const profile = { ...data };
-      if (profile.cpf?.startsWith("enc:")) profile.cpf = decryptData(profile.cpf);
-      if (profile.phone?.startsWith("enc:")) profile.phone = decryptData(profile.phone);
-      if (profile.birth_date?.startsWith("enc:")) profile.birth_date = decryptData(profile.birth_date);
+      profile.cpf = safeDecrypt(profile.cpf);
+      profile.phone = safeDecrypt(profile.phone);
+      profile.birth_date = safeDecrypt(profile.birth_date);
 
       res.json({ success: true, profile });
     } catch (err: any) {
@@ -1079,6 +1260,18 @@ export async function createExpressApp() {
 
     if (cpf && !validateCpf(cpf)) {
       res.status(400).json({ error: "CPF inválido." });
+      return;
+    }
+
+    // birth_date: aceita apenas 'YYYY-MM-DD' (formato do <input type="date">).
+    if (birth_date && !/^\d{4}-\d{2}-\d{2}$/.test(birth_date)) {
+      res.status(400).json({ error: "Data de nascimento inválida (use AAAA-MM-DD)." });
+      return;
+    }
+
+    // phone: aceita dígitos, espaços e ( ) - + ; entre 8 e 20 caracteres.
+    if (phone && !/^[\d\s()+-]{8,20}$/.test(phone)) {
+      res.status(400).json({ error: "Telefone inválido." });
       return;
     }
 
@@ -1116,9 +1309,9 @@ export async function createExpressApp() {
 
       // Retorna o perfil com dados descriptografados
       const profile = { ...data };
-      if (profile.cpf?.startsWith("enc:")) profile.cpf = decryptData(profile.cpf);
-      if (profile.phone?.startsWith("enc:")) profile.phone = decryptData(profile.phone);
-      if (profile.birth_date?.startsWith("enc:")) profile.birth_date = decryptData(profile.birth_date);
+      profile.cpf = safeDecrypt(profile.cpf);
+      profile.phone = safeDecrypt(profile.phone);
+      profile.birth_date = safeDecrypt(profile.birth_date);
 
       console.log(`[PROFILE] Dados sensíveis atualizados para user ${user.uid}`);
       res.json({ success: true, profile });
