@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
-import { sendConfirmationEmail, sendReminderEmails, type ConfirmationData } from "./emailService.js";
+import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, type ConfirmationData } from "./emailService.js";
 
 dotenv.config();
 
@@ -100,6 +100,38 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   return crypto.timingSafeEqual(hash, storedHash);
 }
 
+// ─── Token de Staff (equipe de portaria) ─────────────────────────────────────
+// A equipe de portaria NÃO usa Supabase Auth — ela loga em /api/staff/login e
+// recebe este token assinado (HMAC). Contém o(s) evento(s) vinculado(s); o
+// check-in só autoriza ingressos desses eventos. Formato: staff.<payload>.<sig>
+interface StaffTokenPayload { sid: string; name: string; eventIds: string[]; exp: number; }
+
+function staffSecret(): string {
+  return process.env.CRON_SECRET || process.env.ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "staff-fallback-secret";
+}
+
+function signStaffToken(payload: StaffTokenPayload): string {
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = crypto.createHmac("sha256", staffSecret()).update(body).digest("base64url");
+  return `staff.${body}.${sig}`;
+}
+
+function verifyStaffToken(token: string): StaffTokenPayload | null {
+  if (!token.startsWith("staff.")) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [, body, sig] = parts;
+  const expected = crypto.createHmac("sha256", staffSecret()).update(body).digest("base64url");
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  } catch { return null; }
+  try {
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString()) as StaffTokenPayload;
+    if (!payload.exp || Date.now() > payload.exp) return null;
+    return payload;
+  } catch { return null; }
+}
+
 // ─── Config (module-level para ser compartilhado entre dev e serverless) ─────
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -111,6 +143,39 @@ const allowMockPayments = process.env.ALLOW_MOCK_PAYMENTS === "true";
 // Persiste até reiniciar o servidor; process.env tem prioridade em produção.
 let runtimeMpAccessToken = "";
 let runtimeMpPublicKey = "";
+
+// ─── Credenciais MP em runtime: env → memória → banco (app_secrets/config) ───
+// O admin configura pelo painel (Acesso Master); o segredo fica criptografado em
+// app_secrets e a public key (não-secreta) em system_config. Cache curto p/ não
+// consultar o banco a cada pagamento.
+let mpCache: { accessToken: string; publicKey: string } | null = null;
+let mpCacheAt = 0;
+function invalidateMpCache() { mpCache = null; mpCacheAt = 0; }
+
+async function getMpCredentials(): Promise<{ accessToken: string; publicKey: string }> {
+  const envToken = process.env.MERCADOPAGO_ACCESS_TOKEN || "";
+  const envKey = process.env.VITE_MERCADOPAGO_PUBLIC_KEY || "";
+  if (envToken) return { accessToken: envToken, publicKey: envKey || runtimeMpPublicKey };
+  if (runtimeMpAccessToken) return { accessToken: runtimeMpAccessToken, publicKey: runtimeMpPublicKey || envKey };
+  if (mpCache && Date.now() - mpCacheAt < 30000) return mpCache;
+  try {
+    const admin = await getAdminClient();
+    if (admin) {
+      const [{ data: sec }, { data: cfg }] = await Promise.all([
+        admin.from("app_secrets").select("mp_access_token").eq("id", "main").maybeSingle(),
+        admin.from("system_config").select("mp_public_key").eq("id", "main").maybeSingle(),
+      ]);
+      const accessToken = sec?.mp_access_token ? (safeDecrypt(sec.mp_access_token) || "") : "";
+      mpCache = { accessToken, publicKey: cfg?.mp_public_key || envKey };
+      mpCacheAt = Date.now();
+      return mpCache;
+    }
+  } catch (e: any) {
+    console.error("[MP] Falha ao ler credenciais do banco:", e?.message ?? e);
+  }
+  return { accessToken: "", publicKey: envKey };
+}
+async function getMpAccessToken(): Promise<string> { return (await getMpCredentials()).accessToken; }
 
 // ─── Cliente Supabase com service role (admin) ───────────────────────────────
 async function getAdminClient() {
@@ -480,6 +545,148 @@ export async function createExpressApp() {
     next();
   };
 
+  // ── Auth OU Staff ─────────────────────────────────────────────────────────
+  // Usado só pelo check-in: aceita o token Supabase (admin/organizador) OU o
+  // token de staff (equipe de portaria). Define req.staff quando for staff.
+  const requireAuthOrStaff = async (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : "";
+    if (token.startsWith("staff.")) {
+      const staff = verifyStaffToken(token);
+      if (!staff) {
+        res.status(401).json({ result: "forbidden", error: "Sessão de portaria inválida ou expirada." });
+        return;
+      }
+      (req as any).staff = staff;
+      next();
+      return;
+    }
+    return requireAuth(req, res, next);
+  };
+
+  // ── Staff: criar/listar/remover (admin) ───────────────────────────────────
+  app.post("/api/staff", requireAuth, requireAdmin, async (req, res) => {
+    const { name, username, password, eventIds } = req.body as {
+      name?: string; username?: string; password?: string; eventIds?: (string | number)[];
+    };
+    if (!name?.trim() || !username?.trim() || !password) {
+      res.status(400).json({ error: "Nome, usuário e senha são obrigatórios." });
+      return;
+    }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const uname = username.trim().toLowerCase();
+      const { data: existing } = await admin.from("staff_accounts").select("id").eq("username", uname).eq("is_active", true).maybeSingle();
+      if (existing) { res.status(409).json({ error: "Já existe um colaborador com esse usuário." }); return; }
+      const hashed = await hashPassword(password);
+      const { data, error } = await admin.from("staff_accounts").insert({
+        name: name.trim(),
+        username: uname,
+        password: hashed,
+        event_ids: (eventIds ?? []).map(String),
+        is_active: true,
+      }).select("id, name, username, event_ids, is_active").single();
+      if (error) throw error;
+      res.status(201).json({ staff: data });
+    } catch (e: any) {
+      console.error("[STAFF] Falha ao criar:", e?.message ?? e);
+      res.status(500).json({ error: "Não foi possível cadastrar o colaborador." });
+    }
+  });
+
+  app.get("/api/staff", requireAuth, requireAdmin, async (_req, res) => {
+    const admin = await getAdminClient();
+    if (!admin) { res.json({ staff: [] }); return; }
+    try {
+      const { data, error } = await admin
+        .from("staff_accounts")
+        .select("id, name, username, event_ids, is_active")
+        .eq("is_active", true)
+        .order("name");
+      if (error) throw error;
+      res.json({ staff: data ?? [] });
+    } catch (e: any) {
+      console.error("[STAFF] Falha ao listar:", e?.message ?? e);
+      res.json({ staff: [] });
+    }
+  });
+
+  app.delete("/api/staff/:id", requireAuth, requireAdmin, async (req, res) => {
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const { error } = await admin.from("staff_accounts").update({ is_active: false }).eq("id", req.params.id);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[STAFF] Falha ao remover:", e?.message ?? e);
+      res.status(500).json({ error: "Não foi possível remover o colaborador." });
+    }
+  });
+
+  // ── Staff: login da equipe de portaria ────────────────────────────────────
+  app.post("/api/staff/login", authLimiter, async (req, res) => {
+    const { username, password } = req.body as { username?: string; password?: string };
+    if (!username?.trim() || !password) {
+      res.status(400).json({ error: "Informe usuário e senha." });
+      return;
+    }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const { data: staff } = await admin
+        .from("staff_accounts")
+        .select("id, name, username, password, event_ids, is_active")
+        .eq("username", username.trim().toLowerCase())
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!staff || !(await verifyPassword(password, staff.password))) {
+        res.status(401).json({ error: "Usuário ou senha incorretos." });
+        return;
+      }
+      const eventIds = Array.isArray(staff.event_ids) ? staff.event_ids.map(String) : [];
+      const token = signStaffToken({
+        sid: staff.id, name: staff.name, eventIds,
+        exp: Date.now() + 12 * 60 * 60 * 1000, // 12h
+      });
+      res.json({ token, staff: { id: staff.id, name: staff.name, eventIds } });
+    } catch (e: any) {
+      console.error("[STAFF] Falha no login:", e?.message ?? e);
+      res.status(500).json({ error: "Erro ao autenticar." });
+    }
+  });
+
+  // ── Staff: lista de ingressos do evento vinculado (para o check-in) ───────
+  // A equipe de portaria não tem sessão Supabase/RLS; o servidor (service role)
+  // devolve as reservas do(s) evento(s) vinculado(s) ao token de staff.
+  app.get("/api/staff/event-tickets", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : "";
+    const staff = verifyStaffToken(token);
+    if (!staff) { res.status(401).json({ error: "Sessão de portaria inválida." }); return; }
+    const admin = await getAdminClient();
+    if (!admin) { res.json({ reservations: [] }); return; }
+    try {
+      const eventIds = (staff.eventIds ?? []).map(Number).filter(n => !Number.isNaN(n));
+      if (eventIds.length === 0) { res.json({ reservations: [] }); return; }
+      const { data, error } = await admin
+        .from("reservations")
+        .select("id, event_id, buyer_name, buyer_email, buyer_cpf, total, payment_status, payment_method, platform_fee, net_amount, tables, single_tickets, created_at, ticket_items(*)")
+        .in("event_id", eventIds)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      res.json({ reservations: data ?? [] });
+    } catch (e: any) {
+      console.error("[STAFF] Falha ao listar ingressos:", e?.message ?? e);
+      res.json({ reservations: [] });
+    }
+  });
+
   // ── Dev TOTP Verify (server-side — segredo nunca vai ao frontend) ─────────
   app.post("/api/auth/dev-verify", authLimiter, (req, res) => {
     const { token } = req.body as { token?: string };
@@ -710,11 +917,30 @@ export async function createExpressApp() {
   });
 
   // ── Mercado Pago - Test Connection ────────────────────────────────────────
-  app.post("/api/admin/test-mercadopago", requireAuth, requireAdmin, async (req, res) => {
-    const { accessToken, publicKey } = req.body as { accessToken?: string; publicKey?: string };
+  // ── Status do pagamento (read-only para o painel) ────────────────────────
+  // Não expõe segredos: só informa SE está configurado, o ambiente e a public
+  // key mascarada. As credenciais ficam nas variáveis de ambiente (Vercel).
+  app.get("/api/admin/payment-status", requireAuth, requireAdmin, async (_req, res) => {
+    const { accessToken, publicKey } = await getMpCredentials();
+    const isProd = /^APP_USR-/.test(accessToken);
+    const maskKey = (k: string) =>
+      !k ? "" : k.length <= 12 ? k : `${k.slice(0, 8)}…${k.slice(-4)}`;
+    res.json({
+      provider: paymentProvider,
+      configured: Boolean(accessToken),
+      environment: accessToken ? (isProd ? "production" : "test") : "unset",
+      publicKeyMasked: maskKey(publicKey),
+      webhookConfigured: Boolean(process.env.MERCADOPAGO_WEBHOOK_SECRET),
+    });
+  });
 
-    if (!accessToken || !publicKey) {
-      res.status(400).json({ error: "Access Token e Public Key são obrigatórios." });
+  app.post("/api/admin/test-mercadopago", requireAuth, requireAdmin, async (req, res) => {
+    const body = (req.body ?? {}) as { accessToken?: string; publicKey?: string };
+    // Sem credenciais no corpo: testa as do SERVIDOR (env → memória → banco).
+    const accessToken = body.accessToken || (await getMpAccessToken());
+
+    if (!accessToken) {
+      res.status(400).json({ error: "Nenhuma credencial do Mercado Pago configurada no servidor." });
       return;
     }
 
@@ -748,8 +974,112 @@ export async function createExpressApp() {
     }
     runtimeMpAccessToken = accessToken;
     runtimeMpPublicKey = publicKey;
+    invalidateMpCache();
     console.log("[MP] Credenciais atualizadas via painel admin");
     res.json({ success: true });
+  });
+
+  // ── Salvar credenciais do Mercado Pago no banco (criptografadas) ──────────
+  // O Access Token vai criptografado em app_secrets; a Public Key (não-secreta)
+  // e o ambiente em system_config. Nada disso volta ao client.
+  app.post("/api/admin/payment-credentials", requireAuth, requireAdmin, async (req, res) => {
+    const { accessToken, publicKey, environment } = req.body as {
+      accessToken?: string; publicKey?: string; environment?: string;
+    };
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      if (accessToken && accessToken.trim()) {
+        await admin.from("app_secrets").upsert({ id: "main", mp_access_token: encryptData(accessToken.trim()), updated_at: new Date().toISOString() });
+      }
+      const cfgUpdate: Record<string, any> = {};
+      if (publicKey !== undefined) cfgUpdate.mp_public_key = publicKey.trim() || null;
+      if (environment) cfgUpdate.mp_environment = environment;
+      if (Object.keys(cfgUpdate).length) await admin.from("system_config").update(cfgUpdate).eq("id", "main");
+      invalidateMpCache();
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[MP] Falha ao salvar credenciais:", e?.message ?? e);
+      res.status(500).json({ error: "Não foi possível salvar as credenciais." });
+    }
+  });
+
+  // ── Salvar configuração de e-mail (Resend ou SMTP) ───────────────────────
+  app.post("/api/admin/email-config", requireAuth, requireAdmin, async (req, res) => {
+    const { provider, resendApiKey, smtp, senderName, senderAddress, notifyWebhookUrl } = req.body as {
+      provider?: string; resendApiKey?: string;
+      smtp?: { host?: string; port?: number; user?: string; password?: string; secure?: boolean };
+      senderName?: string; senderAddress?: string; notifyWebhookUrl?: string;
+    };
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const secretUpdate: Record<string, any> = { id: "main", updated_at: new Date().toISOString() };
+      if (resendApiKey && resendApiKey.trim()) secretUpdate.resend_api_key = encryptData(resendApiKey.trim());
+      if (smtp?.password && smtp.password.trim()) secretUpdate.smtp_password = encryptData(smtp.password.trim());
+      if (Object.keys(secretUpdate).length > 2) await admin.from("app_secrets").upsert(secretUpdate);
+
+      const cfgUpdate: Record<string, any> = {};
+      if (provider) cfgUpdate.email_provider = provider === "smtp" ? "smtp" : "resend";
+      if (senderName !== undefined) cfgUpdate.email_sender_name = senderName || null;
+      if (senderAddress !== undefined) cfgUpdate.email_sender_address = senderAddress || null;
+      if (notifyWebhookUrl !== undefined) cfgUpdate.notify_webhook_url = notifyWebhookUrl || null;
+      if (smtp) {
+        if (smtp.host !== undefined) cfgUpdate.smtp_host = smtp.host || null;
+        if (smtp.port !== undefined) cfgUpdate.smtp_port = smtp.port || null;
+        if (smtp.user !== undefined) cfgUpdate.smtp_user = smtp.user || null;
+        if (smtp.secure !== undefined) cfgUpdate.smtp_secure = !!smtp.secure;
+      }
+      if (Object.keys(cfgUpdate).length) await admin.from("system_config").update(cfgUpdate).eq("id", "main");
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[EMAIL] Falha ao salvar config:", e?.message ?? e);
+      res.status(500).json({ error: "Não foi possível salvar a configuração de e-mail." });
+    }
+  });
+
+  // ── Status do e-mail (sem expor segredos) ────────────────────────────────
+  app.get("/api/admin/email-status", requireAuth, requireAdmin, async (_req, res) => {
+    const admin = await getAdminClient();
+    if (!admin) { res.json({ provider: "resend", configured: false }); return; }
+    try {
+      const [{ data: cfg }, { data: sec }] = await Promise.all([
+        admin.from("system_config").select("email_provider, smtp_host, smtp_port, smtp_user, smtp_secure, email_sender_name, email_sender_address, notify_webhook_url").eq("id", "main").maybeSingle(),
+        admin.from("app_secrets").select("resend_api_key, smtp_password").eq("id", "main").maybeSingle(),
+      ]);
+      const provider = (cfg?.email_provider === "smtp" ? "smtp" : "resend");
+      const configured = provider === "smtp"
+        ? Boolean(cfg?.smtp_host && sec?.smtp_password)
+        : Boolean(sec?.resend_api_key || process.env.RESEND_API_KEY);
+      res.json({
+        provider, configured,
+        senderName: cfg?.email_sender_name ?? "",
+        senderAddress: cfg?.email_sender_address ?? "",
+        smtpHost: cfg?.smtp_host ?? "",
+        smtpPort: cfg?.smtp_port ?? "",
+        smtpUser: cfg?.smtp_user ?? "",
+        smtpSecure: cfg?.smtp_secure ?? true,
+        notifyWebhookUrl: cfg?.notify_webhook_url ?? "",
+      });
+    } catch (e: any) {
+      console.error("[EMAIL] Falha no status:", e?.message ?? e);
+      res.json({ provider: "resend", configured: false });
+    }
+  });
+
+  // ── Enviar e-mail de teste para o admin logado ───────────────────────────
+  app.post("/api/admin/test-email", requireAuth, requireAdmin, async (req, res) => {
+    const { to } = req.body as { to?: string };
+    const user = (req as any).user;
+    const target = (to && to.trim()) || user?.email;
+    if (!target) { res.status(400).json({ error: "Informe um e-mail de destino." }); return; }
+    try {
+      await sendTestEmail(target);
+      res.json({ success: true, message: `E-mail de teste enviado para ${target}.` });
+    } catch (e: any) {
+      console.error("[EMAIL] Falha no teste:", e?.message ?? e);
+      res.status(500).json({ error: e?.message || "Falha ao enviar e-mail de teste." });
+    }
   });
 
   // ── Criar reserva (convidado OU logado) ───────────────────────────────────
@@ -816,7 +1146,7 @@ export async function createExpressApp() {
     if (requestedTables.length > 0) {
       try {
         const occupied = new Set(await getOccupiedTables(admin, reservation.event_id));
-        const conflict = requestedTables.filter((t) => occupied.has(t));
+        const conflict = requestedTables.filter((t: number) => occupied.has(t));
         if (conflict.length > 0) {
           res.status(409).json({ error: `Mesa(s) já reservada(s): ${conflict.join(", ")}. Atualize o mapa e escolha outra.` });
           return;
@@ -896,8 +1226,9 @@ export async function createExpressApp() {
   // O QR do ingresso carrega o id do ticket_items. Valida pagamento aprovado e
   // duplicidade, e marca checked_in_at. Só admin/developer ou o organizador do
   // evento pode fazer check-in.
-  app.post("/api/checkin", requireAuth, async (req, res) => {
+  app.post("/api/checkin", requireAuthOrStaff, async (req, res) => {
     const user = (req as any).user;
+    const staff = (req as any).staff as StaffTokenPayload | undefined;
     const { ticketId } = req.body as { ticketId?: string };
     if (!ticketId || typeof ticketId !== "string") {
       res.status(400).json({ result: "notfound" });
@@ -923,16 +1254,22 @@ export async function createExpressApp() {
         .eq("id", ticket.reservation_id)
         .maybeSingle();
 
-      // Autorização: admin/developer OU organizador (created_by) do evento.
-      const role = await getProfileRole(user.uid);
-      let allowed = role === "admin" || role === "developer";
-      if (!allowed) {
-        const { data: ev } = await admin
-          .from("events")
-          .select("created_by")
-          .eq("id", ticket.event_id)
-          .maybeSingle();
-        allowed = ev?.created_by === user.uid;
+      // Autorização: equipe de portaria (só o evento vinculado) OU
+      // admin/developer OU organizador (created_by) do evento.
+      let allowed = false;
+      if (staff) {
+        allowed = Array.isArray(staff.eventIds) && staff.eventIds.map(String).includes(String(ticket.event_id));
+      } else {
+        const role = await getProfileRole(user.uid);
+        allowed = role === "admin" || role === "developer";
+        if (!allowed) {
+          const { data: ev } = await admin
+            .from("events")
+            .select("created_by")
+            .eq("id", ticket.event_id)
+            .maybeSingle();
+          allowed = ev?.created_by === user.uid;
+        }
       }
       if (!allowed) { res.status(403).json({ result: "forbidden" }); return; }
 
@@ -981,7 +1318,7 @@ export async function createExpressApp() {
       reservationId?: string;
     };
 
-    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN || runtimeMpAccessToken;
+    const accessToken = await getMpAccessToken();
 
     if (!accessToken) {
       console.error("[MERCADOPAGO] Access Token não configurado");
@@ -1136,7 +1473,7 @@ export async function createExpressApp() {
       console.warn(`[SECURITY] Divergência de valor (PIX): cliente=${clientAmount} servidor=${amount}`);
     }
 
-    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN || runtimeMpAccessToken;
+    const accessToken = await getMpAccessToken();
     if (!accessToken) {
       res.status(503).json({ error: "Mercado Pago não configurado. Configure as credenciais no painel admin." });
       return;
@@ -1272,7 +1609,7 @@ export async function createExpressApp() {
       // 3. Confirma o status REAL consultando a API do MP (não confia no corpo).
       //    Tenta a Orders API (/v1/orders/{id}) e, se não for uma order, cai no
       //    pagamento legado (/v1/payments/{id}, id numérico).
-      const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN || runtimeMpAccessToken;
+      const accessToken = await getMpAccessToken();
       if (!accessToken) {
         console.error("[WEBHOOK] Access Token não configurado — impossível confirmar pagamento.");
         return;
@@ -1650,19 +1987,35 @@ export async function createExpressApp() {
   });
 
   // ── Email - Lembretes Automáticos (endpoint para cron externo) ────────────
-  app.post("/api/email/send-reminders", async (req, res) => {
+  // Lembretes via cron. Aceita GET (Vercel Cron, que envia Authorization: Bearer
+  // <CRON_SECRET>) e POST (header x-cron-key) — qualquer um com o segredo correto.
+  const handleSendReminders = async (req: express.Request, res: express.Response) => {
     const cronKey = process.env.CRON_SECRET;
-    const provided = req.headers["x-cron-key"];
+    const bearer = typeof req.headers.authorization === "string" ? req.headers.authorization.replace(/^Bearer\s+/i, "") : "";
+    const provided = (req.headers["x-cron-key"] as string) || bearer;
     if (!cronKey || provided !== cronKey) {
       res.status(401).json({ error: "Não autorizado." });
       return;
     }
-
     try {
       const result = await sendReminderEmails();
       res.json(result);
     } catch (err: any) {
       console.error("[EMAIL] Erro ao enviar lembretes:", err.message);
+      res.status(500).json({ error: "Erro ao enviar lembretes." });
+    }
+  };
+  app.get("/api/email/send-reminders", handleSendReminders);
+  app.post("/api/email/send-reminders", handleSendReminders);
+
+  // Disparo manual de lembretes pelo painel (autenticado como admin — o botão da
+  // UI não conhece o CRON_SECRET, então usa o token do admin).
+  app.post("/api/admin/trigger-reminders", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const result = await sendReminderEmails();
+      res.json(result);
+    } catch (err: any) {
+      console.error("[EMAIL] Erro ao disparar lembretes:", err.message);
       res.status(500).json({ error: "Erro ao enviar lembretes." });
     }
   });
@@ -1783,12 +2136,13 @@ export async function createExpressApp() {
 
       // 4. Chamar API do Mercado Pago
       const mpBody = refundAmount !== undefined ? { amount: refundAmount } : {};
+      const refundToken = await getMpAccessToken();
       const mpRes = await fetch(
         `https://api.mercadopago.com/v1/payments/${paymentId}/refunds`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN || process.env.MP_ACCESS_TOKEN || runtimeMpAccessToken}`,
+            Authorization: `Bearer ${refundToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(mpBody),
@@ -1816,6 +2170,17 @@ export async function createExpressApp() {
   // Rotas /api/* não encontradas — deve vir ANTES do middleware Vite
   app.all("/api/*", (_req, res) => {
     res.status(404).json({ error: "API endpoint not found" });
+  });
+
+  // Error-handler JSON para a API: garante que erros (ex.: JSON malformado no
+  // body-parser, exceções não tratadas) respondam JSON em vez da página HTML
+  // padrão do Express. Só atua em /api; demais rotas seguem o fluxo normal.
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) return next(err);
+    if (!req.path.startsWith("/api")) return next(err);
+    const status = err?.type === "entity.parse.failed" ? 400 : (err?.status || 500);
+    console.error("[API] Erro não tratado:", err?.message ?? err);
+    res.status(status).json({ error: status === 400 ? "Requisição inválida (JSON malformado)." : "Erro interno do servidor." });
   });
 
   return app;
@@ -1850,4 +2215,8 @@ async function startServer() {
   });
 }
 
-startServer();
+// Em serverless (Vercel) o app é exportado por api/index.ts — NÃO subimos um
+// listener próprio. startServer() só roda quando executado diretamente (dev/standalone).
+if (!process.env.VERCEL) {
+  startServer();
+}

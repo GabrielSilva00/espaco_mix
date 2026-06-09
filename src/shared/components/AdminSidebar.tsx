@@ -17,6 +17,7 @@ export function AdminSidebar() {
   } = useApp();
 
   const modules = developerConfig.adminModules;
+  const staffOnly = userRole === 'staff';
 
   const navClass = (active: boolean) =>
     `nav-item w-full flex items-center ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-xl transition-all group relative ${
@@ -70,6 +71,21 @@ export function AdminSidebar() {
         {/* Navigation */}
         <div className={`flex-1 overflow-y-auto custom-scrollbar ${isAdminSidebarCollapsed ? 'py-5 px-2.5' : 'py-5 px-3'} space-y-6`}>
 
+          {staffOnly ? (
+            /* Equipe de portaria: acesso EXCLUSIVO ao Controle de Portaria */
+            <div>
+              <button
+                onClick={() => { setCurrentView('dashboard'); setDashboardMode('check-in'); setIsMobileMenuOpen(false); }}
+                className={navClass(currentView === 'dashboard' && dashboardMode === 'check-in')}
+                title={isAdminSidebarCollapsed ? 'Controle de Portaria' : ''}
+              >
+                <ActivePill active={currentView === 'dashboard' && dashboardMode === 'check-in'} />
+                <ShieldCheck className={iconClass(currentView === 'dashboard' && dashboardMode === 'check-in')} />
+                {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Controle de Portaria</span>}
+              </button>
+            </div>
+          ) : (
+          <>
           {/* Ver Site */}
           <div>
             <button
@@ -99,15 +115,17 @@ export function AdminSidebar() {
                   <LayoutDashboard className={iconClass(currentView === 'dashboard' && dashboardMode === 'admin-overview')} />
                   {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dashboard</span>}
                 </button>
-                <button
-                  onClick={() => { setCurrentView('dashboard'); setDashboardMode('reports'); setIsMobileMenuOpen(false); }}
-                  className={navClass(currentView === 'dashboard' && dashboardMode === 'reports')}
-                  title={isAdminSidebarCollapsed ? 'Relatórios' : ''}
-                >
-                  <ActivePill active={currentView === 'dashboard' && dashboardMode === 'reports'} />
-                  <FileText className={iconClass(currentView === 'dashboard' && dashboardMode === 'reports')} />
-                  {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Relatórios</span>}
-                </button>
+                {modules.reports && (
+                  <button
+                    onClick={() => { setCurrentView('dashboard'); setDashboardMode('reports'); setIsMobileMenuOpen(false); }}
+                    className={navClass(currentView === 'dashboard' && dashboardMode === 'reports')}
+                    title={isAdminSidebarCollapsed ? 'Relatórios' : ''}
+                  >
+                    <ActivePill active={currentView === 'dashboard' && dashboardMode === 'reports'} />
+                    <FileText className={iconClass(currentView === 'dashboard' && dashboardMode === 'reports')} />
+                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Relatórios</span>}
+                  </button>
+                )}
                 {userRole === 'developer' && (
                   <button
                     onClick={() => { setCurrentView('dashboard'); setDashboardMode('dev-overview'); setIsMobileMenuOpen(false); }}
@@ -192,19 +210,23 @@ export function AdminSidebar() {
               </div>
             </div>
           )}
+          </>
+          )}
         </div>
 
         {/* Footer — sem botão de perfil para admin/developer */}
         <div className={`border-t border-[#ffffff0a] space-y-1 ${isAdminSidebarCollapsed ? 'p-2.5' : 'p-3'}`}>
-          <button
-            onClick={() => { setCurrentView('dashboard'); setDashboardMode('settings'); setIsMobileMenuOpen(false); }}
-            className={navClass(currentView === 'dashboard' && dashboardMode === 'settings')}
-            title={isAdminSidebarCollapsed ? 'Configurações' : ''}
-          >
-            <ActivePill active={currentView === 'dashboard' && dashboardMode === 'settings'} />
-            <Settings className={iconClass(currentView === 'dashboard' && dashboardMode === 'settings')} />
-            {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Configurações</span>}
-          </button>
+          {!staffOnly && (
+            <button
+              onClick={() => { setCurrentView('dashboard'); setDashboardMode('settings'); setIsMobileMenuOpen(false); }}
+              className={navClass(currentView === 'dashboard' && dashboardMode === 'settings')}
+              title={isAdminSidebarCollapsed ? 'Configurações' : ''}
+            >
+              <ActivePill active={currentView === 'dashboard' && dashboardMode === 'settings'} />
+              <Settings className={iconClass(currentView === 'dashboard' && dashboardMode === 'settings')} />
+              {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Configurações</span>}
+            </button>
+          )}
 
           <div className={`mt-1 rounded-xl flex items-center transition ${isAdminSidebarCollapsed ? 'justify-center' : 'justify-between bg-white/[0.03] border border-white/5 px-3 py-2.5'}`}>
             {!isAdminSidebarCollapsed && (
@@ -264,6 +286,16 @@ export function AdminSidebar() {
       >
         <div className="flex items-stretch h-[60px]">
 
+          {staffOnly ? (
+            <button
+              onClick={() => { setCurrentView('dashboard'); setDashboardMode('check-in'); }}
+              className="flex-1 flex flex-col items-center justify-center gap-1 transition-colors active:scale-95"
+            >
+              <ShieldCheck className={`w-5 h-5 transition-colors ${currentView === 'dashboard' && dashboardMode === 'check-in' ? 'text-[#d4af37]' : 'text-white/35'}`} />
+              <span className={`text-[9px] font-bold uppercase tracking-wider transition-colors ${currentView === 'dashboard' && dashboardMode === 'check-in' ? 'text-[#d4af37]' : 'text-white/35'}`}>Portaria</span>
+            </button>
+          ) : (
+          <>
           {/* Dashboard */}
           <button
             onClick={() => { setCurrentView('dashboard'); setDashboardMode(isAtLeast('admin') ? 'admin-overview' : 'list'); }}
@@ -310,6 +342,8 @@ export function AdminSidebar() {
             <Settings className={`w-5 h-5 transition-colors ${currentView === 'dashboard' && dashboardMode === 'settings' ? 'text-[#d4af37]' : 'text-white/35'}`} />
             <span className={`text-[9px] font-bold uppercase tracking-wider transition-colors ${currentView === 'dashboard' && dashboardMode === 'settings' ? 'text-[#d4af37]' : 'text-white/35'}`}>Config</span>
           </button>
+          </>
+          )}
 
         </div>
       </nav>

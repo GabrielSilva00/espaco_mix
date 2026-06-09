@@ -289,7 +289,16 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
               {' — '}{docLabel}: {config.document || '[A PREENCHER]'}
             </p>
 
-            {/* Direita — crédito */}
+            {/* Direita — crédito + acesso restrito */}
+            <div className="flex items-center gap-4 shrink-0">
+            <button
+              onClick={() => onNavigate('staff-portal')}
+              className="text-[9px] text-white/20 hover:text-[#B5E254]/70 uppercase tracking-widest transition-colors duration-200 whitespace-nowrap"
+              title="Acesso da administração e da equipe de portaria"
+            >
+              Acesso Master
+            </button>
+            <span className="w-px h-3 bg-white/10 hidden sm:block" />
             <p className="text-[9px] text-white/20 uppercase tracking-widest whitespace-nowrap shrink-0">
               Desenvolvido por{' '}
               <a
@@ -301,6 +310,7 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
                 Nexo Soluções Digitais
               </a>
             </p>
+            </div>
 
           </div>
         </div>

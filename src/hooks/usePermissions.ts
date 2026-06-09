@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-export type UserRole = 'client' | 'admin' | 'developer' | null;
+export type UserRole = 'client' | 'staff' | 'admin' | 'developer' | null;
 
 interface PermissionContext {
   isApprovedEventCreator?: boolean;
@@ -13,6 +13,7 @@ interface PermissionsHook {
 }
 
 const ROLE_HIERARCHY: Record<NonNullable<UserRole>, number> = {
+  staff: 0,
   client: 1,
   admin: 2,
   developer: 3,

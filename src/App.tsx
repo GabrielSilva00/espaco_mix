@@ -20,6 +20,7 @@ import { ProfileView } from './modules/profile/ProfileView';
 import { PrivacySettingsView } from './modules/profile/PrivacySettingsView';
 import { LegalView } from './modules/legal/LegalView';
 import { InstallPrompt } from './components/InstallPrompt';
+import { AdminOnboarding } from './components/AdminOnboarding';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
 import { generateDefaultLayout } from './shared/utils/defaultLayout';
 import type { TableLayoutElement } from './components/TableLayoutEditor';
@@ -83,6 +84,7 @@ export function App() {
     isStaffModalOpen, setIsStaffModalOpen, staffAccounts,
     isMessageModalOpen, setIsMessageModalOpen, messageText, setMessageText, buyers,
     isLogsModalOpen, setIsLogsModalOpen, userRole,
+    showOnboarding, developerConfig,
   } = useApp();
 
   return (
@@ -96,7 +98,13 @@ export function App() {
         Pular para conteúdo principal
       </a>
 
-      {isAdminLayout ? <AdminSidebar /> : currentView !== 'admin-login' && <Navbar />}
+      {developerConfig.featureFlags.maintenanceMode && userRole !== 'developer' && (
+        <div className="fixed top-0 inset-x-0 z-[120] bg-amber-500 text-black text-center py-1.5 text-[10px] font-black uppercase tracking-widest">
+          ⚠ Site em manutenção — algumas funções podem estar indisponíveis
+        </div>
+      )}
+
+      {isAdminLayout ? <AdminSidebar /> : (currentView !== 'admin-login' && currentView !== 'staff-portal') && <Navbar />}
 
       <div
         ref={adminScrollRef}
@@ -105,7 +113,7 @@ export function App() {
       >
         <main
           id="main-content"
-          className={`${isAdminLayout ? 'pt-14 md:pt-10' : currentView === 'admin-login' ? 'pt-0' : 'pt-16 md:pt-20'} pb-24 md:pb-6 px-0 flex-1`}
+          className={`${isAdminLayout ? 'pt-14 md:pt-10' : (currentView === 'admin-login' || currentView === 'staff-portal') ? 'pt-0' : 'pt-16 md:pt-20'} pb-24 md:pb-6 px-0 flex-1`}
           style={isAdminLayout ? { paddingBottom: 'calc(60px + env(safe-area-inset-bottom, 16px))' } : undefined}
         >
 
@@ -143,16 +151,33 @@ export function App() {
           {currentView === 'reservations' && <ReservationsView />}
           {currentView === 'contact' && <ContactView />}
           {currentView === 'admin-login' && <AuthView />}
+          {currentView === 'staff-portal' && <AuthView portal />}
           {currentView === 'profile' && userRole !== 'admin' && userRole !== 'developer' && <ProfileView />}
           {currentView === 'profile-privacy' && <PrivacySettingsView />}
           {currentView === 'privacy' && <LegalView initialTab="privacy" />}
           {currentView === 'terms' && <LegalView initialTab="terms" />}
           {currentView === 'dashboard' && (
-            <ErrorBoundary>
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[60vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
-                <DashboardView />
-              </Suspense>
-            </ErrorBoundary>
+            (userRole === 'admin' || userRole === 'developer' || userRole === 'staff') ? (
+              <ErrorBoundary>
+                <Suspense fallback={<div className="flex-1 flex items-center justify-center min-h-[60vh]"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>}>
+                  <DashboardView />
+                </Suspense>
+              </ErrorBoundary>
+            ) : (
+              <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
+                <ShieldAlert className="w-16 h-16 text-red-500/70 mb-6" />
+                <h2 className="text-2xl font-serif text-[#d4af37] mb-2">Acesso Restrito</h2>
+                <p className="text-xs uppercase tracking-widest opacity-40 max-w-sm mb-8">
+                  Esta área é exclusiva da administração e da equipe. Faça login pelo acesso restrito.
+                </p>
+                <button
+                  onClick={() => setCurrentView('home')}
+                  className="px-6 py-3 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition"
+                >
+                  Voltar ao início
+                </button>
+              </div>
+            )
           )}
 
         </main>
@@ -644,24 +669,48 @@ export function App() {
                 Registro de auditoria completo
               </p>
               <div className="flex-1 overflow-y-auto space-y-4 pr-3 custom-scrollbar">
-                {[1,2,3,4,5,6,7,8].map((i) => (
-                  <div key={i} className="flex gap-4 p-4 rounded-xl hover:bg-white/[0.02] transition border border-transparent hover:border-white/5 group">
-                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0 border border-white/10">
-                      {i % 3 === 0 ? <RefreshCcw className="w-3 h-3 text-blue-400 opacity-70" /> : i % 2 === 0 ? <ShieldAlert className="w-3 h-3 text-red-500 opacity-70" /> : <Tag className="w-3 h-3 text-[#d4af37] opacity-70" />}
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-white mb-1 group-hover:text-[#d4af37] transition-colors">
-                        {i % 3 === 0 ? 'Transferência de Ingresso aprovada' : i % 2 === 0 ? 'Ação administrativa de emergência executada' : 'Novo Lote Cadastrado'}
+                {(() => {
+                  const evRes = reservations
+                    .filter(r => r.eventId === selectedDashboardEvent)
+                    .sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+                  if (evRes.length === 0) {
+                    return (
+                      <p className="text-center text-xs opacity-30 italic py-10">
+                        Nenhum registro para este evento ainda.
                       </p>
-                      <span className="text-[10px] uppercase tracking-widest opacity-40">
-                        Usuário_x{i}983 • {i * 2} horas atrás
-                      </span>
-                    </div>
-                  </div>
-                ))}
-                <div className="pt-4 flex justify-center text-xs opacity-30 mt-4 border-t border-white/5 py-4">
-                  Fim do histórico visível.
-                </div>
+                    );
+                  }
+                  const fmt = (iso?: string) => iso
+                    ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                    : '—';
+                  return (
+                    <>
+                      {evRes.map((r) => {
+                        const paid = r.paymentStatus === 'approved';
+                        const checkedIn = !!r.checkedIn;
+                        return (
+                          <div key={r.id} className="flex gap-4 p-4 rounded-xl hover:bg-white/[0.02] transition border border-transparent hover:border-white/5 group">
+                            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0 border border-white/10">
+                              {checkedIn ? <ShieldAlert className="w-3 h-3 text-green-400 opacity-70" /> : paid ? <Tag className="w-3 h-3 text-[#d4af37] opacity-70" /> : <RefreshCcw className="w-3 h-3 text-blue-400 opacity-70" />}
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium text-white mb-1 group-hover:text-[#d4af37] transition-colors">
+                                {checkedIn ? 'Check-in realizado' : paid ? 'Compra aprovada' : 'Reserva pendente'}
+                                {' — '}{(r.ticketsObj?.length || 0)} ingresso(s)
+                              </p>
+                              <span className="text-[10px] uppercase tracking-widest opacity-40">
+                                {r.buyerName || 'Cliente'} • {fmt(r.createdAt || r.date)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="pt-4 flex justify-center text-xs opacity-30 mt-4 border-t border-white/5 py-4">
+                        Fim do histórico.
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </motion.div>
           </motion.div>
@@ -673,6 +722,7 @@ export function App() {
       </Suspense>
       <Toast />
       <InstallPrompt />
+      {showOnboarding && <AdminOnboarding />}
     </div>
   );
 }

@@ -28,8 +28,10 @@ export const defaultDeveloperConfig: DeveloperConfig = {
     prodUrl: 'https://eventix.com',
   },
   adminModules: {
-    approvals_kyc: false,
-    reports: false,
+    // Por padrão, as páginas que já existem ficam liberadas; o desenvolvedor
+    // pode bloquear individualmente pelo Dev Panel.
+    approvals_kyc: true,
+    reports: true,
     integrations: false,
     notifications: false,
     support: false,

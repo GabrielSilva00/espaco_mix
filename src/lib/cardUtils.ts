@@ -127,11 +127,15 @@ export function detectCardBrand(cardNumber: string): 'visa' | 'mastercard' | 'am
 // Tokenizar cartão com Mercado Pago SDK
 export async function tokenizeCard(cardData: CardData): Promise<string | null> {
   // A env é a fonte da verdade (igual ao backend, que usa MERCADOPAGO_ACCESS_TOKEN
-  // da env antes do runtime). Assim a public key do front SEMPRE bate com a conta
-  // do access token do servidor — evita tokenizar numa conta e cobrar em outra.
-  // O valor do painel admin (localStorage) é só fallback quando não há env.
+  // da env antes do runtime). Sem env, usa a public key configurada pelo admin no
+  // painel (salva em system_config.mp_public_key — não-secreta). localStorage é
+  // fallback legado. Assim a public key do front bate com a conta do servidor.
   const envKey = (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_MERCADOPAGO_PUBLIC_KEY : null);
-  const publicKey = envKey || localStorage.getItem('mp_public_key');
+  let dbKey: string | undefined;
+  if (!envKey) {
+    try { const { getSystemConfig } = await import('./supabase'); dbKey = (await getSystemConfig())?.mp_public_key; } catch { /* ignore */ }
+  }
+  const publicKey = envKey || dbKey || localStorage.getItem('mp_public_key');
 
   if (!publicKey) {
     console.error('[CardTokenizer] Public Key do Mercado Pago não configurada');

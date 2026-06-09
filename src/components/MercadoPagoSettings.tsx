@@ -1,392 +1,291 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Settings, Save, Check, Eye, EyeOff, Copy, AlertCircle, 
-  TestTube, CheckCircle2, AlertTriangle, Info, Key, CreditCard,
-  RefreshCcw
+import { useState, useEffect, useCallback } from 'react';
+import {
+  AlertCircle, TestTube, CheckCircle2, AlertTriangle, Info, Key,
+  RefreshCcw, ShieldCheck, Copy, ExternalLink, Eye, EyeOff, Save, Check
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-export function MercadoPagoSettings() {
-  const [settings, setSettings] = useState({
-    accessToken: localStorage.getItem('mp_access_token') || '',
-    publicKey: localStorage.getItem('mp_public_key') || '',
-    webhookUrl: localStorage.getItem('mp_webhook_url') || '',
-    isProduction: localStorage.getItem('mp_is_production') === 'true',
-    statementDescriptor: localStorage.getItem('mp_statement_descriptor') || '',
-    binaryMode: localStorage.getItem('mp_binary_mode') === 'true',
-    autoReturn: localStorage.getItem('mp_auto_return') === 'true',
-  });
+interface PaymentStatus {
+  provider: string;
+  configured: boolean;
+  environment: 'production' | 'test' | 'unset';
+  publicKeyMasked: string;
+  webhookConfigured: boolean;
+}
 
-  const [showTokens, setShowTokens] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
+export function MercadoPagoSettings() {
+  const [status, setStatus] = useState<PaymentStatus | null>(null);
+  const [loading, setLoading] = useState(true);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
 
+  // Edição de credenciais (salvas criptografadas no servidor)
+  const [editToken, setEditToken] = useState('');
+  const [editPublicKey, setEditPublicKey] = useState('');
+  const [editEnv, setEditEnv] = useState<'production' | 'test'>('production');
+  const [showToken, setShowToken] = useState(false);
+  const [savingCreds, setSavingCreds] = useState(false);
+  const [savedCreds, setSavedCreds] = useState(false);
+
   const serverUrl = window.location.origin.replace(':5173', ':3000');
+  const webhookUrl = `${window.location.origin.replace(':5173', ':3000')}/api/webhook/mercadopago`;
 
-  const syncToServer = useCallback(async (accessToken: string, publicKey: string) => {
-    if (!accessToken || !publicKey) return;
+  const authHeader = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : null;
+  }, []);
+
+  const loadStatus = useCallback(async () => {
+    setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-      await fetch(`${serverUrl}/api/admin/set-mp-credentials`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ accessToken, publicKey }),
-      });
+      const headers = await authHeader();
+      if (!headers) { setLoading(false); return; }
+      const res = await fetch(`${serverUrl}/api/admin/payment-status`, { headers });
+      if (res.ok) setStatus(await res.json());
     } catch (e) {
-      console.warn('[MP Settings] Falha ao sincronizar com servidor:', e);
+      console.warn('[MP Settings] Falha ao carregar status:', e);
+    } finally {
+      setLoading(false);
     }
-  }, [serverUrl]);
+  }, [authHeader, serverUrl]);
 
-  // Auto-sincronizar credenciais existentes ao montar o componente
-  useEffect(() => {
-    const savedToken = localStorage.getItem('mp_access_token') || '';
-    const savedKey = localStorage.getItem('mp_public_key') || '';
-    if (savedToken && savedKey) {
-      syncToServer(savedToken, savedKey);
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+  useEffect(() => { if (status?.environment === 'production' || status?.environment === 'test') setEditEnv(status.environment); }, [status?.environment]);
+
+  const handleSaveCreds = async () => {
+    setSavingCreds(true);
+    try {
+      const headers = await authHeader();
+      if (!headers) { setSavingCreds(false); return; }
+      const res = await fetch(`${serverUrl}/api/admin/payment-credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ accessToken: editToken || undefined, publicKey: editPublicKey || undefined, environment: editEnv }),
+      });
+      if (res.ok) {
+        setEditToken(''); setSavedCreds(true);
+        setTimeout(() => setSavedCreds(false), 2500);
+        await loadStatus();
+      }
+    } finally {
+      setSavingCreds(false);
     }
-  }, [syncToServer]);
-
-  const handleChange = (key: string, value: any) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-    setIsSaved(false);
-  };
-
-  const handleSave = async () => {
-    localStorage.setItem('mp_access_token', settings.accessToken);
-    localStorage.setItem('mp_public_key', settings.publicKey);
-    localStorage.setItem('mp_webhook_url', settings.webhookUrl);
-    localStorage.setItem('mp_is_production', String(settings.isProduction));
-    localStorage.setItem('mp_statement_descriptor', settings.statementDescriptor);
-    localStorage.setItem('mp_binary_mode', String(settings.binaryMode));
-    localStorage.setItem('mp_auto_return', String(settings.autoReturn));
-
-    // Sincronizar com o servidor para que PIX e cartão funcionem imediatamente
-    await syncToServer(settings.accessToken, settings.publicKey);
-
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
   };
 
   const handleTestConnection = async () => {
     setTestStatus('testing');
     setTestMessage('');
-
     try {
-      // Obter token de autenticação
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-
-      if (!token) {
+      const headers = await authHeader();
+      if (!headers) {
         setTestStatus('error');
-        setTestMessage('❌ Erro: Token de autenticação não encontrado. Faça login novamente.');
+        setTestMessage('❌ Sessão expirada. Faça login novamente.');
         return;
       }
-
+      // Corpo vazio: o servidor testa com as credenciais das variáveis de ambiente.
       const response = await fetch(`${serverUrl}/api/admin/test-mercadopago`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          accessToken: settings.accessToken,
-          publicKey: settings.publicKey,
-        }),
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({}),
       });
-
       const data = await response.json();
-      
       if (response.ok) {
         setTestStatus('success');
-        setTestMessage('✓ Credenciais válidas! Conexão com Mercado Pago estabelecida.');
+        setTestMessage('✓ Conexão com o Mercado Pago estabelecida com sucesso.');
       } else {
         setTestStatus('error');
-        setTestMessage(data.error || 'Erro na conexão com Mercado Pago');
+        setTestMessage(data.error || 'Erro na conexão com o Mercado Pago.');
       }
-    } catch (err) {
+    } catch {
       setTestStatus('error');
-      setTestMessage('❌ Erro ao conectar. Verifique se o servidor backend está rodando (npm run dev:server)');
-      console.error('[MercadoPagoSettings] Erro:', err);
+      setTestMessage('❌ Erro ao conectar. Verifique o servidor/backend.');
     }
-
-    setTimeout(() => setTestStatus('idle'), 5000);
+    setTimeout(() => setTestStatus('idle'), 6000);
   };
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
-  const generateWebhookUrl = () => {
-    let baseUrl = window.location.origin;
-    if (baseUrl.includes('localhost:5173')) {
-      baseUrl = baseUrl.replace(':5173', ':3000');
-      setSettings(prev => ({ ...prev, webhookUrl: `${baseUrl}/api/webhook/mercadopago` }));
-      alert('✓ URL gerada para TESTE LOCAL.\n\n⚠️ Para teste com Mercado Pago, use ngrok:\n\n1. Terminal: ngrok http 3000\n2. Copie a URL gerada\n3. Use no Mercado Pago');
-    } else {
-      // Em produção, usar o domínio real
-      setSettings(prev => ({ ...prev, webhookUrl: `${baseUrl}/api/webhook/mercadopago` }));
-    }
-  };
+  const isProd = status?.environment === 'production';
+  const isConfigured = !!status?.configured;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-8">
+      <div className="flex items-center gap-3 mb-2">
         <div className="w-12 h-12 rounded-xl bg-[#d4af37]/10 flex items-center justify-center text-[#d4af37]">
           <Key className="w-6 h-6" />
         </div>
         <div>
           <h2 className="text-2xl font-serif text-[#d4af37]">Mercado Pago</h2>
-          <p className="text-xs uppercase tracking-widest opacity-40">Configure suas credenciais para processar pagamentos</p>
+          <p className="text-xs uppercase tracking-widest opacity-40">Status da integração de pagamentos</p>
         </div>
       </div>
 
-      {/* Aviso de Ambiente */}
-      <div className={`p-4 rounded-xl border-2 flex gap-4 ${settings.isProduction ? 'border-red-500/50 bg-red-500/5' : 'border-yellow-500/50 bg-yellow-500/5'}`}>
-        <div className={settings.isProduction ? 'text-red-400' : 'text-yellow-400'}>
-          {settings.isProduction ? <AlertTriangle className="w-5 h-5" /> : <Info className="w-5 h-5" />}
-        </div>
-        <div>
-          <p className="font-bold text-sm text-white mb-1">
-            {settings.isProduction ? '🔴 PRODUÇÃO - Cobranças Reais' : '🟡 TESTE - Sem Cobranças'}
-          </p>
-          <p className="text-xs text-white/60">
-            {settings.isProduction 
-              ? 'Você está em modo de produção. Qualquer pagamento será cobrado de verdade.' 
-              : 'Use credenciais de teste para desenvolvimento. Nenhuma cobrança será realizada.'}
-          </p>
-        </div>
+      {/* Explicação: credenciais ficam na Vercel */}
+      <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 flex gap-3">
+        <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+        <p className="text-xs text-blue-400/90 leading-relaxed">
+          As credenciais do Mercado Pago (Access Token e Public Key) ficam guardadas com
+          segurança nas <strong>variáveis de ambiente</strong> do servidor (Vercel) — não são
+          editadas por esta tela. Aqui você apenas confere o status e testa a conexão. Para
+          alterar as credenciais, consulte o documento <code className="bg-black/40 px-1 rounded">ENTREGA.md</code>.
+        </p>
       </div>
 
-      {/* Toggle Modo */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <label className="block text-sm font-bold uppercase tracking-widest mb-1">Ambiente</label>
-            <p className="text-xs text-white/50">Escolha entre teste e produção</p>
-          </div>
-          <label className="relative shrink-0">
-            <input
-              type="checkbox"
-              checked={settings.isProduction}
-              onChange={(e) => handleChange('isProduction', e.target.checked)}
-              className="peer sr-only"
-            />
-            <div className="w-14 h-8 bg-white/10 rounded-full peer-checked:bg-red-500 transition-colors relative">
-              <div className={`absolute top-1 left-1 bg-white w-6 h-6 rounded-full transition-transform ${settings.isProduction ? 'translate-x-6' : 'translate-x-0'}`}></div>
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <RefreshCcw className="w-6 h-6 text-[#d4af37] animate-spin" />
+        </div>
+      ) : (
+        <>
+          {/* Cartão de status do ambiente */}
+          <div className={`p-4 rounded-xl border-2 flex gap-4 ${
+            !isConfigured ? 'border-white/20 bg-white/5'
+            : isProd ? 'border-red-500/50 bg-red-500/5' : 'border-yellow-500/50 bg-yellow-500/5'}`}>
+            <div className={!isConfigured ? 'text-white/40' : isProd ? 'text-red-400' : 'text-yellow-400'}>
+              {!isConfigured ? <AlertTriangle className="w-5 h-5" /> : isProd ? <ShieldCheck className="w-5 h-5" /> : <Info className="w-5 h-5" />}
             </div>
-          </label>
-        </div>
-        <div className="mt-3 text-xs text-white/40">
-          <p>• TESTE: Comece aqui com credenciais de teste</p>
-          <p>• PRODUÇÃO: Ative apenas quando estiver pronto para cobrar</p>
-        </div>
-      </div>
-
-      {/* Access Token */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <label className="block text-sm font-bold uppercase tracking-widest mb-4">
-          <div className="flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-[#d4af37]" />
-            Access Token
+            <div>
+              <p className="font-bold text-sm text-white mb-1">
+                {!isConfigured ? '⚪ Não configurado'
+                  : isProd ? '🔴 PRODUÇÃO — Cobranças reais' : '🟡 TESTE — Sem cobranças'}
+              </p>
+              <p className="text-xs text-white/60">
+                {!isConfigured
+                  ? 'Nenhuma credencial encontrada no servidor. Configure as variáveis de ambiente na Vercel (ver ENTREGA.md).'
+                  : isProd
+                    ? 'O site está cobrando pagamentos de verdade.'
+                    : 'Credenciais de teste em uso. Nenhuma cobrança real será feita.'}
+              </p>
+            </div>
           </div>
-        </label>
-        <div className="relative flex gap-2">
-          <input
-            type={showTokens ? 'text' : 'password'}
-            value={settings.accessToken}
-            onChange={(e) => handleChange('accessToken', e.target.value)}
-            placeholder="TEST-xxxx ou APP_USR-xxxx"
-            className="flex-1 bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-[#d4af37] transition font-mono"
-          />
-          <button
-            onClick={() => setShowTokens(!showTokens)}
-            className="px-3 py-2 hover:bg-white/5 rounded-lg transition text-white/40 hover:text-white"
-          >
-            {showTokens ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-          </button>
-          {settings.accessToken && (
+
+          {/* Indicadores read-only */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <StatusItem label="Provedor de pagamento" value={status?.provider || '—'} ok={status?.provider === 'mercadopago'} />
+            <StatusItem label="Public Key" value={status?.publicKeyMasked || 'não definida'} ok={!!status?.publicKeyMasked} mono />
+            <StatusItem label="Access Token" value={isConfigured ? 'definido' : 'ausente'} ok={isConfigured} />
+            <StatusItem label="Webhook (assinatura)" value={status?.webhookConfigured ? 'configurado' : 'ausente'} ok={!!status?.webhookConfigured} />
+          </div>
+
+          {/* Editar credenciais (salvas criptografadas no servidor) */}
+          <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-4">
+            <label className="block text-sm font-bold uppercase tracking-widest">
+              <span className="flex items-center gap-2"><Key className="w-4 h-4 text-[#d4af37]" /> Credenciais (produção)</span>
+            </label>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-300 leading-relaxed">Use somente credenciais de <strong>produção</strong> (<code>APP_USR-…</code>). O Access Token é guardado criptografado e nunca volta para a tela.</p>
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5">Access Token {isConfigured && <span className="text-green-400 normal-case tracking-normal">— já salvo (preencha só para trocar)</span>}</label>
+              <div className="relative">
+                <input
+                  type={showToken ? 'text' : 'password'} value={editToken}
+                  onChange={e => setEditToken(e.target.value)} placeholder="APP_USR-…"
+                  className="w-full bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 pr-10 text-sm font-mono text-white focus:outline-none focus:border-[#d4af37]/50"
+                />
+                <button onClick={() => setShowToken(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">{showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5">Public Key</label>
+                <input value={editPublicKey} onChange={e => setEditPublicKey(e.target.value)} placeholder="APP_USR-…"
+                  className="w-full bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm font-mono text-white focus:outline-none focus:border-[#d4af37]/50" />
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5">Ambiente</label>
+                <select value={editEnv} onChange={e => setEditEnv(e.target.value as any)}
+                  className="w-full bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-[#d4af37]/50">
+                  <option value="production">Produção</option>
+                  <option value="test">Teste</option>
+                </select>
+              </div>
+            </div>
             <button
-              onClick={() => handleCopy(settings.accessToken)}
-              className="px-3 py-2 hover:bg-white/5 rounded-lg transition text-white/40 hover:text-white"
-              title="Copiar"
+              onClick={handleSaveCreds}
+              disabled={savingCreds || (!editToken && !editPublicKey)}
+              className={`w-full py-2.5 rounded-lg font-bold text-xs uppercase tracking-widest transition flex items-center justify-center gap-2 ${savedCreds ? 'bg-green-500/20 text-green-400' : 'bg-[#d4af37] text-black hover:brightness-110 disabled:opacity-50'}`}
             >
-              <Copy className="w-5 h-5" />
+              {savingCreds ? <RefreshCcw className="w-4 h-4 animate-spin" /> : savedCreds ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+              {savedCreds ? 'Salvo' : 'Salvar credenciais'}
             </button>
-          )}
-        </div>
-        <p className="text-xs text-white/40 mt-3">
-          📍 Obtenha em: <a href="https://www.mercadopago.com.br/developers/panel" target="_blank" rel="noopener noreferrer" className="text-[#d4af37] hover:underline">Painel de Desenvolvedor do Mercado Pago</a>
-        </p>
-      </div>
-
-      {/* Public Key */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <label className="block text-sm font-bold uppercase tracking-widest mb-4">
-          <div className="flex items-center gap-2">
-            <Key className="w-4 h-4 text-[#d4af37]" />
-            Public Key
           </div>
-        </label>
-        <input
-          type="text"
-          value={settings.publicKey}
-          onChange={(e) => handleChange('publicKey', e.target.value)}
-          placeholder="TEST-xxxx"
-          className="w-full bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-[#d4af37] transition font-mono"
-        />
-        <p className="text-xs text-white/40 mt-3">
-          📍 Copie da mesma página de credenciais
-        </p>
-      </div>
 
-      {/* Webhook URL */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <label className="block text-sm font-bold uppercase tracking-widest mb-4">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-[#d4af37]" />
-            URL do Webhook
-          </div>
-        </label>
-        <div className="flex gap-2 mb-2">
-          <input
-            type="text"
-            value={settings.webhookUrl}
-            readOnly
-            className="flex-1 bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm focus:outline-none font-mono text-white/60"
-          />
-          <button
-            onClick={generateWebhookUrl}
-            className="px-4 py-2 bg-[#d4af37]/10 hover:bg-[#d4af37]/20 text-[#d4af37] rounded-lg transition font-bold text-xs uppercase"
-          >
-            Gerar
-          </button>
-          {settings.webhookUrl && (
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(settings.webhookUrl);
-                alert('✓ URL copiada!');
-              }}
-              className="px-3 py-2 hover:bg-white/5 rounded-lg transition text-white/40 hover:text-white"
-              title="Copiar webhook"
-            >
-              <Copy className="w-5 h-5" />
-            </button>
-          )}
-        </div>
-        <p className="text-xs text-white/40 mt-3">
-          📍 Registre esta URL em: Suas integrações → Webhooks → Adicionar Webhook
-        </p>
-        
-        {settings.webhookUrl && settings.webhookUrl.includes('localhost') && (
-          <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-            <p className="text-xs text-yellow-400 font-bold mb-2">⚠️ TESTE LOCAL - Use ngrok:</p>
-            <ol className="text-xs text-yellow-400/80 space-y-1 ml-2 list-decimal">
-              <li>Terminal: <code className="bg-black/50 px-1">ngrok http 3000</code></li>
-              <li>Copie a URL gerada (ex: https://abc123.ngrok.io)</li>
-              <li>Use no Mercado Pago: <code className="bg-black/50 px-1">https://abc123.ngrok.io/api/webhook/mercadopago</code></li>
-            </ol>
-          </div>
-        )}
-      </div>
-
-      {/* Statement Descriptor + Modos Avançados */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-5">
-        <label className="block text-sm font-bold uppercase tracking-widest mb-2">Configurações Avançadas</label>
-
-        <div>
-          <label className="block text-xs uppercase tracking-widest text-white/50 mb-2">Descrição na Fatura (Statement Descriptor)</label>
-          <input
-            type="text"
-            value={settings.statementDescriptor}
-            onChange={(e) => handleChange('statementDescriptor', e.target.value)}
-            placeholder="Ex: ESPACO MIX"
-            maxLength={22}
-            className="w-full bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-[#d4af37] transition"
-          />
-          <p className="text-[10px] text-white/30 mt-1">Texto exibido na fatura do cartão (máx. 22 chars)</p>
-        </div>
-
-        <label className="flex items-start gap-4 cursor-pointer group p-3 bg-white/5 rounded-xl hover:bg-white/10 transition">
-          <div className="flex-1">
-            <span className="text-xs uppercase tracking-widest font-bold block mb-1">Modo Binário</span>
-            <span className="text-[10px] text-white/50">Aprova ou rejeita imediatamente, sem estados intermediários</span>
-          </div>
-          <div className="relative shrink-0 mt-1">
-            <input type="checkbox" checked={settings.binaryMode} onChange={(e) => handleChange('binaryMode', e.target.checked)} className="peer sr-only" />
-            <div className="w-10 h-6 bg-white/10 rounded-full peer-checked:bg-[#d4af37] transition-colors relative">
-              <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform shadow-sm ${settings.binaryMode ? 'translate-x-4' : 'translate-x-0'}`}></div>
+          {/* Webhook URL (apenas leitura, para registrar no MP) */}
+          <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+            <label className="block text-sm font-bold uppercase tracking-widest mb-3">
+              <span className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-[#d4af37]" /> URL do Webhook</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text" value={webhookUrl} readOnly
+                className="flex-1 bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm font-mono text-white/60 focus:outline-none"
+              />
+              <button
+                onClick={() => { navigator.clipboard.writeText(webhookUrl); }}
+                className="px-3 py-2 hover:bg-white/5 rounded-lg transition text-white/40 hover:text-white"
+                title="Copiar"
+              >
+                <Copy className="w-5 h-5" />
+              </button>
             </div>
+            <p className="text-xs text-white/40 mt-3">
+              Registre esta URL no painel do Mercado Pago (Webhooks → Adicionar). Passo a passo no
+              <code className="bg-black/40 px-1 rounded mx-1">ENTREGA.md</code>.
+            </p>
           </div>
-        </label>
 
-        <label className="flex items-start gap-4 cursor-pointer group p-3 bg-white/5 rounded-xl hover:bg-white/10 transition">
-          <div className="flex-1">
-            <span className="text-xs uppercase tracking-widest font-bold block mb-1">Retorno Automático</span>
-            <span className="text-[10px] text-white/50">Redireciona automaticamente após pagamento via redirect</span>
-          </div>
-          <div className="relative shrink-0 mt-1">
-            <input type="checkbox" checked={settings.autoReturn} onChange={(e) => handleChange('autoReturn', e.target.checked)} className="peer sr-only" />
-            <div className="w-10 h-6 bg-white/10 rounded-full peer-checked:bg-[#d4af37] transition-colors relative">
-              <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform shadow-sm ${settings.autoReturn ? 'translate-x-4' : 'translate-x-0'}`}></div>
+          {/* Testar conexão (usa credenciais do servidor) */}
+          <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <TestTube className="w-4 h-4 text-[#d4af37]" />
+                <label className="text-sm font-bold uppercase tracking-widest">Testar Conexão</label>
+              </div>
+              <button
+                onClick={handleTestConnection}
+                disabled={!isConfigured || testStatus === 'testing'}
+                className={`px-4 py-2 rounded-lg font-bold text-xs uppercase transition ${
+                  testStatus === 'testing' ? 'bg-white/10 text-white/50 cursor-not-allowed' :
+                  testStatus === 'success' ? 'bg-green-500/20 text-green-400' :
+                  testStatus === 'error' ? 'bg-red-500/20 text-red-400' :
+                  !isConfigured ? 'bg-white/10 text-white/30 cursor-not-allowed' :
+                  'bg-[#d4af37]/10 hover:bg-[#d4af37]/20 text-[#d4af37]'
+                }`}
+              >
+                {testStatus === 'testing' && <RefreshCcw className="inline w-4 h-4 mr-2 animate-spin" />}
+                {testStatus === 'success' && <CheckCircle2 className="inline w-4 h-4 mr-2" />}
+                {testStatus === 'error' && <AlertCircle className="inline w-4 h-4 mr-2" />}
+                {testStatus === 'idle' ? 'Testar' : testStatus === 'testing' ? 'Testando...' : 'Testado'}
+              </button>
             </div>
+            {testMessage && (
+              <div className={`p-3 rounded-lg text-xs ${testStatus === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                {testMessage}
+              </div>
+            )}
           </div>
-        </label>
-      </div>
 
-      {/* Test Connection */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <TestTube className="w-4 h-4 text-[#d4af37]" />
-            <label className="text-sm font-bold uppercase tracking-widest">Testar Conexão</label>
-          </div>
-          <button
-            onClick={handleTestConnection}
-            disabled={!settings.accessToken || !settings.publicKey || testStatus === 'testing'}
-            className={`px-4 py-2 rounded-lg font-bold text-xs uppercase transition ${
-              testStatus === 'testing' ? 'bg-white/10 text-white/50 cursor-not-allowed' :
-              testStatus === 'success' ? 'bg-green-500/20 text-green-400' :
-              testStatus === 'error' ? 'bg-red-500/20 text-red-400' :
-              'bg-[#d4af37]/10 hover:bg-[#d4af37]/20 text-[#d4af37]'
-            }`}
+          <a
+            href="https://www.mercadopago.com.br/developers/panel"
+            target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-xs text-[#d4af37] hover:underline"
           >
-            {testStatus === 'testing' && <RefreshCcw className="inline w-4 h-4 mr-2 animate-spin" />}
-            {testStatus === 'success' && <CheckCircle2 className="inline w-4 h-4 mr-2" />}
-            {testStatus === 'error' && <AlertCircle className="inline w-4 h-4 mr-2" />}
-            {testStatus === 'idle' ? 'Testar' : testStatus === 'testing' ? 'Testando...' : 'Testado'}
-          </button>
-        </div>
-        {testMessage && (
-          <div className={`p-3 rounded-lg text-xs ${testStatus === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-            {testMessage}
-          </div>
-        )}
-      </div>
+            <ExternalLink className="w-3.5 h-3.5" /> Painel de Desenvolvedor do Mercado Pago
+          </a>
+        </>
+      )}
+    </div>
+  );
+}
 
-      {/* Save Button */}
-      <button
-        onClick={handleSave}
-        className={`w-full py-3 rounded-xl font-bold uppercase tracking-widest text-sm transition ${
-          isSaved 
-            ? 'bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)]' 
-            : 'bg-[#d4af37] text-black hover:brightness-110 shadow-[0_0_20px_rgba(212,175,55,0.2)]'
-        }`}
-      >
-        {isSaved ? <><Check className="inline w-4 h-4 mr-2" /> Salvo com Sucesso</> : <><Save className="inline w-4 h-4 mr-2" /> Salvar Configurações</>}
-      </button>
-
-      {/* Info Box */}
-      <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
-        <p className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-2">💡 Dica</p>
-        <p className="text-xs text-blue-400/80 leading-relaxed">
-          As configurações são salvas localmente no navegador para segurança. Em produção, considere usar variáveis de ambiente no servidor.
-        </p>
+function StatusItem({ label, value, ok, mono }: { label: string; value: string; ok?: boolean; mono?: boolean }) {
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+      <div>
+        <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">{label}</p>
+        <p className={`text-sm text-white/80 ${mono ? 'font-mono' : ''}`}>{value}</p>
       </div>
+      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${ok ? 'bg-green-400' : 'bg-white/20'}`} />
     </div>
   );
 }

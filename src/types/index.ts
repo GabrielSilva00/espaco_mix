@@ -41,6 +41,7 @@ export interface TicketItem {
   pendingTransferEmail?: string;
   transferExpiresAt?: number;
   originalBuyerId?: string;
+  checkedIn?: boolean;
 }
 
 export interface Reservation {
@@ -71,7 +72,7 @@ export interface ProducerProfile {
   [key: string]: unknown;
 }
 
-export type UserRole = 'client' | 'admin' | 'developer' | null;
+export type UserRole = 'client' | 'staff' | 'admin' | 'developer' | null;
 
 export interface SessionUser {
   id: string;
@@ -162,6 +163,8 @@ export interface Buyer {
   status: 'Pago' | 'Pendente' | 'Cancelado';
   checkedIn?: boolean;
   purchaseDate?: string;
+  eventId?: number;
+  ticketCount?: number;
 }
 
 export interface SiteConfig {
@@ -194,6 +197,7 @@ export type CurrentView =
   | 'reservations'
   | 'contact'
   | 'admin-login'
+  | 'staff-portal'
   | 'dashboard'
   | 'profile'
   | 'privacy'

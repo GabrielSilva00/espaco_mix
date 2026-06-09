@@ -4,7 +4,6 @@ import {
   signIn, signOut, signUp, getMyProfile, resolveUsernameToEmail, updateProfile, getAccessTokenSafe,
   getEvents, getEventBatches, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations, getAllReservations,
-  getStaffAccounts, createStaffAccount,
   getSystemConfig, updateSystemConfig,
   getPendingApplications, approveProducer, rejectProducer,
   subscribeToEvents, subscribeToEventReservations, subscribeToPendingApplications,
@@ -47,6 +46,7 @@ function mapDbReservationToApp(r: any): Reservation {
       status: (t.status ?? 'active') as TicketItem['status'],
       pendingTransferEmail: t.pending_transfer_email ?? undefined,
       originalBuyerId: t.original_buyer_id ?? undefined,
+      checkedIn: !!t.checked_in_at,
     })),
     total: Number(r.total) || 0,
     checkedIn: items.length > 0 && items.some((t) => !!t.checked_in_at),
@@ -79,6 +79,8 @@ function mapReservationToBuyer(r: any): Buyer {
     status: statusMap[r.payment_status] ?? 'Pendente',
     checkedIn: items.length > 0 && items.some((t) => !!t.checked_in_at),
     purchaseDate: r.created_at,
+    eventId: r.event_id,
+    ticketCount: items.length,
   };
 }
 
@@ -149,8 +151,8 @@ interface AppContextValue {
   // Staff
   staffAccounts: StaffAccount[];
   setStaffAccounts: React.Dispatch<React.SetStateAction<StaffAccount[]>>;
-  newStaff: { name: string; username: string; password: string };
-  setNewStaff: React.Dispatch<React.SetStateAction<{ name: string; username: string; password: string }>>;
+  newStaff: { name: string; username: string; password: string; eventId?: number };
+  setNewStaff: React.Dispatch<React.SetStateAction<{ name: string; username: string; password: string; eventId?: number }>>;
 
   // System logs
   systemLogs: { id: string; level: 'error' | 'warn' | 'info'; message: string; time: Date }[];
@@ -303,6 +305,8 @@ interface AppContextValue {
 
   // Computed
   isAdminLayout: boolean;
+  showOnboarding: boolean;
+  setShowOnboarding: React.Dispatch<React.SetStateAction<boolean>>;
   activeEvent: Event | undefined;
   derivedTables: TableDef[];
   grandTotal: number;
@@ -330,6 +334,8 @@ interface AppContextValue {
   handleUpdateEventStatus: (eventId: number, newStatus: Event['status']) => Promise<void>;
   handleImageFileChange: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   handleAddStaff: (e: React.FormEvent) => void;
+  handleDeleteStaff: (id: string) => Promise<void>;
+  handleStaffLogin: (e: React.FormEvent) => Promise<void>;
   handleCheckIn: (input: string) => Promise<void>;
   handleUndoCheckIn: (id: string) => void;
   handleScannerError: (err: unknown) => void;
@@ -396,7 +402,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Staff
   const [staffAccounts, setStaffAccounts] = useState<StaffAccount[]>([]);
-  const [newStaff, setNewStaff] = useState({ name: '', username: '', password: '' });
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [newStaff, setNewStaff] = useState<{ name: string; username: string; password: string; eventId?: number }>({ name: '', username: '', password: '' });
 
   // System logs
   const [systemLogs, setSystemLogs] = useState<{ id: string; level: 'error' | 'warn' | 'info'; message: string; time: Date }[]>([]);
@@ -502,6 +509,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [scannerConstraints, setScannerConstraints] = useState<MediaTrackConstraints>({ facingMode: { ideal: 'environment' } });
   const [scannerError, setScannerError] = useState<string | null>(null);
   const scannerRetryRef = useRef(0);
+  // Deduplicação do scanner: evita reprocessar o MESMO QR em sequência enquanto
+  // a câmera segue lendo continuamente (allowMultiple). Guarda o último valor +
+  // timestamp e um "lock" enquanto uma validação está em andamento.
+  const lastScanRef = useRef<{ value: string; at: number }>({ value: '', at: 0 });
+  const checkinBusyRef = useRef(false);
 
   // Reservations UI
   const [expandedRes, setExpandedRes] = useState<string | null>(null);
@@ -593,7 +605,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const taxAmount = subTotal * 0.10;
   const grandTotal = subTotal + taxAmount;
 
-  const isAdminLayout = (userRole === 'admin' || userRole === 'developer') && !isPreviewingEvent;
+  const isAdminLayout = (userRole === 'admin' || userRole === 'developer' || userRole === 'staff') && !isPreviewingEvent;
 
   // ─── Effects ─────────────────────────────────────────────────────────────
 
@@ -647,6 +659,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           try {
             const profile = await getMyProfile();
+            // Acesso de admin/dev SÓ é permitido pelo Acesso Master (portal). Se
+            // este login fresco não veio de lá (ex.: Google ou Acesso Simples),
+            // encerra a sessão. (Reload usa INITIAL_SESSION e não passa aqui.)
+            const fromMaster = (() => { try { return sessionStorage.getItem('eventix-master-login') === '1'; } catch { return false; } })();
+            if (profile && (profile.role === 'admin' || profile.role === 'developer') && !fromMaster) {
+              try { sessionStorage.removeItem('eventix-master-login'); } catch { /* ignore */ }
+              await signOut().catch(() => {});
+              showToast('Contas administrativas entram pelo Acesso Master (link no rodapé do site).', 'error');
+              return;
+            }
+            try { sessionStorage.removeItem('eventix-master-login'); } catch { /* ignore */ }
             if (profile) {
               const r = profile.role as UserRole;
               setUserRole(r);
@@ -870,6 +893,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .catch(e => console.error('[Context] Erro ao carregar config:', (e as Error)?.message));
   }, []);
 
+  // Detecta o PRIMEIRO acesso do administrador: se o onboarding ainda não foi
+  // concluído (flag no system_config) e não foi marcado neste navegador, abre o
+  // fluxo guiado de configuração inicial.
+  useEffect(() => {
+    if (userRole !== 'admin' && userRole !== 'developer') { setShowOnboarding(false); return; }
+    let done = false;
+    try { done = localStorage.getItem('eventix-onboarding-done') === '1'; } catch { /* ignore */ }
+    if (done) return;
+    getSystemConfig()
+      .then(cfg => { if (cfg.onboarding_completed !== true) setShowOnboarding(true); })
+      .catch(() => {});
+  }, [userRole]);
+
   // Realtime: sincroniza mudanças no perfil do usuário logado sem precisar recarregar
   useEffect(() => {
     if (!loggedInUserId) return;
@@ -915,14 +951,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loggedInUserId) { setReservations([]); setBuyers([]); return; }
     let cancelled = false;
+    const apply = (rows: any[]) => {
+      if (cancelled) return;
+      setReservations(rows.map(mapDbReservationToApp));
+      setBuyers(rows.map(mapReservationToBuyer));
+    };
+    if (userRole === 'staff') {
+      // Equipe de portaria: sem sessão Supabase — busca pelo token de staff.
+      (async () => {
+        try {
+          const token = (() => { try { return localStorage.getItem('eventix-staff-token'); } catch { return null; } })();
+          const resp = await fetch('/api/staff/event-tickets', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+          const data = await resp.json().catch(() => ({ reservations: [] }));
+          apply((data.reservations ?? []) as any[]);
+        } catch (e) {
+          console.error('[Reservas] Falha ao carregar (staff):', (e as Error)?.message);
+        }
+      })();
+      return () => { cancelled = true; };
+    }
     const isStaffRole = userRole === 'admin' || userRole === 'developer' || isApprovedEventCreator;
     const load = isStaffRole ? getAllReservations() : getMyReservations(loggedInUserId);
     load
-      .then(rows => {
-        if (cancelled) return;
-        setReservations((rows as any[]).map(mapDbReservationToApp));
-        setBuyers((rows as any[]).map(mapReservationToBuyer));
-      })
+      .then(rows => apply(rows as any[]))
       .catch(e => console.error('[Reservas] Falha ao carregar do banco:', (e as Error)?.message));
     return () => { cancelled = true; };
   }, [loggedInUserId, userRole, isApprovedEventCreator]);
@@ -1009,9 +1060,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     sessionStorage.setItem('eventix-cart', JSON.stringify({ selectedTables, singleTickets, guestData: guestDataSafe }));
   }, [selectedTables, singleTickets, guestData, paymentStatus]);
 
+  // Carrega a equipe de portaria do servidor (service role bypassa RLS).
+  const loadStaffAccounts = async () => {
+    try {
+      const token = await getAccessTokenSafe();
+      const resp = await fetch('/api/staff', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!resp.ok) return;
+      const data = await resp.json().catch(() => ({ staff: [] }));
+      setStaffAccounts((data.staff ?? []) as StaffAccount[]);
+    } catch (e) {
+      console.error('[Context] Erro ao carregar staff:', (e as Error)?.message);
+    }
+  };
   useEffect(() => {
     if (userRole !== 'admin' && userRole !== 'developer') return;
-    getStaffAccounts().then(data => setStaffAccounts(data)).catch(e => console.error('[Context] Erro ao carregar staff:', (e as Error)?.message));
+    loadStaffAccounts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRole]);
 
   // ─── Reset de estados transientes ────────────────────────────────────────
@@ -1074,6 +1138,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     e.preventDefault();
     setAdminError('');
     const input = adminForm.username.trim();
+    // Marca se este login veio do Acesso Master (portal). O handler SIGNED_IN usa
+    // isso para barrar admin/dev que tentem entrar por fora (Google/Acesso Simples).
+    try {
+      if (currentView === 'staff-portal') sessionStorage.setItem('eventix-master-login', '1');
+      else sessionStorage.removeItem('eventix-master-login');
+    } catch { /* ignore */ }
     try {
       // Aceita e-mail direto ou nome de usuário (resolvido para e-mail no servidor)
       let email = input;
@@ -1086,6 +1156,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const profile: Profile | null = await getMyProfile();
       if (!profile) throw new Error('Perfil não encontrado');
       const r = profile.role as UserRole;
+      // Acesso Simples (página normal do cliente) NÃO autentica admin/dev — eles
+      // entram pelo Acesso Master (rodapé). Bloqueia e encerra a sessão.
+      if (currentView === 'admin-login' && (r === 'admin' || r === 'developer')) {
+        await signOut().catch(() => {});
+        setAdminError('Contas administrativas entram pelo Acesso Master (link no rodapé do site).');
+        return;
+      }
       setUserRole(r);
       setLoggedInUserId(profile.id);
       setIsApprovedEventCreator(profile.is_approved_event_creator);
@@ -1110,7 +1187,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCurrentView('home');
     setDashboardMode('list');
     try {
-      ['eventix-session', 'eventix-auth', 'eventix-auth-v2'].forEach(k => localStorage.removeItem(k));
+      ['eventix-session', 'eventix-auth', 'eventix-auth-v2', 'eventix-staff-token'].forEach(k => localStorage.removeItem(k));
       Object.keys(localStorage)
         .filter(k => k.startsWith('sb-') || k.includes('supabase'))
         .forEach(k => localStorage.removeItem(k));
@@ -1356,7 +1433,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const rawBatches = await getEventBatches(evt.id);
       const mapped = mapDbEventToApp({ batches: rawBatches });
-      setFormEvent(prev => ({ ...prev, batches: mapped.batches }));
+      setFormEvent(prev => prev ? { ...prev, batches: mapped.batches } : prev);
     } catch (e) {
       console.error('[handleEditEvent] Erro ao carregar batches:', e);
     }
@@ -1465,32 +1542,137 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleAddStaff = (e: React.FormEvent) => {
+  const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStaff.name || !newStaff.username || !newStaff.password) return;
-    const staff: StaffAccount = { id: Math.random().toString(36).substr(2, 9), ...newStaff };
-    setStaffAccounts([...staffAccounts, staff]);
-    setNewStaff({ name: '', username: '', password: '' });
+    if (!newStaff.eventId) { showToast('Selecione o evento da equipe.', 'error'); return; }
+    try {
+      const token = await getAccessTokenSafe();
+      const resp = await fetch('/api/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          name: newStaff.name,
+          username: newStaff.username,
+          password: newStaff.password,
+          eventIds: [newStaff.eventId],
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) { showToast(data.error || 'Falha ao cadastrar colaborador.', 'error'); return; }
+      setNewStaff({ name: '', username: '', password: '' });
+      await loadStaffAccounts();
+      showToast('Colaborador cadastrado com sucesso.', 'success');
+    } catch {
+      showToast('Erro de conexão ao cadastrar.', 'error');
+    }
+  };
+
+  const handleDeleteStaff = async (id: string) => {
+    try {
+      const token = await getAccessTokenSafe();
+      const resp = await fetch(`/api/staff/${id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) { showToast('Falha ao remover colaborador.', 'error'); return; }
+      setStaffAccounts(prev => prev.filter(s => s.id !== id));
+    } catch {
+      showToast('Erro de conexão ao remover.', 'error');
+    }
+  };
+
+  // Login da equipe de portaria: autentica em /api/staff/login (sem Supabase
+  // Auth), guarda o token de staff e leva direto ao Controle de Portaria do
+  // evento vinculado. O acesso fica restrito a esse evento e a essa página.
+  const handleStaffLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminError('');
+    try {
+      const resp = await fetch('/api/staff/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: adminForm.username.trim(), password: adminForm.password }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) { setAdminError(data.error || 'Usuário ou senha incorretos'); return; }
+      try { localStorage.setItem('eventix-staff-token', data.token); } catch {}
+      const eventIds: string[] = data.staff?.eventIds ?? [];
+      const firstEventId = eventIds.length > 0 ? Number(eventIds[0]) : null;
+      setUserRole('staff');
+      setIsStaff(true);
+      setIsApprovedEventCreator(false);
+      setLoggedInUserId(data.staff?.id ?? 'staff');
+      setSessionUser({ id: data.staff?.id ?? 'staff', email: '', name: data.staff?.name ?? 'Colaborador', role: 'staff', isApprovedEventCreator: false });
+      if (firstEventId) setSelectedDashboardEvent(firstEventId);
+      setCurrentView('dashboard');
+      setDashboardMode('check-in');
+      setAdminForm({ username: '', password: '' });
+    } catch {
+      setAdminError('Erro de conexão. Tente novamente.');
+    }
+  };
+
+  // Normaliza o conteúdo lido do QR. O ingresso codifica o id do ticket_items
+  // (UUID), mas blindamos contra QRs que venham como URL, JSON ou com espaços.
+  const extractTicketId = (raw: string): string => {
+    let v = (raw || '').trim();
+    if (!v) return '';
+    if (/^https?:\/\//i.test(v)) {
+      try {
+        const u = new URL(v);
+        v = u.searchParams.get('t') || u.searchParams.get('id')
+          || u.pathname.split('/').filter(Boolean).pop() || v;
+      } catch { /* mantém valor original */ }
+    } else if (v.startsWith('{')) {
+      try { const o = JSON.parse(v); v = o.id || o.ticketId || o.t || v; } catch { /* idem */ }
+    }
+    return v.trim();
   };
 
   const handleCheckIn = async (input: string) => {
-    if (!input) return;
+    const ticketId = extractTicketId(input);
+    if (!ticketId) return;
+    const now = Date.now();
+    // Dedup: enquanto uma validação está em andamento (lock) OU o MESMO código foi
+    // lido há menos de 3,5s, ignora — assim a leitura contínua (allowMultiple) não
+    // dispara o mesmo ingresso várias vezes. Códigos diferentes passam na hora.
+    if (checkinBusyRef.current) return;
+    if (ticketId === lastScanRef.current.value && now - lastScanRef.current.at < 3500) return;
+    lastScanRef.current = { value: ticketId, at: now };
+    checkinBusyRef.current = true;
     setCheckInInput('');
     const vibrate = (p: number | number[]) => { if ('vibrate' in navigator) navigator.vibrate(p as any); };
     try {
       // Valida o ingresso REAL no banco (o QR carrega o id do ticket_items).
+      // Operador admin/organizador usa o token Supabase; equipe de portaria usa o
+      // token de staff emitido em /api/staff/login (guardado no localStorage).
       const token = await getAccessTokenSafe();
+      const staffToken = (() => { try { return localStorage.getItem('eventix-staff-token'); } catch { return null; } })();
+      const bearer = token || staffToken;
       const resp = await fetch('/api/checkin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ ticketId: input.trim() }),
+        headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
+        body: JSON.stringify({ ticketId }),
       });
+      // Falhas de autenticação NÃO são "ticket inválido" — antes isso fazia um
+      // ingresso válido aparecer como inválido quando a sessão não tinha token.
+      if (resp.status === 401) {
+        setCheckInResult({ type: 'error', message: 'SESSÃO EXPIRADA — FAÇA LOGIN NOVAMENTE' });
+        vibrate([100, 100, 100]);
+        return;
+      }
+      if (resp.status === 403) {
+        setCheckInResult({ type: 'error', message: 'SEM PERMISSÃO PARA ESTE EVENTO' });
+        vibrate([100, 100, 100]);
+        return;
+      }
       const d = await resp.json().catch(() => ({} as any));
       const data = { name: (d as any).name, type: (d as any).ticketName };
       switch ((d as any).result) {
         case 'ok':
           setCheckInResult({ type: 'success', message: '✔ PODE ENTRAR!', data });
-          setCheckInHistory(prev => [{ id: input.trim(), name: data.name || '', type: data.type || '', time: new Date() }, ...prev]);
+          setCheckInHistory(prev => [{ id: ticketId, name: data.name || '', type: data.type || '', time: new Date() }, ...prev]);
           vibrate(200);
           break;
         case 'duplicate':
@@ -1505,6 +1687,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setCheckInResult({ type: 'error', message: 'SEM PERMISSÃO PARA CHECK-IN' });
           vibrate([100, 100, 100]);
           break;
+        case 'error':
+          setCheckInResult({ type: 'error', message: 'ERRO AO VALIDAR — TENTE NOVAMENTE' });
+          vibrate([100, 100, 100]);
+          break;
         default:
           setCheckInResult({ type: 'error', message: 'TICKET INVÁLIDO OU NÃO ENCONTRADO' });
           vibrate([100, 100, 100]);
@@ -1512,8 +1698,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setCheckInResult({ type: 'error', message: 'ERRO DE CONEXÃO AO VALIDAR INGRESSO' });
       vibrate([100, 100, 100]);
+    } finally {
+      checkinBusyRef.current = false;
+      setTimeout(() => setCheckInResult(null), 3000);
     }
-    setTimeout(() => setCheckInResult(null), 3000);
   };
 
   const handleUndoCheckIn = (id: string) => {
@@ -1872,6 +2060,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     formEvent, setFormEvent,
     releaseValidationFields, setReleaseValidationFields,
     staffAccounts, setStaffAccounts,
+    showOnboarding, setShowOnboarding,
     newStaff, setNewStaff,
     systemLogs, clearSystemLogs,
     buyers, setBuyers,
@@ -1947,7 +2136,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     showToastFn: showToast,
     handleAdminLogin, handleLogout, handleRegister, handleVerifyCode, handleResendCode, handleCheckoutVerifyAndRegister,
     handleEditEvent, handleCreateEvent, handleSaveEvent, handleUpdateEventStatus, handleImageFileChange,
-    handleAddStaff, handleCheckIn, handleUndoCheckIn, handleScannerError,
+    handleAddStaff, handleDeleteStaff, handleStaffLogin, handleCheckIn, handleUndoCheckIn, handleScannerError,
     toggleTableSelection, getTableStatus, handleCheckout, handleConfirmReservation, handleCreateReservation,
   };
 

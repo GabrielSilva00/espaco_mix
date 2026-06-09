@@ -271,10 +271,11 @@ export function DashboardView() {
     showDefaultCredentialsWarning,
     loadingEvents,
     handleCreateEvent, handleEditEvent, handleSaveEvent, handleUpdateEventStatus,
-    handleCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff,
+    handleCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff, handleDeleteStaff,
     showToast,
     systemLogs, clearSystemLogs,
     reservations,
+    sessionUser,
     formEvent, setFormEvent,
     errors, setErrors,
     releaseValidationFields, setReleaseValidationFields,
@@ -304,13 +305,114 @@ export function DashboardView() {
     setActionTicket,
     setIsTableLayoutEditorOpen,
     setIsStaffModalOpen,
-    setStaffAccounts,
   } = useApp();
 
   const [eventFilter, setEventFilter] = React.useState<'upcoming' | 'past'>('upcoming');
   const [pendingCheckin, setPendingCheckin] = React.useState<Buyer | null>(null);
 
   const downloadPDF = () => downloadPDFList(buyers, events.find(e => e.id === selectedDashboardEvent));
+
+  // Compradores do evento selecionado (escopo real por evento).
+  const eventBuyers = React.useMemo(
+    () => buyers.filter(b => b.eventId === selectedDashboardEvent),
+    [buyers, selectedDashboardEvent]
+  );
+
+  // Métricas REAIS do evento selecionado — calculadas a partir das reservas do
+  // banco (nada de mock). Alimenta KPIs, gráfico, distribuição e atividade.
+  const evMetrics = React.useMemo(() => {
+    const ev = events.find(e => e.id === selectedDashboardEvent);
+    const paid = reservations.filter(r => r.eventId === selectedDashboardEvent && r.paymentStatus === 'approved');
+
+    let revenue = 0, ticketsSold = 0, checkedIn = 0, tableRevenue = 0, pistaRevenue = 0;
+    const tableSet = new Set<number>();
+    const distMap = new Map<string, number>();
+
+    const distinctTables = (tks: any[]) => new Set(tks.filter(t => t.isTable && t.tableNumber != null).map(t => t.tableNumber)).size;
+
+    paid.forEach(r => {
+      revenue += r.total || 0;
+      const tks = r.ticketsObj || [];
+      const tableTks = tks.filter(t => t.isTable);
+      const pistaTks = tks.filter(t => !t.isTable);
+      ticketsSold += tks.length;
+      checkedIn += tks.filter(t => t.checkedIn).length;
+      tableTks.forEach(t => { if (t.tableNumber != null) tableSet.add(t.tableNumber); });
+      const totalTk = tks.length || 1;
+      tableRevenue += (r.total || 0) * (tableTks.length / totalTk);
+      pistaRevenue += (r.total || 0) * (pistaTks.length / totalTk);
+      tks.forEach(t => {
+        const key = t.isTable ? 'Mesas' : (t.name || 'Ingresso');
+        distMap.set(key, (distMap.get(key) || 0) + 1);
+      });
+    });
+
+    const capacity = ev?.capacity || 0;
+    const palette = ['bg-[#d4af37]', 'bg-white/40', 'bg-white/20', 'bg-green-500/40', 'bg-blue-500/40'];
+    const distribution = Array.from(distMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([l, count], i) => ({
+        l,
+        v: ticketsSold > 0 ? Math.round((count / ticketsSold) * 100) : 0,
+        c: palette[i % palette.length],
+      }));
+
+    const buildSeries = (period: '7d' | '30d') => {
+      const now = new Date();
+      if (period === '7d') {
+        const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+        const buckets = Array.from({ length: 7 }, (_, i) => {
+          const d = new Date(now); d.setDate(now.getDate() - (6 - i)); d.setHours(0, 0, 0, 0);
+          return { t: d.getTime(), name: dayNames[d.getDay()], ingressos: 0, mesas: 0 };
+        });
+        paid.forEach(r => {
+          const c = new Date(r.createdAt || r.date); c.setHours(0, 0, 0, 0);
+          const b = buckets.find(x => x.t === c.getTime());
+          if (b) { const tks = r.ticketsObj || []; b.ingressos += tks.filter(t => !t.isTable).length; b.mesas += distinctTables(tks); }
+        });
+        return buckets.map(({ name, ingressos, mesas }) => ({ name, ingressos, mesas }));
+      }
+      const buckets = Array.from({ length: 6 }, (_, i) => {
+        const end = new Date(now); end.setDate(now.getDate() - (5 - i) * 5); end.setHours(23, 59, 59, 999);
+        const start = new Date(end); start.setDate(end.getDate() - 4); start.setHours(0, 0, 0, 0);
+        return { s: start.getTime(), e: end.getTime(), name: `S${i + 1}`, ingressos: 0, mesas: 0 };
+      });
+      paid.forEach(r => {
+        const c = new Date(r.createdAt || r.date).getTime();
+        const b = buckets.find(x => c >= x.s && c <= x.e);
+        if (b) { const tks = r.ticketsObj || []; b.ingressos += tks.filter(t => !t.isTable).length; b.mesas += distinctTables(tks); }
+      });
+      return buckets.map(({ name, ingressos, mesas }) => ({ name, ingressos, mesas }));
+    };
+
+    const activity = paid
+      .slice()
+      .sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime())
+      .slice(0, 6)
+      .map(r => ({
+        id: r.id,
+        label: `Compra de ${r.buyerName || 'cliente'} — ${(r.ticketsObj?.length || 0)} ingresso(s)`,
+        at: r.createdAt || r.date,
+      }));
+
+    return {
+      ev, revenue, ticketsSold, checkedIn, tableRevenue, pistaRevenue,
+      tablesSold: tableSet.size, capacity, paidOrders: paid.length, distribution, buildSeries, activity,
+    };
+  }, [reservations, events, selectedDashboardEvent]);
+
+  const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+  const timeAgo = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const min = Math.floor(diff / 60000);
+    if (min < 1) return 'agora';
+    if (min < 60) return `${min} min atrás`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `${h}h atrás`;
+    const d = Math.floor(h / 24);
+    return d === 1 ? 'ontem' : `${d} dias atrás`;
+  };
 
   return (
           <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-10 mt-8 mb-20 animate-in fade-in duration-500">
@@ -398,7 +500,11 @@ export function DashboardView() {
                           <div className="flex items-center justify-between pt-5 md:pt-6 border-t border-white/5">
                               <div className="flex items-center gap-2">
                                 <Users className="w-3 h-3 text-[#d4af37]" />
-                                <span className="text-xs font-bold font-serif">148 vendidos</span>
+                                <span className="text-xs font-bold font-serif">
+                                  {reservations
+                                    .filter(r => r.eventId === evt.id && r.paymentStatus === 'approved')
+                                    .reduce((s, r) => s + (r.ticketsObj?.length || 0), 0)} vendidos
+                                </span>
                               </div>
                               <span className="text-[9px] md:text-[10px] uppercase font-bold text-[#d4af37] flex items-center gap-1">Acessar {isAtLeast('admin') ? 'Painel' : 'Check-in'} <ChevronRight className="w-3 h-3" /></span>
                           </div>
@@ -559,7 +665,12 @@ export function DashboardView() {
                    <div className="flex items-center gap-3">
                       <AlertCircle className="w-5 h-5 text-[#d4af37]" />
                       <p className="text-xs text-[#d4af37]/80">
-                        <strong className="text-[#d4af37]">Alerta Inteligente:</strong> 80% das Mesas VIP vendidas. A demanda está alta. Considere um lote extra.
+                        <strong className="text-[#d4af37]">Resumo:</strong>{' '}
+                        {evMetrics.capacity > 0
+                          ? `${Math.round((evMetrics.ticketsSold / evMetrics.capacity) * 100)}% da capacidade vendida (${evMetrics.ticketsSold}/${evMetrics.capacity}). `
+                          : `${evMetrics.ticketsSold} ingresso(s) vendido(s). `}
+                        {evMetrics.tablesSold > 0 && `${evMetrics.tablesSold} mesa(s) ocupada(s). `}
+                        Receita de {brl(evMetrics.revenue)}.
                       </p>
                    </div>
                    <button onClick={() => {
@@ -581,18 +692,18 @@ export function DashboardView() {
                        <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-green-400">
                          <DollarSign className="w-4 h-4" />
                        </div>
-                       <span className="text-[9px] uppercase tracking-widest font-bold text-green-400">+12% vs última ed.</span>
+                       <span className="text-[9px] uppercase tracking-widest font-bold text-green-400">{evMetrics.paidOrders} venda{evMetrics.paidOrders !== 1 ? 's' : ''}</span>
                      </div>
                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Receita Gerada</p>
-                     <h3 className="text-3xl font-sans font-bold text-white">R$ 15.450</h3>
+                     <h3 className="text-3xl font-sans font-bold text-white">{brl(evMetrics.revenue)}</h3>
                      <div className="mt-3 flex gap-4 border-t border-white/5 pt-3">
                        <div>
                          <p className="text-[9px] uppercase opacity-30">Pista</p>
-                         <p className="text-xs text-white/80 font-mono">R$ 5.450</p>
+                         <p className="text-xs text-white/80 font-mono">{brl(evMetrics.pistaRevenue)}</p>
                        </div>
                        <div>
                          <p className="text-[9px] uppercase opacity-30">Mesas</p>
-                         <p className="text-xs text-[#d4af37] font-mono">R$ 10.000</p>
+                         <p className="text-xs text-[#d4af37] font-mono">{brl(evMetrics.tableRevenue)}</p>
                        </div>
                      </div>
                   </div>
@@ -603,15 +714,17 @@ export function DashboardView() {
                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
                          <Users className="w-4 h-4" />
                        </div>
-                       <span className="text-[9px] uppercase tracking-widest font-bold text-blue-400">Alta Proc.</span>
+                       <span className="text-[9px] uppercase tracking-widest font-bold text-blue-400">
+                         {evMetrics.capacity > 0 ? `${Math.round((evMetrics.ticketsSold / evMetrics.capacity) * 100)}% vendido` : 'Sem limite'}
+                       </span>
                      </div>
                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Lotação Atual</p>
                      <div className="flex items-baseline gap-2">
-                       <h3 className="text-3xl font-sans font-bold text-white">148</h3>
-                       <span className="text-sm opacity-40">/ 500 cap.</span>
+                       <h3 className="text-3xl font-sans font-bold text-white">{evMetrics.ticketsSold}</h3>
+                       <span className="text-sm opacity-40">{evMetrics.capacity > 0 ? `/ ${evMetrics.capacity} cap.` : ''}</span>
                      </div>
                      <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden mt-4">
-                        <div className="h-full bg-blue-500 w-[30%]"></div>
+                        <div className="h-full bg-blue-500" style={{ width: `${evMetrics.capacity > 0 ? Math.min(100, Math.round((evMetrics.ticketsSold / evMetrics.capacity) * 100)) : 0}%` }}></div>
                      </div>
                   </div>
 
@@ -625,11 +738,11 @@ export function DashboardView() {
                      </div>
                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Check-ins Feitos</p>
                      <div className="flex items-baseline gap-2">
-                       <h3 className="text-3xl font-sans font-bold text-white">0</h3>
-                       <span className="text-sm opacity-40">/ 148 previstos</span>
+                       <h3 className="text-3xl font-sans font-bold text-white">{evMetrics.checkedIn}</h3>
+                       <span className="text-sm opacity-40">/ {evMetrics.ticketsSold} previstos</span>
                      </div>
                      <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden mt-4">
-                        <div className="h-full bg-[#d4af37] w-[0%]"></div>
+                        <div className="h-full bg-[#d4af37]" style={{ width: `${evMetrics.ticketsSold > 0 ? Math.round((evMetrics.checkedIn / evMetrics.ticketsSold) * 100) : 0}%` }}></div>
                      </div>
                   </div>
 
@@ -640,9 +753,9 @@ export function DashboardView() {
                          <Activity className="w-4 h-4" />
                        </div>
                      </div>
-                     <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Conversão Carrinho</p>
-                     <h3 className="text-3xl font-sans font-bold text-white">24.5%</h3>
-                     <p className="text-[9px] uppercase opacity-30 mt-3 pt-3 border-t border-white/5">25 checkouts abandonados</p>
+                     <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Ticket Médio</p>
+                     <h3 className="text-3xl font-sans font-bold text-white">{brl(evMetrics.paidOrders > 0 ? evMetrics.revenue / evMetrics.paidOrders : 0)}</h3>
+                     <p className="text-[9px] uppercase opacity-30 mt-3 pt-3 border-t border-white/5">{evMetrics.tablesSold} mesa(s) • {evMetrics.paidOrders} pedido(s)</p>
                   </div>
                 </div>
 
@@ -682,30 +795,7 @@ export function DashboardView() {
                        </div>
                        <div className="flex-1 w-full relative min-h-0" style={{height: 220}}>
                          {(() => {
-                            const data7d = [
-                              { name: 'Seg', ingressos: 15, mesas: 2 },
-                              { name: 'Ter', ingressos: 30, mesas: 3 },
-                              { name: 'Qua', ingressos: 25, mesas: 1 },
-                              { name: 'Qui', ingressos: 40, mesas: 5 },
-                              { name: 'Sex', ingressos: 60, mesas: 8 },
-                              { name: 'Sab', ingressos: 95, mesas: 12 },
-                              { name: 'Dom', ingressos: 120, mesas: 18 },
-                            ];
-                            const data30d = [
-                              { name: 'S1', ingressos: 42, mesas: 5 },
-                              { name: 'S2', ingressos: 78, mesas: 9 },
-                              { name: 'S3', ingressos: 55, mesas: 6 },
-                              { name: 'S4', ingressos: 93, mesas: 11 },
-                              { name: 'S5', ingressos: 110, mesas: 14 },
-                              { name: 'S6', ingressos: 88, mesas: 10 },
-                              { name: 'S7', ingressos: 130, mesas: 17 },
-                              { name: 'S8', ingressos: 145, mesas: 20 },
-                              { name: 'S9', ingressos: 102, mesas: 13 },
-                              { name: 'S10', ingressos: 168, mesas: 22 },
-                              { name: 'S11', ingressos: 190, mesas: 26 },
-                              { name: 'S12', ingressos: 215, mesas: 30 },
-                            ];
-                            const chartData = salesChartPeriod === '7d' ? data7d : data30d;
+                            const chartData = evMetrics.buildSeries(salesChartPeriod);
                             return (
                               <ResponsiveContainer width="100%" height={220}>
                                 <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
@@ -738,7 +828,7 @@ export function DashboardView() {
 
                     {/* Console de Acessos Recentes */}
                     {(() => {
-                      const filteredBuyers = buyers
+                      const filteredBuyers = eventBuyers
                         .filter(b => {
                           if (!consoleSearch) return true;
                           const q = consoleSearch.toLowerCase();
@@ -948,12 +1038,9 @@ export function DashboardView() {
                         Ticket Mix (%)
                       </h3>
                       <div className="space-y-5">
-                        {[
-                          { l: 'Mesas VIP', v: '65', c: 'bg-[#d4af37]' },
-                          { l: 'Pista Lote 1', v: '20', c: 'bg-white/40' },
-                          { l: 'Pista Lote 2', v: '10', c: 'bg-white/20' },
-                          { l: 'Cortesia/Staff', v: '5', c: 'bg-green-500/40' },
-                        ].map((item, i) => (
+                        {evMetrics.distribution.length === 0 ? (
+                          <p className="text-[10px] uppercase tracking-widest opacity-30 italic py-4">Sem vendas registradas ainda.</p>
+                        ) : evMetrics.distribution.map((item, i) => (
                           <div key={i}>
                             <div className="flex justify-between items-baseline mb-2">
                               <span className="text-[10px] uppercase font-bold tracking-widest">{item.l}</span>
@@ -971,29 +1058,18 @@ export function DashboardView() {
                     <div className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6">
                       <h3 className="text-[11px] uppercase tracking-widest font-bold opacity-50 mb-6">Atividade Log</h3>
                       <div className="space-y-4">
-                         <div className="flex gap-4 relative">
-                            <div className="w-px h-full bg-white/10 absolute left-1 top-2 bottom-0"></div>
-                            <div className="w-2.5 h-2.5 rounded-full bg-[#d4af37] relative z-10 shrink-0 mt-1"></div>
-                            <div>
-                               <p className="text-xs text-white">Lote de Ingressos Pista Esgotado</p>
-                               <span className="text-[9px] uppercase tracking-widest opacity-40">Sistema • 2h atrás</span>
-                            </div>
-                         </div>
-                         <div className="flex gap-4 relative">
-                            <div className="w-px h-full bg-white/10 absolute left-1 top-2 bottom-0"></div>
-                            <div className="w-2.5 h-2.5 rounded-full bg-blue-500 relative z-10 shrink-0 mt-1"></div>
-                            <div>
-                               <p className="text-xs text-white">Disparo Mkt: "Últimas Mesas"</p>
-                               <span className="text-[9px] uppercase tracking-widest opacity-40">Admin • 4h atrás</span>
-                            </div>
-                         </div>
-                         <div className="flex gap-4 relative">
-                            <div className="w-2.5 h-2.5 rounded-full bg-white/20 relative z-10 shrink-0 mt-1"></div>
-                            <div>
-                               <p className="text-xs text-white">Edição V2 do mapa publicada</p>
-                               <span className="text-[9px] uppercase tracking-widest opacity-40">Gabriel S. • Ontem</span>
-                            </div>
-                         </div>
+                         {evMetrics.activity.length === 0 ? (
+                           <p className="text-[10px] uppercase tracking-widest opacity-30 italic">Nenhuma atividade recente.</p>
+                         ) : evMetrics.activity.map((a, i) => (
+                           <div key={a.id} className="flex gap-4 relative">
+                              {i < evMetrics.activity.length - 1 && <div className="w-px h-full bg-white/10 absolute left-1 top-2 bottom-0"></div>}
+                              <div className="w-2.5 h-2.5 rounded-full bg-[#d4af37] relative z-10 shrink-0 mt-1"></div>
+                              <div>
+                                 <p className="text-xs text-white">{a.label}</p>
+                                 <span className="text-[9px] uppercase tracking-widest opacity-40">{timeAgo(a.at)}</span>
+                              </div>
+                           </div>
+                         ))}
                       </div>
                       <button onClick={() => setIsLogsModalOpen(true)} className="w-full mt-6 py-2 border border-white/10 rounded-xl text-[9px] uppercase tracking-widest font-bold hover:bg-white/5 transition">
                         Ver histórico completo
@@ -1006,7 +1082,7 @@ export function DashboardView() {
 ) : dashboardMode === 'check-in' ? (
               <div className="max-w-4xl mx-auto space-y-4 px-2 sm:px-0 pb-32">
                 {/* Header KPI Check-in */}
-                <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 sm:p-6 mb-4 flex flex-col sm:flex-row justify-between items-center gap-4 sticky top-14 md:top-4 z-40 shadow-2xl">
+                <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 sm:p-6 mb-4 flex flex-col sm:flex-row justify-between items-center gap-4 relative z-40 shadow-2xl">
                    <div className="flex items-center gap-4 w-full sm:w-auto">
                      <div className="w-12 h-12 rounded-full bg-[#d4af37]/10 flex items-center justify-center border border-[#d4af37]/20">
                        <ShieldCheck className="w-6 h-6 text-[#d4af37]" />
@@ -1016,19 +1092,19 @@ export function DashboardView() {
                          {events.find(e => e.id === selectedDashboardEvent)?.title || 'Evento'} — Controle de Portaria
                        </h2>
                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] uppercase font-bold opacity-60">Operador: Gabriel</span>
+                          <span className="text-[10px] uppercase font-bold opacity-60">Operador: {sessionUser?.name || '—'}</span>
                        </div>
                      </div>
                    </div>
                    <div className="flex items-center justify-center gap-6 w-full sm:w-auto bg-white/5 p-3 rounded-xl">
                       <div className="text-center">
                          <p className="text-[9px] uppercase tracking-widest opacity-50 mb-1">Entraram</p>
-                         <p className="text-2xl font-black text-green-400 leading-none">{buyers.filter(b => b.checkedIn).length}</p>
+                         <p className="text-2xl font-black text-green-400 leading-none">{eventBuyers.filter(b => b.checkedIn).length}</p>
                       </div>
                       <div className="w-px h-8 bg-white/10"></div>
                       <div className="text-center">
                          <p className="text-[9px] uppercase tracking-widest opacity-50 mb-1">Restam</p>
-                         <p className="text-2xl font-black text-white leading-none">{buyers.filter(b => !b.checkedIn && b.status === "Pago").length}</p>
+                         <p className="text-2xl font-black text-white leading-none">{eventBuyers.filter(b => !b.checkedIn && b.status === "Pago").length}</p>
                       </div>
                    </div>
                 </div>
@@ -1070,7 +1146,8 @@ export function DashboardView() {
                               key={scannerKey}
                               onScan={(detectedCodes) => { if(detectedCodes?.[0]?.rawValue) handleCheckIn(detectedCodes[0].rawValue); }}
                               formats={['qr_code']}
-                              allowMultiple={false}
+                              allowMultiple={true}
+                              scanDelay={500}
                               constraints={scannerConstraints}
                               onError={handleScannerError}
                             />
@@ -2120,43 +2197,61 @@ export function DashboardView() {
                     <h3 className="text-sm font-serif text-white uppercase tracking-widest opacity-60">Novo Colaborador</h3>
                   </div>
                   
-                  <form onSubmit={handleAddStaff} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
-                    <div className="md:col-span-1">
-                      <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Nome Completo</label>
-                      <input 
-                        type="text" 
-                        value={newStaff.name}
-                        onChange={e => setNewStaff({...newStaff, name: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition placeholder:opacity-20"
-                        placeholder="Ex: João Silva"
-                      />
+                  <form onSubmit={handleAddStaff} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div>
+                        <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Nome Completo</label>
+                        <input
+                          type="text"
+                          value={newStaff.name}
+                          onChange={e => setNewStaff({...newStaff, name: e.target.value})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition placeholder:opacity-20"
+                          placeholder="Ex: João Silva"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Usuário</label>
+                        <input
+                          type="text"
+                          value={newStaff.username}
+                          onChange={e => setNewStaff({...newStaff, username: e.target.value})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition placeholder:opacity-20"
+                          placeholder="joao_staff"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Senha</label>
+                        <input
+                          type="password"
+                          value={newStaff.password}
+                          onChange={e => setNewStaff({...newStaff, password: e.target.value})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition placeholder:opacity-20"
+                          placeholder="••••••"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Usuário</label>
-                      <input 
-                        type="text" 
-                        value={newStaff.username}
-                        onChange={e => setNewStaff({...newStaff, username: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition placeholder:opacity-20"
-                        placeholder="joao_staff"
-                      />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                      <div className="md:col-span-2">
+                        <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Evento vinculado</label>
+                        <select
+                          value={newStaff.eventId ?? ''}
+                          onChange={e => setNewStaff({...newStaff, eventId: e.target.value ? Number(e.target.value) : undefined})}
+                          className="w-full bg-[#0d0d0d] border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition text-white appearance-none"
+                        >
+                          <option value="">Selecione o evento da portaria…</option>
+                          {events.map(ev => (
+                            <option key={ev.id} value={ev.id}>{ev.title}</option>
+                          ))}
+                        </select>
+                        <p className="text-[9px] opacity-30 mt-2 ml-1">O colaborador só terá acesso ao Controle de Portaria deste evento.</p>
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full py-4 bg-[#d4af37] text-black rounded-xl font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(212,175,55,0.1)] active:scale-95 duration-300"
+                      >
+                        <Plus className="w-4 h-4 stroke-[3px]" /> Cadastrar
+                      </button>
                     </div>
-                    <div>
-                      <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Senha</label>
-                      <input 
-                        type="password" 
-                        value={newStaff.password}
-                        onChange={e => setNewStaff({...newStaff, password: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition placeholder:opacity-20"
-                        placeholder="••••••"
-                      />
-                    </div>
-                    <button 
-                      type="submit"
-                      className="w-full py-4 bg-[#d4af37] text-black rounded-xl font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(212,175,55,0.1)] active:scale-95 duration-300"
-                    >
-                      <Plus className="w-4 h-4 stroke-[3px]" /> Cadastrar
-                    </button>
                   </form>
                 </div>
 
@@ -2186,8 +2281,8 @@ export function DashboardView() {
                               <span className="text-[9px] uppercase tracking-widest font-black px-4 py-1.5 bg-[#d4af371a] text-[#d4af37] rounded-full border border-[#d4af3733]">Colaborador</span>
                             </td>
                             <td className="px-8 py-6 text-right">
-                              <button 
-                                onClick={() => setStaffAccounts(prev => prev.filter(s => s.id !== staff.id))}
+                              <button
+                                onClick={() => handleDeleteStaff(staff.id)}
                                 className="p-3 text-white/10 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all opacity-0 group-hover:opacity-100"
                                 title="Remover Colaborador"
                               >
@@ -2209,8 +2304,8 @@ export function DashboardView() {
                             <p className="text-sm font-bold text-white/90">{staff.name}</p>
                             <p className="text-[11px] text-[#d4af37] font-mono mt-1">@{staff.username}</p>
                           </div>
-                          <button 
-                            onClick={() => setStaffAccounts(prev => prev.filter(s => s.id !== staff.id))}
+                          <button
+                            onClick={() => handleDeleteStaff(staff.id)}
                             className="p-2 text-red-500 bg-red-500/10 rounded-lg"
                           >
                             <X className="w-4 h-4" />

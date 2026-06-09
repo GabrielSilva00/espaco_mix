@@ -1,4 +1,6 @@
 import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
 // ─── Templates padrão ────────────────────────────────────────────────────────
@@ -155,6 +157,92 @@ async function loadConfig(): Promise<EmailConfig | null> {
   return data;
 }
 
+// ─── Provedor de e-mail (Resend ou SMTP) ─────────────────────────────────────
+// As credenciais entram pelo painel (Acesso Master) e ficam no banco: os
+// SEGREDOS criptografados em app_secrets; a config (provedor/SMTP/remetente) em
+// system_config. Fallback para as variáveis de ambiente (compatibilidade).
+
+function decryptSecret(value?: string | null): string {
+  if (!value) return '';
+  if (!value.startsWith('enc:')) return value;
+  try {
+    const hex = process.env.ENCRYPTION_KEY;
+    if (!hex || hex.length !== 64) return '';
+    const [, ivHex, data] = value.split(':');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(hex, 'hex'), Buffer.from(ivHex, 'hex'));
+    return decipher.update(data, 'hex', 'utf8') + decipher.final('utf8');
+  } catch {
+    return '';
+  }
+}
+
+export interface ResolvedEmailConfig {
+  provider: 'resend' | 'smtp';
+  resendApiKey: string;
+  smtp: { host?: string; port?: number; user?: string; password?: string; secure?: boolean };
+  senderName: string;
+  senderAddress: string;
+}
+
+export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
+  const db = getAdminClient();
+  let cfg: any = {}, secrets: any = {};
+  if (db) {
+    const [{ data: c }, { data: s }] = await Promise.all([
+      db.from('system_config').select('email_provider,smtp_host,smtp_port,smtp_user,smtp_secure,email_sender_name,email_sender_address').eq('id', 'main').maybeSingle(),
+      db.from('app_secrets').select('resend_api_key,smtp_password').eq('id', 'main').maybeSingle(),
+    ]);
+    cfg = c ?? {}; secrets = s ?? {};
+  }
+  const provider: 'resend' | 'smtp' = cfg.email_provider === 'smtp' ? 'smtp' : 'resend';
+  return {
+    provider,
+    resendApiKey: decryptSecret(secrets.resend_api_key) || process.env.RESEND_API_KEY || '',
+    smtp: {
+      host: cfg.smtp_host || process.env.SMTP_HOST,
+      port: cfg.smtp_port || (process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined),
+      user: cfg.smtp_user || process.env.SMTP_USER,
+      password: decryptSecret(secrets.smtp_password) || process.env.SMTP_PASSWORD || '',
+      secure: cfg.smtp_secure ?? true,
+    },
+    senderName: cfg.email_sender_name || process.env.EMAIL_SENDER_NAME || 'Espaço Mix',
+    senderAddress: cfg.email_sender_address || process.env.EMAIL_SENDER_ADDRESS || 'onboarding@resend.dev',
+  };
+}
+
+/** Envia um e-mail pelo provedor configurado (Resend ou SMTP). */
+export async function sendMail(cfg: ResolvedEmailConfig, to: string, subject: string, html: string): Promise<void> {
+  const from = `${cfg.senderName} <${cfg.senderAddress}>`;
+  if (cfg.provider === 'smtp' && cfg.smtp.host) {
+    const transporter = nodemailer.createTransport({
+      host: cfg.smtp.host,
+      port: cfg.smtp.port || 587,
+      secure: !!cfg.smtp.secure,
+      auth: cfg.smtp.user ? { user: cfg.smtp.user, pass: cfg.smtp.password } : undefined,
+    });
+    await transporter.sendMail({ from, to, subject, html });
+    return;
+  }
+  if (!cfg.resendApiKey) throw new Error('Provedor de e-mail não configurado.');
+  const resend = new Resend(cfg.resendApiKey);
+  const { error } = await resend.emails.send({ from, to, subject, html });
+  if (error) throw new Error((error as any).message || 'Falha no envio (Resend).');
+}
+
+/** Envio de teste — usado pelo onboarding/Configurações. */
+export async function sendTestEmail(to: string): Promise<void> {
+  const cfg = await resolveEmailConfig();
+  await sendMail(
+    cfg,
+    to,
+    'Teste de envio — Eventix',
+    `<div style="font-family:Arial,sans-serif;padding:24px;background:#0a0a0a;color:#fff">
+       <h2 style="color:#d4af37">✅ E-mail de teste enviado com sucesso</h2>
+       <p>Se você recebeu esta mensagem, a configuração de e-mail (${cfg.provider.toUpperCase()}) está funcionando.</p>
+     </div>`,
+  );
+}
+
 // ─── Exports ─────────────────────────────────────────────────────────────────
 
 export interface ConfirmationData {
@@ -170,17 +258,14 @@ export interface ConfirmationData {
 }
 
 export async function sendConfirmationEmail(data: ConfirmationData): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.log('[EMAIL] RESEND_API_KEY não configurada — confirmação ignorada');
-    return;
-  }
-
   const config = await loadConfig();
   if (config?.notify_purchase === false) return;
 
-  const senderName = config?.email_sender_name ?? 'Espaço Mix';
-  const senderAddress = config?.email_sender_address ?? 'onboarding@resend.dev';
+  const email = await resolveEmailConfig();
+  if (email.provider === 'resend' && !email.resendApiKey) {
+    console.log('[EMAIL] Provedor de e-mail não configurado — confirmação ignorada');
+    return;
+  }
 
   const vars: Record<string, string> = {
     buyer_name: data.buyerName,
@@ -196,30 +281,27 @@ export async function sendConfirmationEmail(data: ConfirmationData): Promise<voi
   const subject = processTemplate(config?.email_purchase_subject ?? PURCHASE_SUBJECT_DEFAULT, vars);
   const html = processTemplate(config?.email_purchase_body ?? PURCHASE_BODY_DEFAULT, vars);
 
-  const resend = new Resend(apiKey);
-  await resend.emails.send({
-    from: `${senderName} <${senderAddress}>`,
-    to: data.buyerEmail,
-    subject,
-    html,
-  });
-
-  const masked = data.buyerEmail.replace(/(^.).*(@.*$)/, '$1***$2');
-  console.log(`[EMAIL] Confirmação enviada → ${masked}`);
+  try {
+    await sendMail(email, data.buyerEmail, subject, html);
+    const masked = data.buyerEmail.replace(/(^.).*(@.*$)/, '$1***$2');
+    console.log(`[EMAIL] Confirmação enviada → ${masked}`);
+  } catch (err: any) {
+    console.error('[EMAIL] Falha ao enviar confirmação:', err?.message ?? err);
+  }
 }
 
 export async function sendReminderEmails(): Promise<{ sent: number; errors: number }> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.log('[EMAIL] RESEND_API_KEY não configurada — lembretes ignorados');
-    return { sent: 0, errors: 0 };
-  }
-
   const db = getAdminClient();
   if (!db) return { sent: 0, errors: 0 };
 
   const config = await loadConfig();
   if (config?.notify_reminder === false) return { sent: 0, errors: 0 };
+
+  const email = await resolveEmailConfig();
+  if (email.provider === 'resend' && !email.resendApiKey) {
+    console.log('[EMAIL] Provedor de e-mail não configurado — lembretes ignorados');
+    return { sent: 0, errors: 0 };
+  }
 
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -244,10 +326,6 @@ export async function sendReminderEmails(): Promise<{ sent: number; errors: numb
 
   if (!reservations || reservations.length === 0) return { sent: 0, errors: 0 };
 
-  const resend = new Resend(apiKey);
-  const senderName = config?.email_sender_name ?? 'Espaço Mix';
-  const senderAddress = config?.email_sender_address ?? 'onboarding@resend.dev';
-
   let sent = 0;
   let errors = 0;
   const sentIds: string[] = [];
@@ -271,12 +349,7 @@ export async function sendReminderEmails(): Promise<{ sent: number; errors: numb
     const html = processTemplate(config?.email_reminder_body ?? REMINDER_BODY_DEFAULT, vars);
 
     try {
-      await resend.emails.send({
-        from: `${senderName} <${senderAddress}>`,
-        to: res.buyer_email,
-        subject,
-        html,
-      });
+      await sendMail(email, res.buyer_email, subject, html);
       sentIds.push(res.id);
       sent++;
     } catch (err: any) {

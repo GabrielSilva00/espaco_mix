@@ -161,6 +161,7 @@ export function Navbar() {
             ) : (
               <button
                 onClick={() => { setAuthIntent('buy'); setAuthTab('login'); setCurrentView('admin-login'); }}
+                title="Acesso Simples — entrar na sua conta de cliente"
                 className="text-[11px] font-bold tracking-[0.1em] uppercase text-[#d4af37] border border-[#d4af37] px-4 py-2 rounded-lg hover:bg-[#d4af37] hover:text-[#0a0a0a] transition-colors"
               >
                 Entrar

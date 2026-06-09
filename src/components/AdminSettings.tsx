@@ -7,6 +7,8 @@ import { getSystemConfig, updateSystemConfig, updateMyCredentials, getMyFullProf
 import { User, Phone, FileText } from 'lucide-react';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { MercadoPagoSettings } from './MercadoPagoSettings';
+import { ReminderCronSettings } from './ReminderCronSettings';
+import { EmailProviderSettings } from './EmailProviderSettings';
 
 export function AdminSettings({
   userRole,
@@ -876,6 +878,10 @@ export function AdminSettings({
               {renderToggle('notifyReminder', 'Lembrete do Evento (24h)', 'Email automático 24h antes para participantes confirmados.')}
            </div>
         </section>
+
+        <ReminderCronSettings />
+
+        <EmailProviderSettings />
 
         {/* 9. Templates de Email */}
         <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8">

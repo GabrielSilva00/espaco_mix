@@ -14,7 +14,7 @@ import { useApp } from '../../context/AppContext';
 import { GoogleIcon } from '../../components/GoogleIcon';
 import { supabase } from '../../lib/supabase';
 
-export function AuthView() {
+export function AuthView({ portal = false }: { portal?: boolean }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -33,6 +33,7 @@ export function AuthView() {
     forgotPasswordData, setForgotPasswordData,
     registerStep, setRegisterStep,
     handleAdminLogin,
+    handleStaffLogin,
     handleRegister,
     handleVerifyCode,
     handleResendCode,
@@ -52,7 +53,8 @@ export function AuthView() {
       >
         <div className="absolute top-0 right-0 w-32 h-32 bg-[#d4af37] opacity-5 blur-3xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
 
-        {authTab !== 'staff' && !totpPending && !verificationStep && !(authTab === 'register' && registerStep === 2) && (
+        {/* Switcher de cliente (Entrar / Cadastrar) — só fora do modo portal */}
+        {!portal && authTab !== 'staff' && !totpPending && !verificationStep && !(authTab === 'register' && registerStep === 2) && (
           <div className="flex bg-white/5 p-1 rounded-xl mb-6">
             <button
               onClick={() => setAuthTab('login')}
@@ -69,12 +71,34 @@ export function AuthView() {
           </div>
         )}
 
+        {/* Switcher do portal interno (Administração / Portaria) */}
+        {portal && !totpPending && (
+          <div className="flex bg-white/5 p-1 rounded-xl mb-6">
+            <button
+              onClick={() => { setAuthTab('login'); setAdminError(''); }}
+              className={`flex-1 min-h-[38px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'login' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
+            >
+              Acesso Master
+            </button>
+            <button
+              onClick={() => { setAuthTab('staff'); setAdminError(''); }}
+              className={`flex-1 min-h-[38px] text-[10px] uppercase tracking-widest font-bold rounded-lg transition ${authTab === 'staff' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-white/40 hover:text-white'}`}
+            >
+              Portaria
+            </button>
+          </div>
+        )}
+
         <div className="text-center mb-6">
           <h1 className="text-base md:text-lg font-serif text-[#d4af37] mb-2">
-            {authTab === 'staff' ? 'Acesso Colaborador' : authTab === 'login' ? 'Bem-vindo de volta' : 'Criar nova conta'}
+            {portal && authTab === 'login' ? 'Acesso Master'
+              : authTab === 'staff' ? 'Acesso Colaborador'
+              : authTab === 'login' ? 'Bem-vindo de volta' : 'Criar nova conta'}
           </h1>
           <p className="text-[9px] md:text-[10px] uppercase tracking-widest opacity-40">
-             {authTab === 'staff' ? 'Entre com sua credencial da equipe' : authTab === 'login' ? 'Acesse sua conta para continuar' : ''}
+             {portal && authTab === 'login' ? 'Administração e desenvolvimento'
+               : authTab === 'staff' ? 'Entre com sua credencial da equipe'
+               : authTab === 'login' ? 'Acesso Simples — sua conta de cliente' : ''}
           </p>
         </div>
 
@@ -191,7 +215,7 @@ export function AuthView() {
           </div>
         ) : forgotPasswordStep === 'none' ? (
             <>
-              <form onSubmit={(authTab === 'login' || authTab === 'staff') ? handleAdminLogin : handleRegister} className="space-y-3">
+              <form onSubmit={authTab === 'staff' ? handleStaffLogin : authTab === 'login' ? handleAdminLogin : handleRegister} className="space-y-3">
                 {authTab === 'register' && registerStep === 1 && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
                     {/* Brasileiro / Estrangeiro */}
@@ -479,7 +503,7 @@ export function AuthView() {
                   {(authTab === 'login' || authTab === 'staff') ? 'Entrar' : registerStep === 1 ? 'Continuar' : 'Criar Conta e Continuar'}
                 </button>
 
-                {authTab === 'login' && (
+                {!portal && authTab === 'login' && (
                   <>
                     <div className="flex items-center gap-4 my-2 opacity-30">
                       <div className="h-[1px] flex-1 bg-white"></div>

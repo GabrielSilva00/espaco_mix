@@ -230,6 +230,20 @@ export interface SystemConfig {
   email_purchase_body?: string;
   email_reminder_subject?: string;
   email_reminder_body?: string;
+  // Onboarding inicial do administrador (primeiro acesso)
+  onboarding_completed?: boolean;
+  // Pagamento (Mercado Pago) — public key é pública; o access token NÃO fica aqui
+  mp_public_key?: string;
+  mp_environment?: 'production' | 'test';
+  // E-mail / SMTP — provedor e remetente (chaves/segredos ficam só no servidor)
+  email_provider?: 'resend' | 'smtp';
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_user?: string;
+  smtp_secure?: boolean;
+  notify_webhook_url?: string;
+  reminder_cron_hour?: number;
+  social_links?: { label?: string; url: string }[];
 }
 
 export interface BankingDetails {
@@ -813,6 +827,16 @@ export async function uploadEventImage(file: File, eventId: number): Promise<str
     .from('event-images')
     .getPublicUrl(path);
 
+  return publicUrl;
+}
+
+/** Upload genérico (logo do site, avatar do admin) para o Storage público. */
+export async function uploadAsset(file: File, folder = 'branding'): Promise<string> {
+  const ext = file.name.split('.').pop() || 'png';
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await supabase.storage.from('event-images').upload(path, file, { upsert: true });
+  if (error) throw error;
+  const { data: { publicUrl } } = supabase.storage.from('event-images').getPublicUrl(path);
   return publicUrl;
 }
 

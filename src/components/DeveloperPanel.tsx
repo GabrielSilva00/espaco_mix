@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Code2, ToggleLeft, ToggleRight, Settings, Palette,
-  CreditCard, Globe, RotateCcw, Save, AlertTriangle, Check,
-  ChevronDown, ChevronUp, Server, ShieldCheck
+  Code2, ToggleLeft, ToggleRight, RotateCcw, Save, Check,
+  ChevronDown, ChevronUp, Server, ShieldCheck, LayoutGrid, Info,
 } from 'lucide-react';
 import {
   loadDeveloperConfig,
@@ -11,6 +10,8 @@ import {
 } from '../services/developerConfig';
 import type { DeveloperConfig, FeatureFlags, AdminModules } from '../types/developer';
 import { useApp } from '../context/AppContext';
+
+declare const __APP_VERSION__: string;
 
 interface SectionProps {
   title: string;
@@ -64,29 +65,6 @@ function ToggleRow({ label, description, value, onChange, danger }: ToggleRowPro
   );
 }
 
-interface InputRowProps {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
-}
-
-function InputRow({ label, value, onChange, type = 'text', placeholder }: InputRowProps) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-xs text-white normal-case tracking-normal font-normal focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
-      />
-    </div>
-  );
-}
-
 export function DeveloperPanel() {
   const { setDeveloperConfig } = useApp();
   const [config, setConfig] = useState<DeveloperConfig>(loadDeveloperConfig);
@@ -105,28 +83,37 @@ export function DeveloperPanel() {
   };
 
   const handleReset = () => {
-    if (!confirm('Resetar todas as configurações para o padrão?')) return;
+    if (!confirm('Resetar as configurações do desenvolvedor para o padrão?')) return;
     const reset = resetDeveloperConfig();
     setConfig(reset);
     setDeveloperConfig(reset);
     setSaved(false);
   };
 
+  // Apenas flags que o DESENVOLVEDOR controla (não o admin comum).
   const featureLabels: Record<keyof FeatureFlags, { label: string; description: string; danger?: boolean }> = {
-    enableReports: { label: 'Relatórios Financeiros', description: 'Ativa a seção de relatórios no dashboard' },
-    enableProducerOnboarding: { label: 'Onboarding de Produtor', description: 'Permite fluxo de cadastro de novos produtores' },
+    enableReports: { label: 'Relatórios Financeiros', description: 'Libera a página de Relatórios para os organizadores' },
+    enableProducerOnboarding: { label: 'Onboarding de Produtor', description: 'Permite o fluxo de cadastro de novos produtores' },
     enableBetaFeatures: { label: 'Features Beta', description: 'Funcionalidades em fase de teste' },
     enableV2Features: { label: 'Features v2', description: 'Próxima geração de funcionalidades' },
-    maintenanceMode: { label: 'Modo Manutenção', description: 'Exibe aviso de manutenção para usuários', danger: true },
+    maintenanceMode: { label: 'Modo Manutenção', description: 'Exibe um aviso de manutenção no topo do site para os visitantes', danger: true },
   };
 
+  // Liberar/bloquear o acesso a páginas administrativas específicas.
   const moduleLabels: Record<keyof AdminModules, { label: string; description: string }> = {
-    approvals_kyc: { label: 'Aprovações KYC', description: 'Permite ao admin visualizar e aprovar produtores' },
-    reports: { label: 'Relatórios Financeiros', description: 'Seção de relatórios e exportações no menu lateral' },
-    integrations: { label: 'Integrações', description: 'Configurações de integrações externas' },
+    reports: { label: 'Página de Relatórios', description: 'Mostra o item "Relatórios" no menu do admin' },
+    approvals_kyc: { label: 'Aprovações / KYC', description: 'Permite ao admin revisar e aprovar produtores' },
+    integrations: { label: 'Integrações', description: 'Página de integrações externas' },
     notifications: { label: 'Notificações', description: 'Módulo de notificações e alertas' },
     support: { label: 'Suporte ao Produtor', description: 'Canal de suporte interno para produtores' },
   };
+
+  const sysInfo = [
+    { label: 'Ambiente (build)', value: import.meta.env.MODE || 'development' },
+    { label: 'Supabase', value: import.meta.env.VITE_SUPABASE_URL ? 'Configurado' : 'Não configurado' },
+    { label: 'Versão da App', value: (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '—') },
+    { label: 'Modo Manutenção', value: config.featureFlags.maintenanceMode ? 'ATIVO' : 'Inativo' },
+  ];
 
   return (
     <div className="space-y-8 px-4 sm:px-0 pb-20">
@@ -138,7 +125,7 @@ export function DeveloperPanel() {
           </div>
           <div>
             <h1 className="text-2xl md:text-3xl font-serif text-[#d4af37]">Painel do Desenvolvedor</h1>
-            <p className="text-[9px] md:text-[10px] uppercase tracking-[0.3em] opacity-40 mt-1">Configurações avançadas de sistema</p>
+            <p className="text-[9px] md:text-[10px] uppercase tracking-[0.3em] opacity-40 mt-1">Controles técnicos e feature flags</p>
           </div>
         </div>
 
@@ -164,6 +151,16 @@ export function DeveloperPanel() {
       </div>
 
       <div className="space-y-4 max-w-3xl">
+        {/* Aviso de escopo */}
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-blue-500/5 border border-blue-500/20">
+          <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-blue-400/90 leading-relaxed">
+            Estes controles são exclusivos do desenvolvedor. Dados do site, tema e credenciais
+            de pagamento são geridos pelo admin (Configurações) e pelas variáveis de ambiente
+            da Vercel — por isso não aparecem aqui.
+          </p>
+        </div>
+
         {/* Feature Flags */}
         <Section title="Feature Flags" icon={<ToggleRight className="w-4 h-4" />}>
           {(Object.keys(featureLabels) as (keyof FeatureFlags)[]).map(key => (
@@ -178,10 +175,10 @@ export function DeveloperPanel() {
           ))}
         </Section>
 
-        {/* Admin Modules */}
-        <Section title="Módulos do Admin" icon={<ShieldCheck className="w-4 h-4" />}>
+        {/* Acesso a páginas do admin */}
+        <Section title="Acesso a Páginas do Admin" icon={<LayoutGrid className="w-4 h-4" />}>
           <p className="text-[10px] text-white/30 normal-case tracking-normal font-normal mb-2">
-            Controla quais módulos ficam visíveis no menu lateral para administradores. Por padrão todos estão desabilitados.
+            Libere ou bloqueie o acesso do administrador a páginas específicas do painel.
           </p>
           {(Object.keys(moduleLabels) as (keyof AdminModules)[]).map(key => (
             <ToggleRow
@@ -194,123 +191,16 @@ export function DeveloperPanel() {
           ))}
         </Section>
 
-        {/* Site Settings */}
-        <Section title="Configurações do Site" icon={<Settings className="w-4 h-4" />}>
-          <InputRow
-            label="Nome da Plataforma"
-            value={config.siteSettings.platformName}
-            onChange={v => update('siteSettings', { platformName: v })}
-            placeholder="Eventix"
-          />
-          <InputRow
-            label="E-mail de Suporte"
-            value={config.siteSettings.supportEmail}
-            onChange={v => update('siteSettings', { supportEmail: v })}
-            type="email"
-            placeholder="suporte@eventix.com"
-          />
-          <InputRow
-            label="WhatsApp (com DDI)"
-            value={config.siteSettings.whatsappNumber}
-            onChange={v => update('siteSettings', { whatsappNumber: v })}
-            placeholder="5511999999999"
-          />
-        </Section>
-
-        {/* Theme */}
-        <Section title="Tema e Cores" icon={<Palette className="w-4 h-4" />}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Cor Primária</label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="color"
-                  value={config.theme.primaryColor}
-                  onChange={e => update('theme', { primaryColor: e.target.value })}
-                  className="w-10 h-10 rounded-xl border border-white/10 bg-[#1a1a1a] cursor-pointer"
-                />
-                <span className="text-xs text-white/60 normal-case font-normal tracking-normal">{config.theme.primaryColor}</span>
-              </div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Cor de Destaque</label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="color"
-                  value={config.theme.accentColor}
-                  onChange={e => update('theme', { accentColor: e.target.value })}
-                  className="w-10 h-10 rounded-xl border border-white/10 bg-[#1a1a1a] cursor-pointer"
-                />
-                <span className="text-xs text-white/60 normal-case font-normal tracking-normal">{config.theme.accentColor}</span>
-              </div>
-            </div>
-          </div>
-          <div className="mt-2 p-3 rounded-xl bg-[#1a1a1a] border border-white/5">
-            <span className="text-[10px] text-white/30 normal-case tracking-normal font-normal">
-              Prévia das cores — as alterações são aplicadas localmente via localStorage e servem como referência de tema.
-            </span>
-          </div>
-        </Section>
-
-        {/* Payment */}
-        <Section title="Pagamentos" icon={<CreditCard className="w-4 h-4" />}>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Provedor</label>
-            <select
-              value={config.payment.provider}
-              onChange={e => update('payment', { provider: e.target.value as 'mock' | 'stripe' | 'mercadopago' })}
-              className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-xs text-white normal-case tracking-normal font-normal focus:outline-none focus:border-[#d4af37]/50 transition"
-            >
-              <option value="mock">Mock (Desenvolvimento)</option>
-              <option value="stripe">Stripe</option>
-              <option value="mercadopago">Mercado Pago</option>
-            </select>
-          </div>
-          <ToggleRow
-            label="Mock em Produção"
-            description="Permite pagamentos simulados mesmo em ambiente de produção"
-            value={config.payment.allowMockInProduction}
-            onChange={v => update('payment', { allowMockInProduction: v })}
-            danger
-          />
-          {config.payment.provider !== 'mock' && (
-            <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-[10px] text-amber-300 normal-case tracking-normal font-normal leading-relaxed">
-                Configure as chaves de API do provedor selecionado nas variáveis de ambiente do servidor (VITE_PAYMENT_KEY / PAYMENT_PROVIDER).
-              </p>
-            </div>
-          )}
-        </Section>
-
-        {/* Env URLs */}
-        <Section title="URLs de Ambiente" icon={<Globe className="w-4 h-4" />} defaultOpen={false}>
-          <InputRow
-            label="URL de Desenvolvimento"
-            value={config.envUrls.devUrl}
-            onChange={v => update('envUrls', { devUrl: v })}
-            placeholder="http://localhost:5173"
-          />
-          <InputRow
-            label="URL de Produção"
-            value={config.envUrls.prodUrl}
-            onChange={v => update('envUrls', { prodUrl: v })}
-            placeholder="https://eventix.com"
-          />
-        </Section>
-
         {/* System Info */}
         <Section title="Informações do Sistema" icon={<Server className="w-4 h-4" />} defaultOpen={false}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[
-              { label: 'Ambiente', value: import.meta.env.MODE || 'development' },
-              { label: 'Node Env', value: import.meta.env.VITE_NODE_ENV || 'development' },
-              { label: 'Supabase Project', value: import.meta.env.VITE_SUPABASE_URL ? 'Configurado' : 'Não configurado' },
-              { label: 'Versão da App', value: '1.0.0' },
-            ].map(({ label, value }) => (
+            {sysInfo.map(({ label, value }) => (
               <div key={label} className="flex flex-col gap-1 p-3 rounded-xl bg-[#1a1a1a] border border-white/5">
                 <span className="text-[9px] uppercase tracking-[0.2em] text-white/30">{label}</span>
-                <span className="text-xs text-white/70 normal-case tracking-normal font-normal">{value}</span>
+                <span className="text-xs text-white/70 normal-case tracking-normal font-normal flex items-center gap-1.5">
+                  {label === 'Modo Manutenção' && value === 'ATIVO' && <ShieldCheck className="w-3 h-3 text-red-400" />}
+                  {value}
+                </span>
               </div>
             ))}
           </div>
