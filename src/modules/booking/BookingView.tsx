@@ -495,12 +495,11 @@ export function BookingView() {
                             return hasTables ? (
                             <div
                               className="relative w-full mx-auto bg-[#111111] rounded-2xl border border-[#2a2a2a] overflow-hidden"
-                              style={{ minHeight: 240 }}
                             >
-                              <div className="overflow-x-auto overflow-y-auto w-full touch-pan-x" style={{ maxHeight: 'min(65vh, 480px)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+                              <div className="w-full overflow-x-auto">
                                 <svg
                                   viewBox={viewBox}
-                                  style={{ display: 'block', width: '100%', minWidth: 'min(320px, 100vw)', minHeight: 220, transform: 'scale(0.88)', transformOrigin: 'top center' }}
+                                  style={{ display: 'block', width: '100%', minWidth: 'min(320px, 100vw)', transform: 'scale(0.92)', transformOrigin: 'top center' }}
                                   preserveAspectRatio="xMidYMin meet"
                                 >
                                   <defs>

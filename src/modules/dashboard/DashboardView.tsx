@@ -2197,12 +2197,13 @@ export function DashboardView() {
                     <h3 className="text-sm font-serif text-white uppercase tracking-widest opacity-60">Novo Colaborador</h3>
                   </div>
                   
-                  <form onSubmit={handleAddStaff} className="space-y-6">
+                  <form onSubmit={handleAddStaff} autoComplete="off" className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div>
                         <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Nome Completo</label>
                         <input
                           type="text"
+                          autoComplete="off"
                           value={newStaff.name}
                           onChange={e => setNewStaff({...newStaff, name: e.target.value})}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition placeholder:opacity-20"
@@ -2213,6 +2214,7 @@ export function DashboardView() {
                         <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Usuário</label>
                         <input
                           type="text"
+                          autoComplete="off"
                           value={newStaff.username}
                           onChange={e => setNewStaff({...newStaff, username: e.target.value})}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition placeholder:opacity-20"
@@ -2223,6 +2225,7 @@ export function DashboardView() {
                         <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Senha</label>
                         <input
                           type="password"
+                          autoComplete="new-password"
                           value={newStaff.password}
                           onChange={e => setNewStaff({...newStaff, password: e.target.value})}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition placeholder:opacity-20"
@@ -2230,28 +2233,12 @@ export function DashboardView() {
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
-                      <div className="md:col-span-2">
-                        <label className="block text-[10px] uppercase opacity-40 mb-3 font-bold tracking-widest ml-1">Evento vinculado</label>
-                        <select
-                          value={newStaff.eventId ?? ''}
-                          onChange={e => setNewStaff({...newStaff, eventId: e.target.value ? Number(e.target.value) : undefined})}
-                          className="w-full bg-[#0d0d0d] border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition text-white appearance-none"
-                        >
-                          <option value="">Selecione o evento da portaria…</option>
-                          {events.map(ev => (
-                            <option key={ev.id} value={ev.id}>{ev.title}</option>
-                          ))}
-                        </select>
-                        <p className="text-[9px] opacity-30 mt-2 ml-1">O colaborador só terá acesso ao Controle de Portaria deste evento.</p>
-                      </div>
-                      <button
-                        type="submit"
-                        className="w-full py-4 bg-[#d4af37] text-black rounded-xl font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(212,175,55,0.1)] active:scale-95 duration-300"
-                      >
-                        <Plus className="w-4 h-4 stroke-[3px]" /> Cadastrar
-                      </button>
-                    </div>
+                    <button
+                      type="submit"
+                      className="w-full py-4 bg-[#d4af37] text-black rounded-xl font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(212,175,55,0.1)] active:scale-95 duration-300"
+                    >
+                      <Plus className="w-4 h-4 stroke-[3px]" /> Cadastrar
+                    </button>
                   </form>
                 </div>
 

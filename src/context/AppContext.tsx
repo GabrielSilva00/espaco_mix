@@ -151,8 +151,8 @@ interface AppContextValue {
   // Staff
   staffAccounts: StaffAccount[];
   setStaffAccounts: React.Dispatch<React.SetStateAction<StaffAccount[]>>;
-  newStaff: { name: string; username: string; password: string; eventId?: number };
-  setNewStaff: React.Dispatch<React.SetStateAction<{ name: string; username: string; password: string; eventId?: number }>>;
+  newStaff: { name: string; username: string; password: string };
+  setNewStaff: React.Dispatch<React.SetStateAction<{ name: string; username: string; password: string }>>;
 
   // System logs
   systemLogs: { id: string; level: 'error' | 'warn' | 'info'; message: string; time: Date }[];
@@ -403,7 +403,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Staff
   const [staffAccounts, setStaffAccounts] = useState<StaffAccount[]>([]);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [newStaff, setNewStaff] = useState<{ name: string; username: string; password: string; eventId?: number }>({ name: '', username: '', password: '' });
+  const [newStaff, setNewStaff] = useState<{ name: string; username: string; password: string }>({ name: '', username: '', password: '' });
 
   // System logs
   const [systemLogs, setSystemLogs] = useState<{ id: string; level: 'error' | 'warn' | 'info'; message: string; time: Date }[]>([]);
@@ -603,7 +603,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const subTotal = tablesTotal + ticketsTotal;
   const taxAmount = subTotal * 0.10;
-  const grandTotal = subTotal + taxAmount;
+  const grandTotal = subTotal;
 
   const isAdminLayout = (userRole === 'admin' || userRole === 'developer' || userRole === 'staff') && !isPreviewingEvent;
 
@@ -724,6 +724,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // ─── Browser back button ─────────────────────────────────────────────────
+  const _historyInitialized = useRef(false);
+  const _isPopState = useRef(false);
+
+  useEffect(() => {
+    if (!_historyInitialized.current) {
+      _historyInitialized.current = true;
+      window.history.replaceState({ view: currentView }, '');
+      return;
+    }
+    if (_isPopState.current) {
+      _isPopState.current = false;
+      return;
+    }
+    window.history.pushState({ view: currentView }, '');
+  }, [currentView]);
+
+  useEffect(() => {
+    const handlePop = (e: PopStateEvent) => {
+      const view = e.state?.view as CurrentView | undefined;
+      if (view) {
+        _isPopState.current = true;
+        setCurrentView(view);
+      }
+    };
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
   }, []);
 
   useEffect(() => {
@@ -1545,7 +1574,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStaff.name || !newStaff.username || !newStaff.password) return;
-    if (!newStaff.eventId) { showToast('Selecione o evento da equipe.', 'error'); return; }
     try {
       const token = await getAccessTokenSafe();
       const resp = await fetch('/api/staff', {
@@ -1555,7 +1583,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           name: newStaff.name,
           username: newStaff.username,
           password: newStaff.password,
-          eventIds: [newStaff.eventId],
+          eventIds: [],
         }),
       });
       const data = await resp.json().catch(() => ({}));

@@ -23,7 +23,7 @@ export function AdminSettings({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'payments' | 'conta'>('general');
-  const [credForm, setCredForm] = useState({ email: '', password: '', confirmPassword: '' });
+  const [credForm, setCredForm] = useState({ username: '', password: '', confirmPassword: '' });
   const [credStatus, setCredStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [credError, setCredError] = useState('');
 
@@ -1006,9 +1006,9 @@ export function AdminSettings({
           <MercadoPagoSettings />
         ) : (
           // ABA MINHA CONTA
-          <div className="space-y-6">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
           {/* Meus Dados */}
-          <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8 max-w-lg">
+          <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8">
             <div className="flex items-center justify-between mb-8">
               <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] flex items-center gap-3">
                 <span className="p-2 bg-[#d4af37]/10 rounded-lg"><User className="w-4 h-4" /></span>
@@ -1069,21 +1069,21 @@ export function AdminSettings({
           </section>
 
           {/* Alterar Credenciais */}
-          <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8 max-w-lg">
+          <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8">
             <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] mb-8 flex items-center gap-3">
               <span className="p-2 bg-[#d4af37]/10 rounded-lg"><Shield className="w-4 h-4" /></span>
               Alterar Credenciais de Acesso
             </h3>
             <div className="space-y-5">
               <div>
-                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Novo E-mail / Usuário</label>
+                <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Novo Usuário</label>
                 <input
-                  type="email"
-                  name="new-credential-email"
+                  type="text"
+                  name="new-credential-username"
                   autoComplete="off"
                   placeholder="Deixe em branco para não alterar"
-                  value={credForm.email}
-                  onChange={e => setCredForm(f => ({ ...f, email: e.target.value }))}
+                  value={credForm.username}
+                  onChange={e => setCredForm(f => ({ ...f, username: e.target.value }))}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
                 />
               </div>
@@ -1120,19 +1120,23 @@ export function AdminSettings({
                 disabled={credStatus === 'saving'}
                 onClick={async () => {
                   setCredError('');
-                  const updates: { email?: string; password?: string } = {};
-                  if (credForm.email.trim()) updates.email = credForm.email.trim();
+                  const newUsername = credForm.username.trim();
+                  const authUpdates: { email?: string; password?: string } = {};
+                  if (newUsername) authUpdates.email = `${newUsername}@espacomix.internal`;
                   if (credForm.password) {
                     if (credForm.password.length < 6) { setCredError('A senha deve ter no mínimo 6 caracteres.'); return; }
                     if (credForm.password !== credForm.confirmPassword) { setCredError('As senhas não coincidem.'); return; }
-                    updates.password = credForm.password;
+                    authUpdates.password = credForm.password;
                   }
-                  if (!Object.keys(updates).length) { setCredError('Preencha ao menos um campo para alterar.'); return; }
+                  if (!Object.keys(authUpdates).length) { setCredError('Preencha ao menos um campo para alterar.'); return; }
                   setCredStatus('saving');
                   try {
-                    await updateMyCredentials(updates);
+                    if (newUsername && myProfile) {
+                      await updateProfile(myProfile.id, { username: newUsername });
+                    }
+                    await updateMyCredentials(authUpdates);
                     setCredStatus('saved');
-                    setCredForm({ email: '', password: '', confirmPassword: '' });
+                    setCredForm({ username: '', password: '', confirmPassword: '' });
                     setTimeout(() => setCredStatus('idle'), 3000);
                   } catch (err: any) {
                     setCredError(err.message || 'Erro ao atualizar credenciais.');
@@ -1153,7 +1157,7 @@ export function AdminSettings({
               </button>
 
               <p className="text-white/30 text-[11px]">
-                Se alterar o e-mail, você precisará fazer login novamente com o novo endereço.
+                Se alterar o usuário, você precisará fazer login novamente com o novo nome de usuário.
               </p>
             </div>
           </section>

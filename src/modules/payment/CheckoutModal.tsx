@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Check, CreditCard, Copy, AlertCircle, QrCode, ChevronRight, ChevronLeft,
   Smartphone, User, Lock, AlertTriangle, StopCircle, MessageCircle,
-  ShieldAlert, RefreshCcw, Clock, Info, Edit2, ArrowLeft, ShieldCheck,
+  ShieldAlert, RefreshCcw, Clock, Edit2, ArrowLeft, ShieldCheck,
   Download, FileText, Mail, Ticket,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -35,7 +35,7 @@ export function CheckoutModal() {
     paymentStatus, setPaymentStatus,
     guestData, setGuestData,
     selectedTables, singleTickets, maleTickets, femaleTickets,
-    grandTotal, subTotal, taxAmount, ticketsTotal, tablesTotal,
+    grandTotal, ticketsTotal, tablesTotal,
     previewSectors,
     derivedTables,
     activeEvent,
@@ -185,22 +185,6 @@ export function CheckoutModal() {
                       </>
                     )}
                     
-                    <div className="pt-4 border-t border-white/10 flex justify-between items-center opacity-60">
-                      <span className="text-[10px] md:text-[11px] uppercase tracking-widest">Subtotal</span>
-                      <span className="text-sm font-serif text-white whitespace-nowrap">R$ {subTotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-start opacity-60">
-                      <div>
-                        <span className="text-[10px] md:text-[11px] uppercase tracking-widest flex items-center gap-1">
-                          Taxa de conveniência (10%) <Info className="w-3 h-3" />
-                        </span>
-                        <p className="text-[9px] normal-case tracking-normal text-white/40 mt-0.5 max-w-[180px]">
-                          Cobre os custos operacionais e segurança da transação.
-                        </p>
-                      </div>
-                      <span className="text-sm font-serif text-white whitespace-nowrap ml-4">R$ {taxAmount.toFixed(2)}</span>
-                    </div>
-
                     <div className="pt-2 mt-2 border-t border-white/5 flex justify-between items-center">
                       <span className="text-[11px] uppercase opacity-80 tracking-[0.2em] font-bold text-[#d4af37]">Total</span>
                       <span className="text-white text-2xl font-serif whitespace-nowrap">R$ {grandTotal.toFixed(2)}</span>
