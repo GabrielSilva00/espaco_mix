@@ -30,9 +30,13 @@ export function MercadoPagoSettings() {
   const loadStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const headers = await authHeader();
+      // Protege contra getSession() travado em produção: nunca deixa o spinner girar p/ sempre.
+      const headers = await Promise.race([
+        authHeader(),
+        new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout-sessao')), 8000)),
+      ]);
       if (!headers) { setLoading(false); return; }
-      const res = await fetch(`${serverUrl}/api/admin/payment-status`, { headers });
+      const res = await fetch(`${serverUrl}/api/admin/payment-status`, { headers, signal: AbortSignal.timeout(12000) });
       if (res.ok) setStatus(await res.json());
     } catch (e) {
       console.warn('[MP Settings] Falha ao carregar status:', e);

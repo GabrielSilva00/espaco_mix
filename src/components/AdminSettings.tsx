@@ -237,7 +237,7 @@ export function AdminSettings({
     setIsSaving(true);
     setSaveError(null);
     try {
-      await updateSystemConfig({
+      const savePromise = updateSystemConfig({
         // Geral
         site_name:               settings.platformName,
         support_email:           settings.supportEmail,
@@ -302,6 +302,12 @@ export function AdminSettings({
         email_reminder_subject:   settings.emailReminderSubject || undefined,
         email_reminder_body:      settings.emailReminderBody || undefined,
       });
+      // Nunca deixa o botão girar para sempre: se o Supabase não responder (sessão
+      // expirada/RLS/rede), aborta com mensagem clara em vez de loading infinito.
+      await Promise.race([
+        savePromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Tempo esgotado ao salvar — verifique sua conexão/sessão e tente novamente.')), 15000)),
+      ]);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
       onSettingsSaved?.(settings.platformName, logoPreview, settings);

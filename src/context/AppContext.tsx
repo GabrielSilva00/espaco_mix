@@ -130,6 +130,8 @@ interface AppContextValue {
   setIsApprovedEventCreator: React.Dispatch<React.SetStateAction<boolean>>;
   isStaff: boolean;
   setIsStaff: React.Dispatch<React.SetStateAction<boolean>>;
+  staffEventIds: string[];
+  setStaffEventIds: React.Dispatch<React.SetStateAction<string[]>>;
   loggedInUserId: string | null;
   setLoggedInUserId: React.Dispatch<React.SetStateAction<string | null>>;
   authIntent: 'buy' | 'create_event';
@@ -144,6 +146,7 @@ interface AppContextValue {
   events: Event[];
   setEvents: React.Dispatch<React.SetStateAction<Event[]>>;
   loadingEvents: boolean;
+  loadingBatches: boolean;
   formEvent: Event | null;
   setFormEvent: React.Dispatch<React.SetStateAction<Event | null>>;
   releaseValidationFields: string[];
@@ -392,6 +395,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [isApprovedEventCreator, setIsApprovedEventCreator] = useState(false);
   const [isStaff, setIsStaff] = useState(false);
+  const [staffEventIds, setStaffEventIds] = useState<string[]>([]);
   const [loggedInUserId, setLoggedInUserId] = useState<string | null>(null);
   const [authIntent, setAuthIntent] = useState<'buy' | 'create_event'>('buy');
 
@@ -401,6 +405,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Events
   const [events, setEvents] = useState<Event[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
+  const [loadingBatches, setLoadingBatches] = useState(false);
   const [formEvent, setFormEvent] = useState<Event | null>(null);
   const [releaseValidationFields, setReleaseValidationFields] = useState<string[]>([]);
 
@@ -900,16 +905,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (currentView !== 'booking') return;
     const ev = activeEvent;
-    if (!ev || (ev.batches?.length ?? 0) > 0) return;
+    if (!ev) return;
+    if ((ev.batches?.length ?? 0) > 0) { setLoadingBatches(false); return; }
     let cancelled = false;
-    getEventBatches(ev.id)
-      .then(rawBatches => {
-        if (cancelled) return;
-        const mapped = mapDbEventToApp({ batches: rawBatches });
-        setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, batches: mapped.batches } : e));
-        setFormEvent(prev => prev && prev.id === ev.id ? { ...prev, batches: mapped.batches } : prev);
-      })
-      .catch(e => console.error('[Context] Erro ao carregar lotes do evento:', (e as Error)?.message));
+    let attempts = 0;
+    setLoadingBatches(true);
+    // Retry com backoff: rede instável fazia o card de ingressos nunca aparecer
+    // (a falha era engolida no .catch sem nova tentativa nem indicador de loading).
+    const run = () => {
+      attempts++;
+      getEventBatches(ev.id)
+        .then(rawBatches => {
+          if (cancelled) return;
+          const mapped = mapDbEventToApp({ batches: rawBatches });
+          setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, batches: mapped.batches } : e));
+          setFormEvent(prev => prev && prev.id === ev.id ? { ...prev, batches: mapped.batches } : prev);
+          setLoadingBatches(false);
+        })
+        .catch(e => {
+          console.error(`[Context] Erro ao carregar lotes do evento (tentativa ${attempts}):`, (e as Error)?.message);
+          if (cancelled) return;
+          if (attempts < 3) setTimeout(run, 1200 * attempts);
+          else setLoadingBatches(false);
+        });
+    };
+    run();
     return () => { cancelled = true; };
   }, [currentView, activeEvent?.id]);
 
@@ -1670,15 +1690,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!resp.ok) { setAdminError(data.error || 'Usuário ou senha incorretos'); return; }
       try { localStorage.setItem('eventix-staff-token', data.token); } catch {}
       const eventIds: string[] = data.staff?.eventIds ?? [];
-      const firstEventId = eventIds.length > 0 ? Number(eventIds[0]) : null;
       setUserRole('staff');
       setIsStaff(true);
       setIsApprovedEventCreator(false);
+      setStaffEventIds(eventIds);
       setLoggedInUserId(data.staff?.id ?? 'staff');
       setSessionUser({ id: data.staff?.id ?? 'staff', email: '', name: data.staff?.name ?? 'Colaborador', role: 'staff', isApprovedEventCreator: false });
-      if (firstEventId) setSelectedDashboardEvent(firstEventId);
+      // Mostra a lista de eventos vinculados; o ajudante escolhe e cai na portaria.
+      setSelectedDashboardEvent(null);
       setCurrentView('dashboard');
-      setDashboardMode('check-in');
+      setDashboardMode('list');
       setAdminForm({ username: '', password: '' });
     } catch {
       setAdminError('Erro de conexão. Tente novamente.');
@@ -2124,11 +2145,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     sessionUser, setSessionUser,
     isApprovedEventCreator, setIsApprovedEventCreator,
     isStaff, setIsStaff,
+    staffEventIds, setStaffEventIds,
     loggedInUserId, setLoggedInUserId,
     authIntent, setAuthIntent,
     can, role, isAtLeast,
     events, setEvents,
     loadingEvents,
+    loadingBatches,
     formEvent, setFormEvent,
     releaseValidationFields, setReleaseValidationFields,
     staffAccounts, setStaffAccounts,

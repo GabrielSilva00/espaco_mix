@@ -38,8 +38,11 @@ function maskCpf(cpf: string): string {
 // ─── Criptografia AES-256-CBC ────────────────────────────────────────────────
 
 function getEncKey(): Buffer {
-  const hex = process.env.ENCRYPTION_KEY;
-  if (!hex || hex.length !== 64) {
+  // Normaliza o valor da env: na Vercel é comum colar a chave com aspas, espaços
+  // ou quebra de linha invisível, fazendo o tamanho passar de 64 e estourar a
+  // validação (origem do erro "ENCRYPTION_KEY deve ter 64 caracteres" em prod).
+  const hex = (process.env.ENCRYPTION_KEY ?? "").trim().replace(/^["']|["']$/g, "");
+  if (hex.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(hex)) {
     throw new Error("ENCRYPTION_KEY deve ter 64 caracteres hex (32 bytes). Gere com: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"");
   }
   return Buffer.from(hex, "hex");
@@ -1813,7 +1816,7 @@ export async function createExpressApp() {
       const { createClient } = await import("@supabase/supabase-js");
       const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-      const encKey = process.env.ENCRYPTION_KEY;
+      const encKey = (process.env.ENCRYPTION_KEY ?? "").trim();
       const updates: Record<string, string | null> = {};
 
       if (name !== undefined) updates.name = name;
@@ -2063,6 +2066,20 @@ export async function createExpressApp() {
       return;
     }
     try {
+      // O cron da Vercel roda de hora em hora (0 * * * *); só disparamos os
+      // e-mails na hora escolhida pelo admin no painel (system_config.reminder_cron_hour).
+      // Assim, alterar a hora pelo site passa a valer sem editar o código.
+      const admin = await getAdminClient();
+      let targetHour = 12;
+      if (admin) {
+        const { data } = await admin.from("system_config").select("reminder_cron_hour").eq("id", "main").maybeSingle();
+        if (typeof data?.reminder_cron_hour === "number") targetHour = data.reminder_cron_hour;
+      }
+      const currentHour = new Date().getUTCHours();
+      if (currentHour !== targetHour) {
+        res.json({ skipped: true, sent: 0, errors: 0, reason: `Hora atual ${currentHour}h UTC ≠ hora configurada ${targetHour}h UTC.` });
+        return;
+      }
       const result = await sendReminderEmails();
       res.json(result);
     } catch (err: any) {
@@ -2153,11 +2170,15 @@ export async function createExpressApp() {
         process.env.SUPABASE_SERVICE_ROLE_KEY!
       );
 
-      // 1. Buscar configurações de cancelamento
+      // 1. Buscar configurações de cancelamento — fonte única: system_config (id=main),
+      // a MESMA tabela que a tela de Configurações grava. Antes lia de uma tabela
+      // "settings" com nomes de coluna divergentes, então as regras definidas no
+      // site não chegavam ao estorno do Mercado Pago.
       const { data: settings } = await adminClient
-        .from("settings")
-        .select("allow_cancellation,refund_type,cancel_max_delay,auto_refund,platform_fee_percent")
-        .single();
+        .from("system_config")
+        .select("allow_cancellation,refund_type,cancel_max_delay_hours,auto_refund,cancel_fee_percent")
+        .eq("id", "main")
+        .maybeSingle();
       if (!settings?.allow_cancellation) {
         res.status(403).json({ error: "Cancelamento não permitido nas configurações" });
         return;
@@ -2185,16 +2206,19 @@ export async function createExpressApp() {
 
       const eventDate = new Date((reservation as any).events?.date);
       const hoursUntil = (eventDate.getTime() - Date.now()) / 3600000;
-      if (hoursUntil < (settings.cancel_max_delay ?? 0)) {
+      if (hoursUntil < (settings.cancel_max_delay_hours ?? 0)) {
         res.status(400).json({ error: "Prazo de cancelamento encerrado" });
         return;
       }
 
-      // 3. Calcular valor conforme refund_type
+      // 3. Calcular valor conforme refund_type (regra definida no site):
+      //    total  → reembolso integral (corpo vazio = full refund no MP)
+      //    partial→ desconta a multa de cancelamento (cancel_fee_percent)
+      //    no-fee → devolve tudo menos a taxa da plataforma já retida
       const total: number = reservation.total;
       let refundAmount: number | undefined;
       if (settings.refund_type === "partial") {
-        const cancelFee = settings.platform_fee_percent ?? 10;
+        const cancelFee = settings.cancel_fee_percent ?? 0;
         refundAmount = total * (1 - cancelFee / 100);
       } else if (settings.refund_type === "no-fee") {
         refundAmount = total - (reservation.platform_fee ?? 0);

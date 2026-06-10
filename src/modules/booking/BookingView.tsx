@@ -41,6 +41,7 @@ export function BookingView() {
     cartTimeLeft,
     handleCheckout,
     showToast,
+    loadingBatches,
   } = useApp();
 
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -203,6 +204,14 @@ export function BookingView() {
 
                 {/* Cards Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+
+                  {/* Placeholder de carregamento dos ingressos (evita card sumir em rede lenta) */}
+                  {loadingBatches && !hasTickets && (
+                    <div className="rounded-2xl border border-white/10 bg-[#111] p-3 flex flex-col items-center justify-center gap-3 min-h-[160px]">
+                      <div className="w-7 h-7 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" />
+                      <p className="text-[10px] uppercase tracking-widest text-white/40">Carregando ingressos…</p>
+                    </div>
+                  )}
 
                   {/* Card Ingressos */}
                   {hasTickets && (

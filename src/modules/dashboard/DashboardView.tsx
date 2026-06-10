@@ -40,6 +40,7 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
   const [showCustomers, setShowCustomers] = React.useState(false);
   const [customers, setCustomers] = React.useState<{ id: string; name: string; email: string; created_at?: string }[]>([]);
   const [loadingCustomers, setLoadingCustomers] = React.useState(false);
+  const [customerSearch, setCustomerSearch] = React.useState('');
 
   const now = new Date();
   const periodStart = React.useMemo(() => {
@@ -91,6 +92,13 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
     } catch { /* ignore */ } finally { setLoadingCustomers(false); }
   };
 
+  const filteredCustomers = React.useMemo(() => {
+    const q = customerSearch.trim().toLowerCase();
+    if (!q) return customers;
+    return customers.filter(c =>
+      (c.name || '').toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q));
+  }, [customers, customerSearch]);
+
   const periodLabel = { day: 'Hoje', week: 'Últimos 7 dias', month: 'Este mês' }[period];
 
   return (
@@ -124,13 +132,8 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
         </div>
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5 col-span-2 md:col-span-1">
           <div className="mb-3 text-purple-400"><Users className="w-5 h-5" /></div>
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-2xl md:text-3xl font-bold text-white truncate">{registeredUsersCount}</p>
-              <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Usuários Cadastrados</p>
-            </div>
-            <button onClick={openCustomers} className="text-[9px] uppercase tracking-widest text-[#d4af37] hover:brightness-110 border border-[#d4af37]/30 px-2 py-1 rounded-lg">Ver todos</button>
-          </div>
+          <p className="text-2xl md:text-3xl font-bold text-white truncate">{registeredUsersCount}</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Usuários Cadastrados</p>
         </div>
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-amber-400"><TrendingUp className="w-5 h-5" /></div>
@@ -138,6 +141,21 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
           <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Vendas — {periodLabel}</p>
         </div>
       </div>
+
+      {/* Botão dedicado — Compradores Cadastrados */}
+      <button
+        onClick={openCustomers}
+        className="w-full flex items-center justify-between gap-4 bg-[#0d0d0d] border border-[#d4af37]/25 hover:border-[#d4af37]/50 hover:bg-[#d4af37]/[0.04] transition rounded-2xl px-5 py-4 group"
+      >
+        <div className="flex items-center gap-3 text-left">
+          <div className="p-2.5 rounded-xl bg-[#d4af37]/10 text-[#d4af37]"><Users className="w-5 h-5" /></div>
+          <div>
+            <p className="text-sm font-bold text-white">Compradores Cadastrados</p>
+            <p className="text-[11px] text-white/40 mt-0.5">Ver a lista completa e pesquisar por nome ou e-mail</p>
+          </div>
+        </div>
+        <ChevronRight className="w-5 h-5 text-[#d4af37]/60 group-hover:translate-x-0.5 transition-transform" />
+      </button>
 
       {/* Receitas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -204,40 +222,60 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
         </div>
       </div>
 
-      {/* Modal de clientes */}
+      {/* Página de Compradores Cadastrados */}
       {showCustomers && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-[#0d0d0d] border border-white/10 rounded-3xl shadow-2xl overflow-hidden max-h-[80vh] flex flex-col">
-            <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between">
-              <h2 className="text-sm font-bold uppercase tracking-widest text-[#d4af37]">Clientes Cadastrados</h2>
-              <button onClick={() => setShowCustomers(false)} className="text-white/30 hover:text-white"><X className="w-5 h-5" /></button>
+        <div className="fixed inset-0 z-50 bg-[#0a0a0a] flex flex-col">
+          <div className="px-5 md:px-8 py-5 border-b border-white/8 flex items-center gap-4 shrink-0">
+            <button onClick={() => { setShowCustomers(false); setCustomerSearch(''); }} className="p-2 -ml-2 rounded-lg text-white/40 hover:text-white hover:bg-white/5"><ArrowLeft className="w-5 h-5" /></button>
+            <div className="flex items-center gap-3">
+              <Users className="w-5 h-5 text-[#d4af37]" />
+              <h1 className="text-lg font-serif text-[#d4af37]">Compradores Cadastrados</h1>
             </div>
-            <div className="overflow-y-auto flex-1">
-              {loadingCustomers ? (
-                <div className="py-16 flex justify-center"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>
-              ) : customers.length === 0 ? (
-                <div className="py-16 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum cliente encontrado</div>
-              ) : (
-                <table className="w-full">
-                  <thead className="border-b border-white/5">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">Nome</th>
-                      <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">E-mail</th>
-                      <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30 hidden sm:table-cell">Cadastro</th>
+          </div>
+
+          {/* Barra de pesquisa */}
+          <div className="px-5 md:px-8 py-4 border-b border-white/5 shrink-0">
+            <div className="relative max-w-md">
+              <Search className="w-4 h-4 text-white/30 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                value={customerSearch}
+                onChange={e => setCustomerSearch(e.target.value)}
+                placeholder="Pesquisar por nome ou e-mail…"
+                className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#d4af37]/50"
+              />
+            </div>
+            {!loadingCustomers && customers.length > 0 && (
+              <p className="text-[11px] text-white/30 mt-2">{filteredCustomers.length} de {customers.length} compradores</p>
+            )}
+          </div>
+
+          <div className="overflow-y-auto flex-1 max-w-4xl w-full mx-auto">
+            {loadingCustomers ? (
+              <div className="py-20 flex justify-center"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>
+            ) : customers.length === 0 ? (
+              <div className="py-20 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum comprador encontrado</div>
+            ) : filteredCustomers.length === 0 ? (
+              <div className="py-20 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum resultado para “{customerSearch}”</div>
+            ) : (
+              <table className="w-full">
+                <thead className="border-b border-white/5 sticky top-0 bg-[#0a0a0a]">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">Nome</th>
+                    <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">E-mail</th>
+                    <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30 hidden sm:table-cell">Cadastro</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {filteredCustomers.map(c => (
+                    <tr key={c.id} className="hover:bg-white/[0.02]">
+                      <td className="px-6 py-4 text-sm text-white/90">{c.name || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-white/60 font-mono text-xs">{c.email}</td>
+                      <td className="px-6 py-4 text-[11px] text-white/30 hidden sm:table-cell">{c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '—'}</td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {customers.map(c => (
-                      <tr key={c.id} className="hover:bg-white/[0.02]">
-                        <td className="px-6 py-4 text-sm text-white/90">{c.name || '—'}</td>
-                        <td className="px-6 py-4 text-sm text-white/60 font-mono text-xs">{c.email}</td>
-                        <td className="px-6 py-4 text-[11px] text-white/30 hidden sm:table-cell">{c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
@@ -368,7 +406,7 @@ export function DashboardView() {
     staffAccounts,
     registeredUsersCount,
     loggedInUserId,
-    userRole, isAtLeast, isStaff,
+    userRole, isAtLeast, isStaff, staffEventIds,
     selectedDashboardEvent, setSelectedDashboardEvent,
     adminScrollRef, imageFileInputRef,
     showDefaultCredentialsWarning,
@@ -541,14 +579,66 @@ export function DashboardView() {
                   <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">Carregando eventos...</p>
                 </div>
               ) : isStaff ? (
-                // Staff shouldn't see the list via manual URL if they have no assigned event
-                <div className="flex flex-col items-center justify-center py-20 text-center px-4 sm:px-0">
-                  <ShieldAlert className="w-16 h-16 text-[#d4af37] opacity-20 mb-6" />
-                  <h2 className="text-2xl font-serif text-[#d4af37] mb-2">Acesso Restrito</h2>
-                  <p className="text-xs uppercase tracking-widest opacity-40 max-w-sm">
-                    Você não possui eventos atribuídos no momento. Entre em contato com o administrador.
-                  </p>
-                </div>
+                staffEventIds.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center px-4 sm:px-0">
+                    <ShieldAlert className="w-16 h-16 text-[#d4af37] opacity-20 mb-6" />
+                    <h2 className="text-2xl font-serif text-[#d4af37] mb-2">Acesso Restrito</h2>
+                    <p className="text-xs uppercase tracking-widest opacity-40 max-w-sm">
+                      Você não possui eventos atribuídos no momento. Entre em contato com o administrador.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-8 px-4 sm:px-0">
+                    <div className="border-b border-white/5 pb-6">
+                      <h1 className="text-2xl md:text-3xl font-serif text-[#d4af37] mb-2">Seus Eventos</h1>
+                      <p className="text-[9px] md:text-[10px] uppercase tracking-[0.2em] md:tracking-[0.3em] opacity-40">Selecione um evento para abrir o controle de portaria</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+                      {staffEventIds.map((eid) => {
+                        const evt = events.find(e => String(e.id) === String(eid));
+                        return (
+                          <motion.div
+                            key={eid}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            onClick={() => {
+                              setSelectedDashboardEvent(Number(eid));
+                              setDashboardMode('check-in');
+                              window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+                              adminScrollRef.current?.scrollTo(0, 0);
+                            }}
+                            className="bg-[#0d0d0d] border border-white/10 rounded-2xl md:rounded-3xl overflow-hidden group cursor-pointer hover:border-[#d4af37]/30 transition-all duration-500"
+                          >
+                            <div className="h-40 md:h-48 overflow-hidden relative">
+                              {evt?.img ? <img src={evt.img} alt={evt.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-60" referrerPolicy="no-referrer" loading="lazy" decoding="async" /> : <div className="w-full h-full bg-white/5 flex items-center justify-center"><ScanLine className="w-10 h-10 text-white/10" /></div>}
+                              {evt?.status && (
+                                <div className="absolute top-4 right-4 px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-md text-[8px] uppercase tracking-widest font-bold text-[#d4af37]">{evt.status}</div>
+                              )}
+                            </div>
+                            <div className="p-5 md:p-6">
+                              <h3 className="text-lg font-serif text-white mb-4 group-hover:text-[#d4af37] transition-colors">{evt?.title || `Evento #${eid}`}</h3>
+                              <div className="space-y-2 mb-6">
+                                {evt?.date && (
+                                  <div className="flex items-center gap-2 text-[9px] md:text-[10px] opacity-40 uppercase tracking-widest">
+                                    <Calendar className="w-3 h-3" /> {new Date(evt.date + 'T00:00:00').toLocaleDateString('pt-BR')}
+                                  </div>
+                                )}
+                                {evt?.location && (
+                                  <div className="flex items-center gap-2 text-[9px] md:text-[10px] opacity-40 uppercase tracking-widest">
+                                    <MapPin className="w-3 h-3" /> {evt.location}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-end pt-5 border-t border-white/5">
+                                <span className="text-[9px] md:text-[10px] uppercase font-bold text-[#d4af37] flex items-center gap-1">Abrir Check-in <ChevronRight className="w-3 h-3" /></span>
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )
               ) : (
                 <div className="space-y-12 px-4 sm:px-0">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/5 pb-8">
@@ -1194,6 +1284,14 @@ export function DashboardView() {
               </div>
 ) : dashboardMode === 'check-in' ? (
               <div className="max-w-4xl mx-auto space-y-4 px-2 sm:px-0 pb-32">
+                {isStaff && staffEventIds.length > 1 && (
+                  <button
+                    onClick={() => { setDashboardMode('list'); setSelectedDashboardEvent(null); }}
+                    className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#d4af37] hover:text-white transition-colors mb-2"
+                  >
+                    <ArrowLeft className="w-3 h-3" /> Voltar para Seus Eventos
+                  </button>
+                )}
                 {/* Header KPI Check-in */}
                 <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-4 sm:p-6 mb-4 flex flex-col sm:flex-row justify-between items-center gap-4 relative z-40 shadow-2xl">
                    <div className="flex items-center gap-4 w-full sm:w-auto">

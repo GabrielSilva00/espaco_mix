@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
-  ShieldCheck, User, Building2, CreditCard, Mail, Check, ArrowRight, ArrowLeft,
-  Loader2, AlertCircle, AlertTriangle, Eye, EyeOff, Copy, Plus, X,
-  Upload, PartyPopper, Send,
+  ShieldCheck, User, Building2, Check, ArrowRight, ArrowLeft,
+  Loader2, AlertCircle, Eye, EyeOff, Plus, X,
+  Upload, PartyPopper,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import {
   updateProfile, updateMyCredentials, updateSystemConfig, getSystemConfig,
-  uploadAsset, getAccessTokenSafe,
+  uploadAsset,
 } from '../lib/supabase';
 
 const STEPS = [
@@ -18,21 +18,12 @@ const STEPS = [
 
 const ONBOARDING_GUARD = 'eventix-onboarding-done';
 
-async function authedFetch(path: string, body?: any, method = 'POST') {
-  const token = await getAccessTokenSafe();
-  const res = await fetch(path, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data };
-}
-
 /**
- * Configuração inicial do administrador (4 etapas), exibida no primeiro acesso.
- * Salva cada etapa ao avançar (não perde progresso). Segredos vão criptografados
- * no servidor. Permite pular. Ao concluir, marca onboarding_completed.
+ * Configuração inicial do administrador (2 etapas: seus dados + site/empresa),
+ * exibida no primeiro acesso. Ao informar os dados da empresa, as configurações
+ * básicas (incl. e-mail de contato e remetente) já ficam prontas — pagamento e
+ * e-mail são ajustados depois nas Configurações. Permite pular. Ao concluir,
+ * marca onboarding_completed.
  */
 export function AdminOnboarding() {
   const { sessionUser, loggedInUserId, setSessionUser, setShowOnboarding, setSiteConfig, showToast } = useApp();
@@ -61,29 +52,9 @@ export function AdminOnboarding() {
   const [contactEmail, setContactEmail] = useState('');
   const [socialLinks, setSocialLinks] = useState<{ label: string; url: string }[]>([]);
 
-  // ── Etapa 3 — pagamento
-  const [mpToken, setMpToken] = useState('');
-  const [mpPublicKey, setMpPublicKey] = useState('');
-  const [mpEnv, setMpEnv] = useState<'production' | 'test'>('production');
-  const [showMpToken, setShowMpToken] = useState(false);
-  const [mpConfigured, setMpConfigured] = useState(false);
-  const webhookUrl = `${window.location.origin}/api/webhook/mercadopago`;
-
-  // ── Etapa 4 — e-mail
-  const [provider, setProvider] = useState<'resend' | 'smtp'>('resend');
-  const [resendKey, setResendKey] = useState('');
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState('587');
-  const [smtpUser, setSmtpUser] = useState('');
-  const [smtpPassword, setSmtpPassword] = useState('');
-  const [smtpSecure, setSmtpSecure] = useState(true);
-  const [senderName, setSenderName] = useState('');
-  const [senderAddress, setSenderAddress] = useState('');
-  const [notifyWebhook, setNotifyWebhook] = useState('');
-  const [showSecrets, setShowSecrets] = useState(false);
-  const [emailConfigured, setEmailConfigured] = useState(false);
-  const [testStatus, setTestStatus] = useState<'idle' | 'sending' | 'ok' | 'err'>('idle');
-  const [testMsg, setTestMsg] = useState('');
+  // Remetente de e-mail já configurado (se houver) — usado para não sobrescrever
+  // ao autopreencher a partir do e-mail da empresa no item 10.
+  const [existingSender, setExistingSender] = useState<{ name: string; address: string }>({ name: '', address: '' });
 
   // Pré-preenche com o que já existir
   useEffect(() => {
@@ -96,19 +67,8 @@ export function AdminOnboarding() {
       setContactPhone(c.contact_phone ?? '');
       setContactEmail(c.contact_email ?? '');
       setSocialLinks(Array.isArray(c.social_links) ? c.social_links as any : []);
-      setMpPublicKey(c.mp_public_key ?? '');
-      setMpEnv((c.mp_environment as any) ?? 'production');
-      setProvider((c.email_provider as any) ?? 'resend');
-      setSmtpHost(c.smtp_host ?? '');
-      setSmtpPort(c.smtp_port ? String(c.smtp_port) : '587');
-      setSmtpUser(c.smtp_user ?? '');
-      setSmtpSecure(c.smtp_secure ?? true);
-      setSenderName(c.email_sender_name ?? '');
-      setSenderAddress(c.email_sender_address ?? '');
-      setNotifyWebhook(c.notify_webhook_url ?? '');
+      setExistingSender({ name: c.email_sender_name ?? '', address: c.email_sender_address ?? '' });
     }).catch(() => {});
-    authedFetch('/api/admin/payment-status', undefined, 'GET').then(r => { if (r.ok) setMpConfigured(!!r.data.configured); }).catch(() => {});
-    authedFetch('/api/admin/email-status', undefined, 'GET').then(r => { if (r.ok) setEmailConfigured(!!r.data.configured); }).catch(() => {});
   }, []);
 
   const inputCls = 'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-[#d4af37] outline-none transition placeholder:text-white/20';
@@ -141,6 +101,7 @@ export function AdminOnboarding() {
     try {
       let logoUrl = logoPreview;
       if (logoFile) logoUrl = await uploadAsset(logoFile, 'branding');
+      const publicEmail = contactEmail.trim();
       await updateSystemConfig({
         site_name: siteName.trim(),
         site_logo_url: logoUrl || undefined,
@@ -148,47 +109,16 @@ export function AdminOnboarding() {
         document: document.trim(),
         address: address.trim() || undefined,
         contact_phone: contactPhone.trim() || undefined,
-        contact_email: contactEmail.trim() || undefined,
+        contact_email: publicEmail || undefined,
+        // Item 10 — autopreenche o remetente com o e-mail da empresa quando ainda
+        // não há um configurado; o admin pode trocar depois em Configurações.
+        email_sender_address: existingSender.address || publicEmail || undefined,
+        email_sender_name: existingSender.name || siteName.trim() || undefined,
         social_links: socialLinks.filter(s => s.url.trim()),
       } as any);
       setSiteConfig(prev => ({ ...prev, platformName: siteName.trim(), platformLogo: logoUrl || prev.platformLogo }));
       return true;
     } catch (e: any) { showToast(e?.message ?? 'Falha ao salvar dados do site.', 'error'); return false; }
-  };
-
-  const saveStep3 = async () => {
-    // Pagamento é opcional para avançar, mas se preencher o token, salva.
-    if (!mpToken && !mpConfigured) {
-      showToast('Você pode configurar o pagamento agora ou depois nas Configurações.', 'info');
-      return true;
-    }
-    try {
-      const r = await authedFetch('/api/admin/payment-credentials', {
-        accessToken: mpToken || undefined,
-        publicKey: mpPublicKey || undefined,
-        environment: mpEnv,
-      });
-      if (!r.ok) { showToast(r.data.error || 'Falha ao salvar credenciais.', 'error'); return false; }
-      setMpToken(''); setMpConfigured(true);
-      return true;
-    } catch { showToast('Erro de conexão ao salvar pagamento.', 'error'); return false; }
-  };
-
-  const saveStep4 = async () => {
-    if (!senderAddress.trim()) { showToast('Informe o e-mail remetente.', 'error'); return false; }
-    try {
-      const r = await authedFetch('/api/admin/email-config', {
-        provider,
-        resendApiKey: provider === 'resend' ? (resendKey || undefined) : undefined,
-        smtp: provider === 'smtp' ? { host: smtpHost, port: Number(smtpPort) || 587, user: smtpUser, password: smtpPassword || undefined, secure: smtpSecure } : undefined,
-        senderName: senderName.trim(),
-        senderAddress: senderAddress.trim(),
-        notifyWebhookUrl: notifyWebhook.trim() || undefined,
-      });
-      if (!r.ok) { showToast(r.data.error || 'Falha ao salvar e-mail.', 'error'); return false; }
-      setResendKey(''); setSmtpPassword(''); setEmailConfigured(true);
-      return true;
-    } catch { showToast('Erro de conexão ao salvar e-mail.', 'error'); return false; }
   };
 
   // Valida os campos da etapa sem chamar APIs — dados são salvos só no finish()
@@ -209,17 +139,8 @@ export function AdminOnboarding() {
   const next = () => {
     if (!validateCurrent()) return;
     setStepDone(prev => ({ ...prev, [step]: true }));
-    setStep(s => Math.min(5, s + 1)); // 5 = conclusão
-  };
-
-  const handleTestEmail = async () => {
-    setTestStatus('sending'); setTestMsg('');
-    const saved = await saveStep4();
-    if (!saved) { setTestStatus('err'); setTestMsg('Salve a configuração antes de testar.'); return; }
-    const r = await authedFetch('/api/admin/test-email', { to: email || sessionUser?.email });
-    if (r.ok) { setTestStatus('ok'); setTestMsg(r.data.message || 'E-mail de teste enviado!'); }
-    else { setTestStatus('err'); setTestMsg(r.data.error || 'Falha ao enviar teste.'); }
-    setTimeout(() => setTestStatus('idle'), 6000);
+    // Só há 2 etapas (1 e 2); da 2 vai direto para a conclusão (5).
+    setStep(s => (s >= 2 ? 5 : s + 1));
   };
 
   const closeOnboarding = (markDone: boolean) => {
@@ -353,80 +274,6 @@ export function AdminOnboarding() {
             </>
           )}
 
-          {step === 3 && (
-            <>
-              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex gap-3">
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-300 leading-relaxed">Use somente credenciais de <strong>produção</strong> (começam com <code>APP_USR-</code>). Credenciais de teste não processam pagamentos reais.</p>
-              </div>
-              {mpConfigured && !mpToken && <p className="text-[11px] text-green-400">✓ Já existe um Access Token salvo. Preencha de novo só se quiser trocar.</p>}
-              <Field label="Access Token de produção">
-                <div className="relative">
-                  <input className={inputCls} type={showMpToken ? 'text' : 'password'} value={mpToken} onChange={e => setMpToken(e.target.value)} placeholder="APP_USR-…" />
-                  <button type="button" onClick={() => setShowMpToken(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">{showMpToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-                </div>
-              </Field>
-              <Field label="Public Key de produção"><input className={inputCls} value={mpPublicKey} onChange={e => setMpPublicKey(e.target.value)} placeholder="APP_USR-…" /></Field>
-              <Field label="URL do Webhook (cole no painel do Mercado Pago)">
-                <div className="flex gap-2">
-                  <input className={inputCls + ' font-mono text-xs text-white/60'} value={webhookUrl} readOnly />
-                  <button type="button" onClick={() => navigator.clipboard.writeText(webhookUrl)} className="px-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/50"><Copy className="w-4 h-4" /></button>
-                </div>
-              </Field>
-            </>
-          )}
-
-          {step === 4 && (
-            <>
-              <Field label="Provedor de e-mail">
-                <div className="flex gap-2">
-                  {(['resend', 'smtp'] as const).map(p => (
-                    <button key={p} type="button" onClick={() => setProvider(p)} className={`flex-1 py-2.5 rounded-xl text-[10px] uppercase tracking-widest font-bold border transition ${provider === p ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37]' : 'bg-white/5 border-white/10 text-white/40'}`}>{p === 'resend' ? 'Resend' : 'SMTP'}</button>
-                  ))}
-                </div>
-              </Field>
-              {emailConfigured && <p className="text-[11px] text-green-400">✓ E-mail já configurado. Preencha os segredos de novo só para trocar.</p>}
-              {provider === 'resend' ? (
-                <Field label="Resend API Key">
-                  <div className="relative">
-                    <input className={inputCls} type={showSecrets ? 'text' : 'password'} value={resendKey} onChange={e => setResendKey(e.target.value)} placeholder="re_…" />
-                    <button type="button" onClick={() => setShowSecrets(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">{showSecrets ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-                  </div>
-                </Field>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <Field label="Host"><input className={inputCls} value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="smtp.gmail.com" /></Field>
-                    <Field label="Porta"><input className={inputCls} value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="587" /></Field>
-                    <Field label="TLS/SSL">
-                      <button type="button" onClick={() => setSmtpSecure(v => !v)} className={`w-full py-3 rounded-xl text-[10px] uppercase tracking-widest font-bold border ${smtpSecure ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37]' : 'bg-white/5 border-white/10 text-white/40'}`}>{smtpSecure ? 'Ativado' : 'Desativado'}</button>
-                    </Field>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="Usuário"><input className={inputCls} value={smtpUser} onChange={e => setSmtpUser(e.target.value)} /></Field>
-                    <Field label="Senha">
-                      <div className="relative">
-                        <input className={inputCls} type={showSecrets ? 'text' : 'password'} value={smtpPassword} onChange={e => setSmtpPassword(e.target.value)} />
-                        <button type="button" onClick={() => setShowSecrets(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">{showSecrets ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-                      </div>
-                    </Field>
-                  </div>
-                </>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Nome do remetente *"><input className={inputCls} value={senderName} onChange={e => setSenderName(e.target.value)} placeholder="Espaço Mix" /></Field>
-                <Field label="E-mail remetente *"><input className={inputCls} type="email" value={senderAddress} onChange={e => setSenderAddress(e.target.value)} placeholder="noreply@seudominio.com" /></Field>
-              </div>
-              <Field label="Webhook de notificações (Slack/Discord — opcional)"><input className={inputCls} value={notifyWebhook} onChange={e => setNotifyWebhook(e.target.value)} placeholder="https://…" /></Field>
-              <div>
-                <button type="button" onClick={handleTestEmail} disabled={testStatus === 'sending'} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-[10px] uppercase tracking-widest font-bold text-white/70 hover:bg-white/10 disabled:opacity-50">
-                  {testStatus === 'sending' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Testar envio
-                </button>
-                {testMsg && <p className={`text-[11px] mt-2 ${testStatus === 'ok' ? 'text-green-400' : 'text-red-400'}`}>{testMsg}</p>}
-              </div>
-            </>
-          )}
-
           {step === 5 && (
             <div className="space-y-3 py-2">
               {[
@@ -439,7 +286,7 @@ export function AdminOnboarding() {
                         : <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-amber-400 font-bold"><AlertCircle className="w-3.5 h-3.5" /> Incompleto</span>}
                 </div>
               ))}
-              <p className="text-[11px] text-white/40 text-center pt-2">Pagamento e e-mail podem ser configurados depois em <strong>Configurações</strong>.</p>
+              <p className="text-[11px] text-white/40 text-center pt-2">Pronto! Pagamento (Mercado Pago) e e-mail são ajustados quando quiser em <strong>Configurações</strong>.</p>
             </div>
           )}
         </div>
