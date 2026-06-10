@@ -677,7 +677,7 @@ export function AdminSettings({
                    <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Quem Paga a Taxa do Gateway?</label>
                    <select name="feePayer" value={settings.feePayer} onChange={handleChange} className="w-full select-field">
                      <option value="buyer">Comprador (Add ao valor do ingresso)</option>
-                     <option value="organizer">Organizador (Descontado no split)</option>
+                     <option value="seller">Organizador (Descontado no split)</option>
                    </select>
                 </div>
               </div>

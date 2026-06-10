@@ -882,10 +882,6 @@ export function BookingView() {
                       <span className="text-[11px] uppercase tracking-widests">Subtotal</span>
                       <span className="text-sm font-serif text-white">R$ {subTotal.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between items-center opacity-60">
-                      <span className="text-[11px] uppercase tracking-widests">Taxa de conveniência (10%)</span>
-                      <span className="text-sm font-serif text-white">R$ {taxAmount.toFixed(2)}</span>
-                    </div>
                     <div className="flex justify-between items-center pt-2 mt-2 border-t border-white/5">
                       <span className="text-[11px] uppercase opacity-80 tracking-widests font-bold text-[#d4af37]">Total</span>
                       <span className="text-2xl font-serif text-[#d4af37]">

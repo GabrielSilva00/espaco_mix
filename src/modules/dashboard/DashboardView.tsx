@@ -29,17 +29,40 @@ import { isEventPast } from '../../shared/utils/eventMapper';
 import type { Event, Buyer, Reservation } from '../../types';
 
 // ─── Admin Overview ────────────────────────────────────────────
-function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[]; buyers: Buyer[]; reservations: Reservation[] }) {
-  const totalRevenue = reservations.reduce((s, r) => s + (r.total || 0), 0);
+function AdminOverviewPanel({ events, reservations, registeredUsersCount, platformFeePercent, gatewayFeePercent }: {
+  events: Event[];
+  reservations: Reservation[];
+  registeredUsersCount: number;
+  platformFeePercent: number;
+  gatewayFeePercent: number;
+}) {
+  const [period, setPeriod] = React.useState<'day' | 'week' | 'month'>('month');
+  const [showCustomers, setShowCustomers] = React.useState(false);
+  const [customers, setCustomers] = React.useState<{ id: string; name: string; email: string; created_at?: string }[]>([]);
+  const [loadingCustomers, setLoadingCustomers] = React.useState(false);
+
+  const now = new Date();
+  const periodStart = React.useMemo(() => {
+    const d = new Date(now);
+    if (period === 'day') { d.setHours(0, 0, 0, 0); }
+    else if (period === 'week') { d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); }
+    else { d.setDate(1); d.setHours(0, 0, 0, 0); }
+    return d;
+  }, [period]);
+
+  const approved = React.useMemo(() =>
+    reservations.filter(r => (r.paymentStatus === 'approved' || (r as any).payment_status === 'approved') &&
+      r.createdAt && new Date(r.createdAt) >= periodStart),
+    [reservations, periodStart]);
+
+  const totalRevenue = approved.reduce((s, r) => s + (r.total || 0), 0);
+  const revenueAfterPlatformFee = totalRevenue * (1 - platformFeePercent / 100);
+  const revenueAfterGatewayFee = revenueAfterPlatformFee * (1 - gatewayFeePercent / 100);
+
   const activeEvents = events.filter(e => e.status === 'Ativo' || e.status === 'Vendas liberadas').length;
   const encerrados = events.filter(e => e.status === 'Finalizado').length;
-  const soldTickets = reservations.filter(r => r.paymentStatus === 'approved' || (r as any).payment_status === 'approved').length;
-  const checkedInCount = buyers.filter(b => b.checkedIn).length;
-  const occupancyRate = buyers.length > 0 ? Math.round((checkedInCount / buyers.length) * 100) : 0;
 
-  const last5Sales = [...reservations]
-    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-    .slice(0, 5);
+  const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(); d.setMonth(d.getMonth() - (5 - i));
@@ -53,15 +76,42 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
   });
   const maxCount = Math.max(...months.map(m => m.count), 1);
 
+  const last5Sales = [...approved]
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+    .slice(0, 5);
+
+  const openCustomers = async () => {
+    setShowCustomers(true);
+    if (customers.length > 0) return;
+    setLoadingCustomers(true);
+    try {
+      const { getAllProfiles } = await import('../../lib/supabase');
+      const data = await getAllProfiles();
+      setCustomers(data);
+    } catch { /* ignore */ } finally { setLoadingCustomers(false); }
+  };
+
+  const periodLabel = { day: 'Hoje', week: 'Últimos 7 dias', month: 'Este mês' }[period];
+
   return (
     <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto">
-      <div className="flex items-center gap-3 mb-2">
-        <BarChart3 className="w-6 h-6 text-[#d4af37]" />
-        <h1 className="text-2xl font-serif text-[#d4af37]">Painel de Controle</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+        <div className="flex items-center gap-3">
+          <BarChart3 className="w-6 h-6 text-[#d4af37]" />
+          <h1 className="text-2xl font-serif text-[#d4af37]">Painel de Controle</h1>
+        </div>
+        <div className="flex bg-white/5 border border-white/8 rounded-xl p-1 gap-1">
+          {(['day', 'week', 'month'] as const).map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={`px-3 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-widest transition ${period === p ? 'bg-[#d4af37] text-black' : 'text-white/40 hover:text-white'}`}>
+              {p === 'day' ? 'Hoje' : p === 'week' ? 'Semana' : 'Mês'}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      {/* KPIs principais */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-blue-400"><Calendar className="w-5 h-5" /></div>
           <p className="text-2xl md:text-3xl font-bold text-white truncate">{activeEvents}</p>
@@ -72,25 +122,39 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
           <p className="text-2xl md:text-3xl font-bold text-white truncate">{encerrados}</p>
           <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Eventos Encerrados</p>
         </div>
-        <div className="bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-2xl p-5 col-span-2 md:col-span-1">
-          <div className="mb-3 text-[#d4af37]"><BarChart3 className="w-5 h-5" /></div>
-          <p className="text-2xl font-bold text-[#d4af37]">{totalRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-          <p className="text-[10px] uppercase tracking-widest text-[#d4af37]/60 mt-1">Receita Total</p>
-        </div>
-        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
-          <div className="mb-3 text-green-400"><ShieldCheck className="w-5 h-5" /></div>
-          <p className="text-2xl md:text-3xl font-bold text-white truncate">{soldTickets}</p>
-          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Ingressos Vendidos</p>
-        </div>
-        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5 col-span-2 md:col-span-1">
           <div className="mb-3 text-purple-400"><Users className="w-5 h-5" /></div>
-          <p className="text-2xl md:text-3xl font-bold text-white truncate">{checkedInCount}</p>
-          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Check-ins Realizados</p>
+          <div className="flex items-end justify-between">
+            <div>
+              <p className="text-2xl md:text-3xl font-bold text-white truncate">{registeredUsersCount}</p>
+              <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Usuários Cadastrados</p>
+            </div>
+            <button onClick={openCustomers} className="text-[9px] uppercase tracking-widest text-[#d4af37] hover:brightness-110 border border-[#d4af37]/30 px-2 py-1 rounded-lg">Ver todos</button>
+          </div>
         </div>
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-amber-400"><TrendingUp className="w-5 h-5" /></div>
-          <p className="text-2xl md:text-3xl font-bold text-white truncate">{occupancyRate}%</p>
-          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Taxa de Ocupação</p>
+          <p className="text-2xl md:text-3xl font-bold text-white truncate">{approved.length}</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Vendas — {periodLabel}</p>
+        </div>
+      </div>
+
+      {/* Receitas */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-2xl p-5">
+          <div className="mb-3 text-[#d4af37]"><BarChart3 className="w-5 h-5" /></div>
+          <p className="text-2xl font-bold text-[#d4af37]">{brl(totalRevenue)}</p>
+          <p className="text-[10px] uppercase tracking-widest text-[#d4af37]/60 mt-1">Receita Total</p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+          <div className="mb-3 text-green-400"><TrendingUp className="w-5 h-5" /></div>
+          <p className="text-2xl font-bold text-white">{brl(revenueAfterPlatformFee)}</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Após taxa da plataforma ({platformFeePercent}%)</p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
+          <div className="mb-3 text-emerald-400"><DollarSign className="w-5 h-5" /></div>
+          <p className="text-2xl font-bold text-white">{brl(revenueAfterGatewayFee)}</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Após taxa do MP ({gatewayFeePercent}%)</p>
         </div>
       </div>
 
@@ -113,10 +177,10 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
         </div>
       </div>
 
-      {/* Lista de eventos */}
+      {/* Últimas vendas no período */}
       <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-white/5">
-          <p className="text-[10px] uppercase tracking-widest text-white/40">Últimas 5 Vendas</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40">Últimas 5 Vendas — {periodLabel}</p>
         </div>
         <div className="divide-y divide-white/5">
           {last5Sales.map(r => {
@@ -128,17 +192,55 @@ function AdminOverviewPanel({ events, buyers, reservations }: { events: Event[];
                   <p className="text-[10px] text-white/30 mt-0.5 truncate">{evt?.title || `Evento #${r.eventId || (r as any).event_id}`}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-sm font-bold text-[#d4af37]">{(r.total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                  <p className="text-sm font-bold text-[#d4af37]">{brl(r.total || 0)}</p>
                   <p className="text-[9px] text-white/30 mt-0.5">{r.createdAt ? new Date(r.createdAt).toLocaleDateString('pt-BR') : '—'}</p>
                 </div>
               </div>
             );
           })}
           {last5Sales.length === 0 && (
-            <div className="px-6 py-10 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhuma venda registrada</div>
+            <div className="px-6 py-10 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhuma venda no período</div>
           )}
         </div>
       </div>
+
+      {/* Modal de clientes */}
+      {showCustomers && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-2xl bg-[#0d0d0d] border border-white/10 rounded-3xl shadow-2xl overflow-hidden max-h-[80vh] flex flex-col">
+            <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between">
+              <h2 className="text-sm font-bold uppercase tracking-widest text-[#d4af37]">Clientes Cadastrados</h2>
+              <button onClick={() => setShowCustomers(false)} className="text-white/30 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {loadingCustomers ? (
+                <div className="py-16 flex justify-center"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>
+              ) : customers.length === 0 ? (
+                <div className="py-16 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum cliente encontrado</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="border-b border-white/5">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">Nome</th>
+                      <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">E-mail</th>
+                      <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30 hidden sm:table-cell">Cadastro</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {customers.map(c => (
+                      <tr key={c.id} className="hover:bg-white/[0.02]">
+                        <td className="px-6 py-4 text-sm text-white/90">{c.name || '—'}</td>
+                        <td className="px-6 py-4 text-sm text-white/60 font-mono text-xs">{c.email}</td>
+                        <td className="px-6 py-4 text-[11px] text-white/30 hidden sm:table-cell">{c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -264,6 +366,7 @@ export function DashboardView() {
     events, setEvents,
     buyers,
     staffAccounts,
+    registeredUsersCount,
     loggedInUserId,
     userRole, isAtLeast, isStaff,
     selectedDashboardEvent, setSelectedDashboardEvent,
@@ -271,7 +374,7 @@ export function DashboardView() {
     showDefaultCredentialsWarning,
     loadingEvents,
     handleCreateEvent, handleEditEvent, handleSaveEvent, handleUpdateEventStatus,
-    handleCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff, handleDeleteStaff,
+    handleCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff, handleDeleteStaff, handleEditStaff,
     showToast,
     systemLogs, clearSystemLogs,
     reservations,
@@ -309,6 +412,8 @@ export function DashboardView() {
 
   const [eventFilter, setEventFilter] = React.useState<'upcoming' | 'past'>('upcoming');
   const [pendingCheckin, setPendingCheckin] = React.useState<Buyer | null>(null);
+  const [editingStaffId, setEditingStaffId] = React.useState<string | null>(null);
+  const [editStaffForm, setEditStaffForm] = React.useState({ name: '', username: '', password: '' });
 
   const downloadPDF = () => downloadPDFList(buyers, events.find(e => e.id === selectedDashboardEvent));
 
@@ -696,14 +801,22 @@ export function DashboardView() {
                      </div>
                      <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1">Receita Gerada</p>
                      <h3 className="text-3xl font-sans font-bold text-white">{brl(evMetrics.revenue)}</h3>
-                     <div className="mt-3 flex gap-4 border-t border-white/5 pt-3">
-                       <div>
+                     <div className="mt-3 space-y-1.5 border-t border-white/5 pt-3">
+                       <div className="flex justify-between">
                          <p className="text-[9px] uppercase opacity-30">Pista</p>
                          <p className="text-xs text-white/80 font-mono">{brl(evMetrics.pistaRevenue)}</p>
                        </div>
-                       <div>
+                       <div className="flex justify-between">
                          <p className="text-[9px] uppercase opacity-30">Mesas</p>
                          <p className="text-xs text-[#d4af37] font-mono">{brl(evMetrics.tableRevenue)}</p>
+                       </div>
+                       <div className="flex justify-between border-t border-white/5 pt-1.5">
+                         <p className="text-[9px] uppercase opacity-30">-Taxa plat. ({siteConfig.platformFeePercent ?? 10}%)</p>
+                         <p className="text-xs text-orange-400 font-mono">{brl(evMetrics.revenue * (1 - (siteConfig.platformFeePercent ?? 10) / 100))}</p>
+                       </div>
+                       <div className="flex justify-between">
+                         <p className="text-[9px] uppercase opacity-30">-Taxa MP ({siteConfig.gatewayFeePercent ?? 0}%)</p>
+                         <p className="text-xs text-emerald-400 font-mono">{brl(evMetrics.revenue * (1 - (siteConfig.platformFeePercent ?? 10) / 100) * (1 - (siteConfig.gatewayFeePercent ?? 0) / 100))}</p>
                        </div>
                      </div>
                   </div>
@@ -2261,22 +2374,53 @@ export function DashboardView() {
                       </thead>
                       <tbody className="divide-y divide-white/5">
                         {staffAccounts.map(staff => (
-                          <tr key={staff.id} className="hover:bg-white/[0.03] transition-colors group">
-                            <td className="px-8 py-6 font-medium text-sm text-white/90">{staff.name}</td>
-                            <td className="px-8 py-6 text-sm text-[#d4af37] font-mono">@{staff.username}</td>
-                            <td className="px-8 py-6 text-center">
-                              <span className="text-[9px] uppercase tracking-widest font-black px-4 py-1.5 bg-[#d4af371a] text-[#d4af37] rounded-full border border-[#d4af3733]">Colaborador</span>
-                            </td>
-                            <td className="px-8 py-6 text-right">
-                              <button
-                                onClick={() => handleDeleteStaff(staff.id)}
-                                className="p-3 text-white/10 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all opacity-0 group-hover:opacity-100"
-                                title="Remover Colaborador"
-                              >
-                                <X className="w-5 h-5" />
-                              </button>
-                            </td>
-                          </tr>
+                          <React.Fragment key={staff.id}>
+                            <tr className="hover:bg-white/[0.03] transition-colors group">
+                              <td className="px-8 py-6 font-medium text-sm text-white/90">{staff.name}</td>
+                              <td className="px-8 py-6 text-sm text-[#d4af37] font-mono">@{staff.username}</td>
+                              <td className="px-8 py-6 text-center">
+                                <span className="text-[9px] uppercase tracking-widest font-black px-4 py-1.5 bg-[#d4af371a] text-[#d4af37] rounded-full border border-[#d4af3733]">Colaborador</span>
+                              </td>
+                              <td className="px-8 py-6 text-right">
+                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                  <button
+                                    onClick={() => { setEditingStaffId(staff.id); setEditStaffForm({ name: staff.name, username: staff.username, password: '' }); }}
+                                    className="p-3 text-white/30 hover:text-[#d4af37] hover:bg-[#d4af37]/10 rounded-xl transition-all"
+                                    title="Editar Colaborador"
+                                  ><Edit2 className="w-4 h-4" /></button>
+                                  <button
+                                    onClick={() => handleDeleteStaff(staff.id)}
+                                    className="p-3 text-white/10 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"
+                                    title="Remover Colaborador"
+                                  ><X className="w-5 h-5" /></button>
+                                </div>
+                              </td>
+                            </tr>
+                            {editingStaffId === staff.id && (
+                              <tr className="bg-white/[0.02]">
+                                <td colSpan={4} className="px-8 py-5">
+                                  <div className="grid grid-cols-3 gap-4">
+                                    <div>
+                                      <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">Nome</label>
+                                      <input value={editStaffForm.name} onChange={e => setEditStaffForm(f => ({ ...f, name: e.target.value }))} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-[#d4af37] outline-none transition" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">Usuário</label>
+                                      <input value={editStaffForm.username} onChange={e => setEditStaffForm(f => ({ ...f, username: e.target.value }))} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-[#d4af37] outline-none transition" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">Nova senha (opcional)</label>
+                                      <input type="password" value={editStaffForm.password} onChange={e => setEditStaffForm(f => ({ ...f, password: e.target.value }))} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-[#d4af37] outline-none transition" placeholder="Deixe vazio para manter" />
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-3 mt-4">
+                                    <button onClick={async () => { await handleEditStaff(staff.id, editStaffForm); setEditingStaffId(null); }} className="px-5 py-2.5 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110">Salvar</button>
+                                    <button onClick={() => setEditingStaffId(null)} className="px-5 py-2.5 bg-white/5 border border-white/10 text-white/50 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/10">Cancelar</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                       </tbody>
                     </table>
@@ -2286,21 +2430,31 @@ export function DashboardView() {
                   <div className="md:hidden divide-y divide-white/5">
                     {staffAccounts.map(staff => (
                       <div key={staff.id} className="p-6 space-y-4">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="text-sm font-bold text-white/90">{staff.name}</p>
-                            <p className="text-[11px] text-[#d4af37] font-mono mt-1">@{staff.username}</p>
+                        {editingStaffId === staff.id ? (
+                          <div className="space-y-3">
+                            <input value={editStaffForm.name} onChange={e => setEditStaffForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-[#d4af37] outline-none" />
+                            <input value={editStaffForm.username} onChange={e => setEditStaffForm(f => ({ ...f, username: e.target.value }))} placeholder="Usuário" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-[#d4af37] outline-none" />
+                            <input type="password" value={editStaffForm.password} onChange={e => setEditStaffForm(f => ({ ...f, password: e.target.value }))} placeholder="Nova senha (opcional)" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-[#d4af37] outline-none" />
+                            <div className="flex gap-2">
+                              <button onClick={async () => { await handleEditStaff(staff.id, editStaffForm); setEditingStaffId(null); }} className="flex-1 py-2.5 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest">Salvar</button>
+                              <button onClick={() => setEditingStaffId(null)} className="px-4 py-2.5 bg-white/5 border border-white/10 text-white/50 rounded-xl text-[10px] font-bold uppercase tracking-widest">Cancelar</button>
+                            </div>
                           </div>
-                          <button
-                            onClick={() => handleDeleteStaff(staff.id)}
-                            className="p-2 text-red-500 bg-red-500/10 rounded-lg"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[8px] uppercase tracking-widest font-black px-3 py-1 bg-[#d4af371a] text-[#d4af37] rounded-full border border-[#d4af3733]">Colaborador</span>
-                        </div>
+                        ) : (
+                          <>
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <p className="text-sm font-bold text-white/90">{staff.name}</p>
+                                <p className="text-[11px] text-[#d4af37] font-mono mt-1">@{staff.username}</p>
+                              </div>
+                              <div className="flex gap-2">
+                                <button onClick={() => { setEditingStaffId(staff.id); setEditStaffForm({ name: staff.name, username: staff.username, password: '' }); }} className="p-2 text-[#d4af37]/70 bg-[#d4af37]/10 rounded-lg"><Edit2 className="w-4 h-4" /></button>
+                                <button onClick={() => handleDeleteStaff(staff.id)} className="p-2 text-red-500 bg-red-500/10 rounded-lg"><X className="w-4 h-4" /></button>
+                              </div>
+                            </div>
+                            <span className="text-[8px] uppercase tracking-widest font-black px-3 py-1 bg-[#d4af371a] text-[#d4af37] rounded-full border border-[#d4af3733]">Colaborador</span>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2328,6 +2482,8 @@ export function DashboardView() {
                   ...prev,
                   platformName: name,
                   platformLogo: logo,
+                  platformFeePercent: Number(settings?.platformFee) || prev.platformFeePercent,
+                  gatewayFeePercent: Number(settings?.gatewayFee) || prev.gatewayFeePercent,
                   address: settings?.address,
                   contactPhone: settings?.contactPhone,
                   contactEmail: settings?.contactEmail,
@@ -2340,7 +2496,13 @@ export function DashboardView() {
             ) : dashboardMode === 'developer-panel' && userRole === 'developer' ? (
               <DeveloperPanel />
             ) : dashboardMode === 'admin-overview' && isAtLeast('admin') ? (
-              <AdminOverviewPanel events={events} buyers={buyers} reservations={reservations} />
+              <AdminOverviewPanel
+                events={events}
+                reservations={reservations}
+                registeredUsersCount={registeredUsersCount}
+                platformFeePercent={siteConfig.platformFeePercent ?? 10}
+                gatewayFeePercent={siteConfig.gatewayFeePercent ?? 0}
+              />
             ) : dashboardMode === 'dev-overview' && userRole === 'developer' ? (
               <DevOverviewPanel events={events} buyers={buyers} reservations={reservations} systemLogs={systemLogs} clearSystemLogs={clearSystemLogs} />
             ) : dashboardMode === 'reports' && isAtLeast('admin') ? (

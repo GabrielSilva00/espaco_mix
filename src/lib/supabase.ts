@@ -1029,6 +1029,14 @@ export async function deleteStaffAccount(staffId: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function getRegisteredUsersCount(): Promise<number> {
+  const { count, error } = await supabase
+    .from('profiles')
+    .select('id', { count: 'exact', head: true });
+  if (error) throw error;
+  return count ?? 0;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // CANDIDATURAS DE PRODUTOR
 // ═══════════════════════════════════════════════════════════════

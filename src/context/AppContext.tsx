@@ -5,6 +5,7 @@ import {
   getEvents, getEventBatches, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations, getAllReservations,
   getSystemConfig, updateSystemConfig,
+  getRegisteredUsersCount, getAllProfiles,
   getPendingApplications, approveProducer, rejectProducer,
   subscribeToEvents, subscribeToEventReservations, subscribeToPendingApplications,
   subscribeToProfile,
@@ -151,6 +152,7 @@ interface AppContextValue {
   // Staff
   staffAccounts: StaffAccount[];
   setStaffAccounts: React.Dispatch<React.SetStateAction<StaffAccount[]>>;
+  registeredUsersCount: number;
   newStaff: { name: string; username: string; password: string };
   setNewStaff: React.Dispatch<React.SetStateAction<{ name: string; username: string; password: string }>>;
 
@@ -335,6 +337,7 @@ interface AppContextValue {
   handleImageFileChange: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   handleAddStaff: (e: React.FormEvent) => void;
   handleDeleteStaff: (id: string) => Promise<void>;
+  handleEditStaff: (id: string, updates: { name?: string; username?: string; password?: string }) => Promise<void>;
   handleStaffLogin: (e: React.FormEvent) => Promise<void>;
   handleCheckIn: (input: string) => Promise<void>;
   handleUndoCheckIn: (id: string) => void;
@@ -362,6 +365,7 @@ export function useApp(): AppContextValue {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   // Site config
   const [siteConfig, setSiteConfig] = useState<SiteConfig>({ venueMaxCapacity: null, platformName: 'Espaço Mix', platformLogo: null });
+  const [registeredUsersCount, setRegisteredUsersCount] = useState(0);
 
   // Tables / cart
   const [tables, setTables] = useState<TableDef[]>([]);
@@ -918,9 +922,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     getSystemConfig()
-      .then(cfg => setSiteConfig(prev => ({ ...prev, venueMaxCapacity: cfg.venue_max_capacity ?? null, platformName: cfg.site_name ?? prev.platformName })))
-      .catch(e => console.error('[Context] Erro ao carregar config:', (e as Error)?.message));
+      .then(cfg => setSiteConfig(prev => ({
+        ...prev,
+        venueMaxCapacity: cfg.venue_max_capacity ?? null,
+        platformName: cfg.site_name ?? prev.platformName,
+        platformFeePercent: cfg.platform_fee_percent ?? 10,
+        gatewayFeePercent: cfg.gateway_fee_percent ?? 0,
+      })))
+      .catch(() => {
+        // Limpa tokens Supabase corrompidos e recarrega para forçar nova sessão
+        try {
+          Object.keys(localStorage)
+            .filter(k => k.startsWith('sb-') || k.includes('supabase'))
+            .forEach(k => localStorage.removeItem(k));
+        } catch {}
+        window.location.reload();
+      });
   }, []);
+
+  // Carrega a contagem de usuários cadastrados para o dashboard
+  useEffect(() => {
+    if (userRole !== 'admin' && userRole !== 'developer') return;
+    getRegisteredUsersCount().then(setRegisteredUsersCount).catch(() => {});
+  }, [userRole]);
 
   // Detecta o PRIMEIRO acesso do administrador: se o onboarding ainda não foi
   // concluído (flag no system_config) e não foi marcado neste navegador, abre o
@@ -1579,20 +1603,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const resp = await fetch('/api/staff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({
-          name: newStaff.name,
-          username: newStaff.username,
-          password: newStaff.password,
-          eventIds: [],
-        }),
+        body: JSON.stringify({ name: newStaff.name, username: newStaff.username, password: newStaff.password, eventIds: [] }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) { showToast(data.error || 'Falha ao cadastrar colaborador.', 'error'); return; }
+      // Atualização otimista — sem esperar o reload para refletir na lista
+      if (data.staff) setStaffAccounts(prev => [...prev, data.staff]);
       setNewStaff({ name: '', username: '', password: '' });
-      await loadStaffAccounts();
       showToast('Colaborador cadastrado com sucesso.', 'success');
     } catch {
       showToast('Erro de conexão ao cadastrar.', 'error');
+    }
+  };
+
+  const handleEditStaff = async (id: string, updates: { name?: string; username?: string; password?: string }) => {
+    // Atualização otimista imediata
+    setStaffAccounts(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+    try {
+      const token = await getAccessTokenSafe();
+      const resp = await fetch(`/api/staff/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify(updates),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        showToast(data.error || 'Falha ao editar colaborador.', 'error');
+        // Reverte a atualização otimista buscando dados reais
+        await loadStaffAccounts();
+      } else {
+        showToast('Colaborador atualizado.', 'success');
+      }
+    } catch {
+      showToast('Erro de conexão ao editar.', 'error');
+      await loadStaffAccounts();
     }
   };
 
@@ -2088,6 +2132,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     formEvent, setFormEvent,
     releaseValidationFields, setReleaseValidationFields,
     staffAccounts, setStaffAccounts,
+    registeredUsersCount,
     showOnboarding, setShowOnboarding,
     newStaff, setNewStaff,
     systemLogs, clearSystemLogs,
@@ -2164,7 +2209,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     showToastFn: showToast,
     handleAdminLogin, handleLogout, handleRegister, handleVerifyCode, handleResendCode, handleCheckoutVerifyAndRegister,
     handleEditEvent, handleCreateEvent, handleSaveEvent, handleUpdateEventStatus, handleImageFileChange,
-    handleAddStaff, handleDeleteStaff, handleStaffLogin, handleCheckIn, handleUndoCheckIn, handleScannerError,
+    handleAddStaff, handleDeleteStaff, handleEditStaff, handleStaffLogin, handleCheckIn, handleUndoCheckIn, handleScannerError,
     toggleTableSelection, getTableStatus, handleCheckout, handleConfirmReservation, handleCreateReservation,
   };
 

@@ -115,17 +115,6 @@ export function AdminSidebar() {
                   <LayoutDashboard className={iconClass(currentView === 'dashboard' && dashboardMode === 'admin-overview')} />
                   {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Dashboard</span>}
                 </button>
-                {modules.reports && (
-                  <button
-                    onClick={() => { setCurrentView('dashboard'); setDashboardMode('reports'); setIsMobileMenuOpen(false); }}
-                    className={navClass(currentView === 'dashboard' && dashboardMode === 'reports')}
-                    title={isAdminSidebarCollapsed ? 'Relatórios' : ''}
-                  >
-                    <ActivePill active={currentView === 'dashboard' && dashboardMode === 'reports'} />
-                    <FileText className={iconClass(currentView === 'dashboard' && dashboardMode === 'reports')} />
-                    {!isAdminSidebarCollapsed && <span className="text-sm font-medium whitespace-nowrap">Relatórios</span>}
-                  </button>
-                )}
                 {userRole === 'developer' && (
                   <button
                     onClick={() => { setCurrentView('dashboard'); setDashboardMode('dev-overview'); setIsMobileMenuOpen(false); }}

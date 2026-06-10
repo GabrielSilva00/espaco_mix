@@ -171,6 +171,8 @@ export interface SiteConfig {
   venueMaxCapacity: number | null;
   platformName: string;
   platformLogo: string | null;
+  platformFeePercent?: number;
+  gatewayFeePercent?: number;
   address?: string;
   contactPhone?: string;
   contactEmail?: string;

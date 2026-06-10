@@ -14,8 +14,6 @@ import {
 const STEPS = [
   { id: 1, label: 'Seus dados', icon: User },
   { id: 2, label: 'Site/Empresa', icon: Building2 },
-  { id: 3, label: 'Pagamento', icon: CreditCard },
-  { id: 4, label: 'E-mail', icon: Mail },
 ];
 
 const ONBOARDING_GUARD = 'eventix-onboarding-done';
@@ -193,19 +191,23 @@ export function AdminOnboarding() {
     } catch { showToast('Erro de conexão ao salvar e-mail.', 'error'); return false; }
   };
 
-  const saveCurrent = async () => {
-    if (step === 1) return saveStep1();
-    if (step === 2) return saveStep2();
-    if (step === 3) return saveStep3();
-    if (step === 4) return saveStep4();
+  // Valida os campos da etapa sem chamar APIs — dados são salvos só no finish()
+  const validateCurrent = (): boolean => {
+    if (step === 1) {
+      if (!name.trim()) { showToast('Informe seu nome.', 'error'); return false; }
+      if (newPassword && newPassword.length < 6) { showToast('A nova senha deve ter ao menos 6 caracteres.', 'error'); return false; }
+      if (newPassword && newPassword !== confirmPassword) { showToast('As senhas não coincidem.', 'error'); return false; }
+    }
+    if (step === 2) {
+      if (!siteName.trim()) { showToast('Informe o nome do site.', 'error'); return false; }
+      if (!companyName.trim()) { showToast('Informe a razão social.', 'error'); return false; }
+      if (!document.trim()) { showToast('Informe o CNPJ.', 'error'); return false; }
+    }
     return true;
   };
 
-  const next = async () => {
-    setSaving(true);
-    const ok = await saveCurrent();
-    setSaving(false);
-    if (!ok) return;
+  const next = () => {
+    if (!validateCurrent()) return;
     setStepDone(prev => ({ ...prev, [step]: true }));
     setStep(s => Math.min(5, s + 1)); // 5 = conclusão
   };
@@ -228,7 +230,16 @@ export function AdminOnboarding() {
     setShowOnboarding(false);
   };
 
-  const finish = () => { closeOnboarding(true); showToast('Configuração concluída!', 'success'); };
+  const finish = async () => {
+    setSaving(true);
+    const ok1 = await saveStep1();
+    if (!ok1) { setSaving(false); setStep(1); return; }
+    const ok2 = await saveStep2();
+    if (!ok2) { setSaving(false); setStep(2); return; }
+    setSaving(false);
+    closeOnboarding(true);
+    showToast('Configuração concluída!', 'success');
+  };
   const skip = () => { closeOnboarding(false); showToast('Você pode concluir depois nas Configurações.', 'info'); };
 
   // ── Render ──────────────────────────────────────────────────────────────
@@ -248,7 +259,7 @@ export function AdminOnboarding() {
             {step === 5 ? 'Tudo pronto!' : 'Vamos configurar seu site'}
           </h1>
           <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1">
-            {step === 5 ? 'Revise e conclua' : `Etapa ${step} de 4`}
+            {step === 5 ? 'Revise e conclua' : `Etapa ${step} de 2`}
           </p>
         </div>
 
@@ -421,8 +432,6 @@ export function AdminOnboarding() {
               {[
                 { n: 'Seus dados', ok: stepDone[1] },
                 { n: 'Site e empresa', ok: stepDone[2] },
-                { n: 'Pagamento (Mercado Pago)', ok: mpConfigured },
-                { n: 'E-mail / notificações', ok: emailConfigured },
               ].map((r, i) => (
                 <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
                   <span className="text-sm text-white/80">{r.n}</span>
@@ -430,7 +439,7 @@ export function AdminOnboarding() {
                         : <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-amber-400 font-bold"><AlertCircle className="w-3.5 h-3.5" /> Incompleto</span>}
                 </div>
               ))}
-              <p className="text-[11px] text-white/40 text-center pt-2">Você poderá editar tudo depois em <strong>Configurações</strong>.</p>
+              <p className="text-[11px] text-white/40 text-center pt-2">Pagamento e e-mail podem ser configurados depois em <strong>Configurações</strong>.</p>
             </div>
           )}
         </div>
@@ -442,7 +451,7 @@ export function AdminOnboarding() {
               <button onClick={() => setStep(s => s - 1)} disabled={saving} className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-white/40 hover:text-white"><ArrowLeft className="w-3.5 h-3.5" /> Voltar</button>
             )}
             {step === 5 && (
-              <button onClick={() => setStep(1)} className="text-[10px] uppercase tracking-widest text-white/40 hover:text-white">Revisar</button>
+              <button onClick={() => setStep(2)} disabled={saving} className="text-[10px] uppercase tracking-widest text-white/40 hover:text-white">Revisar</button>
             )}
             {step < 5 && (
               <button onClick={skip} disabled={saving} className="text-[10px] uppercase tracking-widest text-white/25 hover:text-white/60">Pular por agora</button>
@@ -450,11 +459,11 @@ export function AdminOnboarding() {
           </div>
           {step < 5 ? (
             <button onClick={next} disabled={saving} className="flex items-center gap-2 bg-[#d4af37] text-black px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 disabled:opacity-60">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />} {step === 4 ? 'Revisar' : 'Continuar'}
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />} {step === 2 ? 'Revisar' : 'Continuar'}
             </button>
           ) : (
-            <button onClick={finish} className="flex items-center gap-2 bg-[#d4af37] text-black px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110">
-              <Check className="w-4 h-4" /> Ir para o painel
+            <button onClick={finish} disabled={saving} className="flex items-center gap-2 bg-[#d4af37] text-black px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widests hover:brightness-110 disabled:opacity-60">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Concluir configuração
             </button>
           )}
         </div>

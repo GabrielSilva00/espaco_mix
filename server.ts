@@ -284,8 +284,22 @@ function escapeHtml(str: string): string {
 // Recalcula o total no servidor a partir dos preços do banco, ignorando
 // qualquer valor enviado pelo cliente. Espelha a lógica de derivedTables /
 // ticketsTotal do frontend (AppContext.tsx).
-const PLATFORM_FEE_RATE = 0.10;
+const PLATFORM_FEE_RATE = 0.10; // fallback quando system_config não está disponível
 const DEFAULT_TICKET_PRICE = 50; // EVENT_TICKET_PRICE (fallback sem setor)
+
+async function getPlatformFeeRates(): Promise<{ platformRate: number; gatewayRate: number }> {
+  try {
+    const admin = await getAdminClient();
+    if (!admin) return { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0 };
+    const { data } = await admin.from("system_config").select("platform_fee_percent, gateway_fee_percent").eq("id", "main").maybeSingle();
+    return {
+      platformRate: typeof data?.platform_fee_percent === "number" ? data.platform_fee_percent / 100 : PLATFORM_FEE_RATE,
+      gatewayRate: typeof data?.gateway_fee_percent === "number" ? data.gateway_fee_percent / 100 : 0,
+    };
+  } catch {
+    return { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0 };
+  }
+}
 
 interface OrderSelection {
   eventId?: number | string;
@@ -369,8 +383,7 @@ async function computeOrderTotal(sel: OrderSelection): Promise<number> {
   }
 
   const subTotal = tablesTotal + ticketsTotal;
-  const grandTotal = subTotal + subTotal * PLATFORM_FEE_RATE;
-  return Math.round(grandTotal * 100) / 100;
+  return Math.round(subTotal * 100) / 100;
 }
 
 // ─── Mesas ocupadas de um evento (reservas pagas OU pendentes) ───────────────
@@ -635,6 +648,27 @@ export async function createExpressApp() {
     } catch (e: any) {
       console.error("[STAFF] Falha ao remover:", e?.message ?? e);
       res.status(500).json({ error: "Não foi possível remover o colaborador." });
+    }
+  });
+
+  app.patch("/api/staff/:id", requireAuth, requireAdmin, async (req, res) => {
+    const { name, username, password } = req.body as { name?: string; username?: string; password?: string };
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const updates: Record<string, string> = {};
+      if (name?.trim()) updates.name = name.trim();
+      if (username?.trim()) updates.username = username.trim().toLowerCase().replace(/\s+/g, '_');
+      if (password && password.length >= 6) {
+        updates.password = await hashPassword(password);
+      }
+      if (Object.keys(updates).length === 0) { res.status(400).json({ error: "Nenhum dado para atualizar." }); return; }
+      const { error } = await admin.from("staff_accounts").update(updates).eq("id", req.params.id);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[STAFF] Falha ao editar:", e?.message ?? e);
+      res.status(500).json({ error: "Não foi possível editar o colaborador." });
     }
   });
 
@@ -1162,8 +1196,9 @@ export async function createExpressApp() {
       res.status(400).json({ error: e?.message ?? "Não foi possível validar o valor do pedido." });
       return;
     }
-    const netAmount = Math.round((grandTotal / (1 + PLATFORM_FEE_RATE)) * 100) / 100;
-    const platformFee = Math.round((grandTotal - netAmount) * 100) / 100;
+    const { platformRate } = await getPlatformFeeRates();
+    const platformFee = Math.round(grandTotal * platformRate * 100) / 100;
+    const netAmount = Math.round((grandTotal - platformFee) * 100) / 100;
 
     // Bloqueia dupla reserva: rejeita se alguma mesa pedida já está ocupada.
     const requestedTables = Array.isArray(reservation.tables) ? reservation.tables.map(Number) : [];
@@ -1383,10 +1418,13 @@ export async function createExpressApp() {
       // Orders API (/v1/orders) — o /v1/payments legado foi descontinuado para
       // novas integrações (retornava internal_error). Em sandbox usa-se a
       // credencial APP_USR de um vendedor de teste.
+      const { platformRate: cardPlatformRate } = await getPlatformFeeRates();
+      const cardAppFee = (Math.round(amount * cardPlatformRate * 100) / 100).toFixed(2);
       const payload = {
         type: "online",
         processing_mode: "automatic",
         total_amount: amountStr,
+        application_fee: cardAppFee,
         ...(reservationId ? { external_reference: reservationId } : {}),
         payer: {
           // Nunca usar domínio @mercadopago.com (proibido pelo MP → erro 4390).
@@ -1505,6 +1543,8 @@ export async function createExpressApp() {
 
     try {
       const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
+      const { platformRate: pixPlatformRate } = await getPlatformFeeRates();
+      const pixAppFee = (Math.round(amount * pixPlatformRate * 100) / 100).toFixed(2);
       const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
         headers: {
@@ -1516,6 +1556,7 @@ export async function createExpressApp() {
           type: "online",
           processing_mode: "automatic",
           total_amount: amountStr,
+          application_fee: pixAppFee,
           ...(reservationId ? { external_reference: reservationId } : {}),
           payer: {
             email: payerEmailForEnv(guestData?.email),
