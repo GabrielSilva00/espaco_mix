@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
-import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, type ConfirmationData } from "./emailService.js";
+import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, resolveEmailConfig, type ConfirmationData } from "./emailService.js";
 
 dotenv.config();
 
@@ -138,6 +138,15 @@ const isProduction = process.env.NODE_ENV === "production";
 const appUrl = process.env.APP_URL;
 const paymentProvider = process.env.PAYMENT_PROVIDER ?? (isProduction ? "disabled" : "mock");
 const allowMockPayments = process.env.ALLOW_MOCK_PAYMENTS === "true";
+
+async function getPaymentProvider(): Promise<string> {
+  const admin = await getAdminClient();
+  if (admin) {
+    const { data } = await admin.from("system_config").select("payment_provider").eq("id", "main").maybeSingle();
+    if (data?.payment_provider) return data.payment_provider as string;
+  }
+  return paymentProvider;
+}
 
 // ─── Credenciais MP em memória (definidas via painel admin) ──────────────────
 // Persiste até reiniciar o servidor; process.env tem prioridade em produção.
@@ -842,15 +851,16 @@ export async function createExpressApp() {
     };
 
     const allowedMethods = new Set(["pix", "credit_card", "debit_card", "boleto"]);
+    const provider = await getPaymentProvider();
 
-    if (isProduction && paymentProvider === "mock" && !allowMockPayments) {
+    if (isProduction && provider === "mock" && !allowMockPayments) {
       res.status(503).json({
         error: "Pagamento indisponível: provedor real não configurado em produção.",
       });
       return;
     }
 
-    if (paymentProvider === "disabled") {
+    if (provider === "disabled") {
       res.status(503).json({ error: "Pagamento desabilitado no servidor." });
       return;
     }
@@ -889,7 +899,7 @@ export async function createExpressApp() {
     }
 
     const maskedEmail = guestEmail.replace(/(^.).*(@.*$)/, "$1***$2");
-    console.log(`[PAYMENT] Provider: ${paymentProvider} | Mode: ${paymentMethod} | User: ${maskedEmail}`);
+    console.log(`[PAYMENT] Provider: ${provider} | Mode: ${paymentMethod} | User: ${maskedEmail}`);
 
     const response = {
       id: "tr_" + Math.random().toString(36).substring(7),
@@ -926,7 +936,7 @@ export async function createExpressApp() {
     const maskKey = (k: string) =>
       !k ? "" : k.length <= 12 ? k : `${k.slice(0, 8)}…${k.slice(-4)}`;
     res.json({
-      provider: paymentProvider,
+      provider: await getPaymentProvider(),
       configured: Boolean(accessToken),
       environment: accessToken ? (isProd ? "production" : "test") : "unset",
       publicKeyMasked: maskKey(publicKey),
@@ -1065,6 +1075,20 @@ export async function createExpressApp() {
       console.error("[EMAIL] Falha no status:", e?.message ?? e);
       res.json({ provider: "resend", configured: false });
     }
+  });
+
+  // ── Status das variáveis de ambiente (Categoria A) — apenas booleans ───────
+  app.get("/api/admin/env-status", requireAuth, requireAdmin, (_req, res) => {
+    res.json({
+      ENCRYPTION_KEY:             !!process.env.ENCRYPTION_KEY,
+      SUPABASE_SERVICE_ROLE_KEY:  !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      MERCADOPAGO_ACCESS_TOKEN:   !!process.env.MERCADOPAGO_ACCESS_TOKEN,
+      MERCADOPAGO_WEBHOOK_SECRET: !!process.env.MERCADOPAGO_WEBHOOK_SECRET,
+      RESEND_API_KEY:             !!process.env.RESEND_API_KEY,
+      CRON_SECRET:                !!process.env.CRON_SECRET,
+      STRIPE_SECRET_KEY:          !!process.env.STRIPE_SECRET_KEY,
+      APP_URL:                    !!process.env.APP_URL,
+    });
   });
 
   // ── Enviar e-mail de teste para o admin logado ───────────────────────────
@@ -1882,7 +1906,9 @@ export async function createExpressApp() {
     const exp = Date.now() + 10 * 60 * 1000;
     const ticket = signOtp(email, code, exp);
 
-    if (!process.env.RESEND_API_KEY) {
+    const emailCfg = await resolveEmailConfig();
+
+    if (!emailCfg.resendApiKey) {
       console.log(`\n[OTP DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       console.log(`[OTP DEV]  E-mail : ${email}`);
       console.log(`[OTP DEV]  Código : ${code}`);
@@ -1893,16 +1919,14 @@ export async function createExpressApp() {
     }
 
     const { Resend } = await import("resend");
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    const senderName = process.env.EMAIL_SENDER_NAME || "Espaço Mix";
-    const senderAddress = process.env.EMAIL_SENDER_ADDRESS || "onboarding@resend.dev";
+    const resend = new Resend(emailCfg.resendApiKey);
 
     try {
       // O SDK do Resend NÃO lança em erro: retorna { data, error }. Precisamos
       // checar `error` explicitamente, senão um envio rejeitado (ex.: domínio
       // não verificado) passaria como sucesso e o usuário nunca receberia o código.
       const { error } = await resend.emails.send({
-        from: `${senderName} <${senderAddress}>`,
+        from: `${emailCfg.senderName} <${emailCfg.senderAddress}>`,
         to: email,
         subject: "Seu código de verificação — Espaço Mix",
         html: `
@@ -2043,15 +2067,16 @@ export async function createExpressApp() {
 
       if (error) throw error;
 
+      const broadcastEmailCfg = await resolveEmailConfig();
+      const { Resend: BroadcastResend } = await import("resend");
+      const broadcastResend = new BroadcastResend(broadcastEmailCfg.resendApiKey);
       let sent = 0;
       let errors = 0;
 
       for (const r of reservations ?? []) {
         try {
-          const { Resend } = await import("resend");
-          const resend = new Resend(process.env.RESEND_API_KEY);
-          await resend.emails.send({
-            from: `${process.env.EMAIL_SENDER_NAME || "Espaço Mix"} <${process.env.EMAIL_SENDER_ADDRESS || "noreply@espacomix.com.br"}>`,
+          await broadcastResend.emails.send({
+            from: `${broadcastEmailCfg.senderName} <${broadcastEmailCfg.senderAddress}>`,
             to: r.buyer_email,
             subject: safeSubject,
             html: `<div style="font-family:sans-serif;max-width:600px;margin:auto;padding:32px;background:#0d0d0d;color:#fff;border-radius:12px">

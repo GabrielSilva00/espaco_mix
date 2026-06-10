@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   AlertCircle, TestTube, CheckCircle2, AlertTriangle, Info, Key,
-  RefreshCcw, ShieldCheck, Copy, ExternalLink, Eye, EyeOff, Save, Check
+  RefreshCcw, ShieldCheck, Copy, ExternalLink
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -18,14 +18,6 @@ export function MercadoPagoSettings() {
   const [loading, setLoading] = useState(true);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
-
-  // Edição de credenciais (salvas criptografadas no servidor)
-  const [editToken, setEditToken] = useState('');
-  const [editPublicKey, setEditPublicKey] = useState('');
-  const [editEnv, setEditEnv] = useState<'production' | 'test'>('production');
-  const [showToken, setShowToken] = useState(false);
-  const [savingCreds, setSavingCreds] = useState(false);
-  const [savedCreds, setSavedCreds] = useState(false);
 
   const serverUrl = window.location.origin.replace(':5173', ':3000');
   const webhookUrl = `${window.location.origin.replace(':5173', ':3000')}/api/webhook/mercadopago`;
@@ -50,27 +42,6 @@ export function MercadoPagoSettings() {
   }, [authHeader, serverUrl]);
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
-  useEffect(() => { if (status?.environment === 'production' || status?.environment === 'test') setEditEnv(status.environment); }, [status?.environment]);
-
-  const handleSaveCreds = async () => {
-    setSavingCreds(true);
-    try {
-      const headers = await authHeader();
-      if (!headers) { setSavingCreds(false); return; }
-      const res = await fetch(`${serverUrl}/api/admin/payment-credentials`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ accessToken: editToken || undefined, publicKey: editPublicKey || undefined, environment: editEnv }),
-      });
-      if (res.ok) {
-        setEditToken(''); setSavedCreds(true);
-        setTimeout(() => setSavedCreds(false), 2500);
-        await loadStatus();
-      }
-    } finally {
-      setSavingCreds(false);
-    }
-  };
 
   const handleTestConnection = async () => {
     setTestStatus('testing');
@@ -165,49 +136,15 @@ export function MercadoPagoSettings() {
             <StatusItem label="Webhook (assinatura)" value={status?.webhookConfigured ? 'configurado' : 'ausente'} ok={!!status?.webhookConfigured} />
           </div>
 
-          {/* Editar credenciais (salvas criptografadas no servidor) */}
-          <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-4">
-            <label className="block text-sm font-bold uppercase tracking-widest">
-              <span className="flex items-center gap-2"><Key className="w-4 h-4 text-[#d4af37]" /> Credenciais (produção)</span>
-            </label>
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-300 leading-relaxed">Use somente credenciais de <strong>produção</strong> (<code>APP_USR-…</code>). O Access Token é guardado criptografado e nunca volta para a tela.</p>
-            </div>
+          {/* Instrução para configurar no Vercel */}
+          <div className="bg-white/5 border border-white/10 rounded-xl p-5 flex items-start gap-3">
+            <Key className="w-4 h-4 text-[#d4af37] shrink-0 mt-0.5" />
             <div>
-              <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5">Access Token {isConfigured && <span className="text-green-400 normal-case tracking-normal">— já salvo (preencha só para trocar)</span>}</label>
-              <div className="relative">
-                <input
-                  type={showToken ? 'text' : 'password'} value={editToken}
-                  onChange={e => setEditToken(e.target.value)} placeholder="APP_USR-…"
-                  className="w-full bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 pr-10 text-sm font-mono text-white focus:outline-none focus:border-[#d4af37]/50"
-                />
-                <button onClick={() => setShowToken(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">{showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-              </div>
+              <p className="text-xs font-bold text-white/80 mb-1">Configuração das credenciais</p>
+              <p className="text-[11px] text-white/40 leading-relaxed">
+                O <strong className="text-white/60">Access Token</strong> e a <strong className="text-white/60">Public Key</strong> devem ser configurados diretamente nas variáveis de ambiente do Vercel (<code className="bg-black/40 px-1 rounded">MERCADOPAGO_ACCESS_TOKEN</code> e <code className="bg-black/40 px-1 rounded">VITE_MERCADOPAGO_PUBLIC_KEY</code>). Passo a passo no <code className="bg-black/40 px-1 rounded">ENTREGA.md</code>.
+              </p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5">Public Key</label>
-                <input value={editPublicKey} onChange={e => setEditPublicKey(e.target.value)} placeholder="APP_USR-…"
-                  className="w-full bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm font-mono text-white focus:outline-none focus:border-[#d4af37]/50" />
-              </div>
-              <div>
-                <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5">Ambiente</label>
-                <select value={editEnv} onChange={e => setEditEnv(e.target.value as any)}
-                  className="w-full bg-[#0f0f0f] border border-white/10 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-[#d4af37]/50">
-                  <option value="production">Produção</option>
-                  <option value="test">Teste</option>
-                </select>
-              </div>
-            </div>
-            <button
-              onClick={handleSaveCreds}
-              disabled={savingCreds || (!editToken && !editPublicKey)}
-              className={`w-full py-2.5 rounded-lg font-bold text-xs uppercase tracking-widest transition flex items-center justify-center gap-2 ${savedCreds ? 'bg-green-500/20 text-green-400' : 'bg-[#d4af37] text-black hover:brightness-110 disabled:opacity-50'}`}
-            >
-              {savingCreds ? <RefreshCcw className="w-4 h-4 animate-spin" /> : savedCreds ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-              {savedCreds ? 'Salvo' : 'Salvar credenciais'}
-            </button>
           </div>
 
           {/* Webhook URL (apenas leitura, para registrar no MP) */}

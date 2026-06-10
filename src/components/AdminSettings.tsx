@@ -9,6 +9,7 @@ import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { MercadoPagoSettings } from './MercadoPagoSettings';
 import { ReminderCronSettings } from './ReminderCronSettings';
 import { EmailProviderSettings } from './EmailProviderSettings';
+import { useEnvStatus, EnvStatusBadge } from '../shared/components/EnvStatusBadge';
 
 export function AdminSettings({
   userRole,
@@ -18,6 +19,7 @@ export function AdminSettings({
   onSettingsSaved?: (platformName: string, platformLogo: string | null, settings?: any) => void;
 }) {
   const { can } = usePermissions(userRole);
+  const { status: envStatus } = useEnvStatus();
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -883,6 +885,18 @@ export function AdminSettings({
 
         <EmailProviderSettings />
 
+        <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6">
+          <p className="text-[10px] uppercase tracking-widest font-bold text-white/40 mb-3 flex items-center gap-2">
+            <Shield className="w-3.5 h-3.5" />
+            Chaves de Infraestrutura (Vercel)
+          </p>
+          <p className="text-[11px] text-white/30 mb-4">Configuradas no painel do Vercel — o sistema nunca exibe nem salva os valores.</p>
+          <div className="flex flex-wrap gap-2">
+            <EnvStatusBadge configured={envStatus?.RESEND_API_KEY} label="Resend API Key" />
+            <EnvStatusBadge configured={envStatus?.CRON_SECRET} label="Cron Secret" />
+          </div>
+        </section>
+
         {/* 9. Templates de Email */}
         <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8">
           <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] mb-8 flex items-center gap-3">
@@ -1003,7 +1017,22 @@ export function AdminSettings({
           </>
         ) : activeTab === 'payments' ? (
           // ABA DE PAGAMENTOS
-          <MercadoPagoSettings />
+          <div className="space-y-6">
+            <MercadoPagoSettings />
+            <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8">
+              <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] mb-2 flex items-center gap-3">
+                <span className="p-2 bg-[#d4af37]/10 rounded-lg"><Shield className="w-4 h-4" /></span>
+                Variáveis de Infraestrutura (Vercel)
+              </h3>
+              <p className="text-[11px] text-white/30 mb-5">O sistema nunca exibe nem salva os valores reais destas chaves — apenas confirma se estão presentes.</p>
+              <div className="flex flex-wrap gap-2">
+                <EnvStatusBadge configured={envStatus?.MERCADOPAGO_ACCESS_TOKEN} label="MP Access Token" />
+                <EnvStatusBadge configured={envStatus?.MERCADOPAGO_WEBHOOK_SECRET} label="MP Webhook Secret" />
+                <EnvStatusBadge configured={envStatus?.ENCRYPTION_KEY} label="Encryption Key" />
+                <EnvStatusBadge configured={envStatus?.APP_URL} label="App URL" />
+              </div>
+            </section>
+          </div>
         ) : (
           // ABA MINHA CONTA
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">

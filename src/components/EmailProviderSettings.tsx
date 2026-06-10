@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Mail, Eye, EyeOff, Save, Check, Send, Loader2 } from 'lucide-react';
+import { Mail, Eye, EyeOff, Save, Check, Send, Loader2, Key } from 'lucide-react';
 import { getAccessTokenSafe } from '../lib/supabase';
 
 async function authed(path: string, body?: any, method = 'POST') {
@@ -17,7 +17,6 @@ async function authed(path: string, body?: any, method = 'POST') {
  *  criptografados no servidor; nunca voltam para a tela. */
 export function EmailProviderSettings() {
   const [provider, setProvider] = useState<'resend' | 'smtp'>('resend');
-  const [resendKey, setResendKey] = useState('');
   const [smtpHost, setSmtpHost] = useState('');
   const [smtpPort, setSmtpPort] = useState('587');
   const [smtpUser, setSmtpUser] = useState('');
@@ -48,12 +47,11 @@ export function EmailProviderSettings() {
     setSaving(true);
     const r = await authed('/api/admin/email-config', {
       provider,
-      resendApiKey: provider === 'resend' ? (resendKey || undefined) : undefined,
       smtp: provider === 'smtp' ? { host: smtpHost, port: Number(smtpPort) || 587, user: smtpUser, password: smtpPassword || undefined, secure: smtpSecure } : undefined,
       notifyWebhookUrl: notifyWebhook.trim() || undefined,
     });
     setSaving(false);
-    if (r.ok) { setResendKey(''); setSmtpPassword(''); setConfigured(true); setSaved(true); setTimeout(() => setSaved(false), 2500); }
+    if (r.ok) { setSmtpPassword(''); setConfigured(true); setSaved(true); setTimeout(() => setSaved(false), 2500); }
     return r.ok;
   };
 
@@ -85,11 +83,13 @@ export function EmailProviderSettings() {
         {configured && <p className="text-[11px] text-green-400">✓ E-mail configurado. Preencha os segredos de novo só para trocar.</p>}
 
         {provider === 'resend' ? (
-          <div>
-            <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Resend API Key</label>
-            <div className="relative">
-              <input type={show ? 'text' : 'password'} value={resendKey} onChange={e => setResendKey(e.target.value)} placeholder="re_…" className={inputCls + ' pr-10'} />
-              <button onClick={() => setShow(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">{show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+          <div className="flex items-start gap-3 bg-white/5 border border-white/10 rounded-xl p-4">
+            <Key className="w-4 h-4 text-[#d4af37] shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-bold text-white/80 mb-1">Resend API Key</p>
+              <p className="text-[11px] text-white/40 leading-relaxed">
+                Configure a chave diretamente nas variáveis de ambiente do Vercel (<code className="bg-black/40 px-1 rounded">RESEND_API_KEY</code>). Passo a passo no <code className="bg-black/40 px-1 rounded">ENTREGA.md</code>.
+              </p>
             </div>
           </div>
         ) : (
