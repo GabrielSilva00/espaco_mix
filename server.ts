@@ -1422,13 +1422,10 @@ export async function createExpressApp() {
       // Orders API (/v1/orders) — o /v1/payments legado foi descontinuado para
       // novas integrações (retornava internal_error). Em sandbox usa-se a
       // credencial APP_USR de um vendedor de teste.
-      const { platformRate: cardPlatformRate } = await getPlatformFeeRates();
-      const cardAppFee = (Math.round(amount * cardPlatformRate * 100) / 100).toFixed(2);
       const payload = {
         type: "online",
         processing_mode: "automatic",
         total_amount: amountStr,
-        application_fee: cardAppFee,
         ...(reservationId ? { external_reference: reservationId } : {}),
         payer: {
           // Nunca usar domínio @mercadopago.com (proibido pelo MP → erro 4390).
@@ -1547,8 +1544,6 @@ export async function createExpressApp() {
 
     try {
       const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
-      const { platformRate: pixPlatformRate } = await getPlatformFeeRates();
-      const pixAppFee = (Math.round(amount * pixPlatformRate * 100) / 100).toFixed(2);
       const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
         headers: {
@@ -1560,7 +1555,6 @@ export async function createExpressApp() {
           type: "online",
           processing_mode: "automatic",
           total_amount: amountStr,
-          application_fee: pixAppFee,
           ...(reservationId ? { external_reference: reservationId } : {}),
           payer: {
             email: payerEmailForEnv(guestData?.email),
