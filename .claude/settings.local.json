@@ -68,7 +68,16 @@
       "Bash(pkill -f \"PORT=3100\")",
       "Bash(pkill -f \"3100\")",
       "Bash(curl -s -m 3 http://localhost:3100/api/health)",
-      "PowerShell($conns = Get-NetTCPConnection -LocalPort 3100 -State Listen -ErrorAction SilentlyContinue; if \\($conns\\) { $conns | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue; Write-Output \"killed PID $_\" } } else { Write-Output \"nada escutando na 3100\" }; Start-Sleep -Seconds 1; try { Invoke-WebRequest -Uri http://localhost:3100/api/health -TimeoutSec 3 -UseBasicParsing | Out-Null; Write-Output \"ainda no ar\" } catch { Write-Output \"3100 encerrado\" })"
+      "PowerShell($conns = Get-NetTCPConnection -LocalPort 3100 -State Listen -ErrorAction SilentlyContinue; if \\($conns\\) { $conns | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue; Write-Output \"killed PID $_\" } } else { Write-Output \"nada escutando na 3100\" }; Start-Sleep -Seconds 1; try { Invoke-WebRequest -Uri http://localhost:3100/api/health -TimeoutSec 3 -UseBasicParsing | Out-Null; Write-Output \"ainda no ar\" } catch { Write-Output \"3100 encerrado\" })",
+      "PowerShell(npm run *)",
+      "PowerShell(Get-Content .env | ForEach-Object { \\($_ -split '='\\)[0] })",
+      "PowerShell(npx tsx scripts/run-migration.ts supabase/migrations/20260611_payment_email_rls.sql)",
+      "PowerShell(npx tsx scripts/check-schema.ts)",
+      "PowerShell(Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/health' -TimeoutSec 5 | ConvertTo-Json -Compress)",
+      "PowerShell(npx tsx scripts/tmp-view-check.ts)",
+      "PowerShell(git check-ignore *)",
+      "PowerShell(git add *)",
+      "PowerShell(git push *)"
     ]
   }
 }
