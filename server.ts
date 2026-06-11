@@ -410,6 +410,7 @@ async function getOccupiedTables(admin: any, eventId: number | string): Promise<
 
 export async function createExpressApp() {
   const app = express();
+  app.set('trust proxy', 1);
 
   if (isProduction && !appUrl) {
     throw new Error("APP_URL é obrigatória em produção para configurar CORS.");
