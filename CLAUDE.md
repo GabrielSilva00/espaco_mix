@@ -70,10 +70,11 @@ npm run dev
 - **Auth Flow:** Firebase ID tokens validated server-side via Google's tokeninfo endpoint
 
 ### Payment Integration
-- **Providers:** Stripe, Mercado Pago (with PIX support)
-- **Current Status:** Mock implementation ready for gateway integration
-- **Payment Methods:** PIX, Credit Card, Debit Card, Boleto
+- **Providers:** Mercado Pago (PIX e cartão integrados via Orders API); Stripe ainda não implementado
+- **API:** Orders API (`/v1/orders`) — rotas `/api/payment/pix` e `/api/payment/mercadopago`
+- **Payment Methods:** PIX, Credit Card, Debit Card
 - **Note:** Set `PAYMENT_PROVIDER` env var to enable real payment processing
+- **Restrição MP:** `application_fee` NÃO é suportado pela Orders API (`/v1/orders`) — exclusivo do Checkout Pro (Preferences API). Nunca incluir esse campo no payload de `/v1/orders`
 
 ## API Routes
 
@@ -122,6 +123,7 @@ GEMINI_API_KEY       # For Google GenAI integration
 - **Global:** 200 requests per 15 minutes
 - **Auth:** 20 attempts per 15 minutes
 - **Payments:** 10 attempts per 10 minutes
+- **Proxy:** `app.set('trust proxy', 1)` configurado para que `req.ip` reflita o IP real do cliente via `X-Forwarded-For` (Vercel). Sem isso o `express-rate-limit` lança `ERR_ERL_FORWARDED_HEADER` e bloqueia todas as requisições
 
 ### CPF Validation
 - Server-side validation checks digit verification algorithm
@@ -164,6 +166,13 @@ espaco_mix/
 └── firebase-blueprint.json # Firebase project config
 ```
 
+## Deployment (Vercel)
+
+- **Backend:** Serverless function em `api/index.ts` — importa `createExpressApp` do `server.ts` e despacha cada request para o Express
+- **Rewrites:** `/api/*` → `api/index`; demais rotas → `index.html` (SPA)
+- **Cron jobs:** Removidos do `vercel.json` — requerem plano Pro. O endpoint `/api/email/send-reminders` existe mas deve ser disparado manualmente ou via serviço externo (ex: [cron-job.org](https://cron-job.org))
+- **Build:** `npm run build` gera `dist/`; `outputDirectory: "dist"` no `vercel.json`
+
 ## Common Development Tasks
 
 ### Adding a New API Endpoint
@@ -188,9 +197,10 @@ espaco_mix/
 
 1. **Firestore Persistence:** Orders are logged but not persisted to database
 2. **Firebase Admin SDK:** Not installed; switch to server-side token verification when adding
-3. **Real Payment Gateway:** Stripe/Mercado Pago integration stubbed; implement when providers configured
+3. **Real Payment Gateway:** Mercado Pago (PIX e cartão) integrado via Orders API; Stripe ainda não implementado
 4. **Admin Role Verification:** Currently not enforced; requires Firestore user roles collection
 5. **Rejection Email:** Queued but not sent; implement email service integration
+6. **Email Reminders Cron:** Removido do `vercel.json` (plano Hobby); disparar `/api/email/send-reminders` manualmente ou via serviço externo
 
 ## Troubleshooting
 
@@ -209,3 +219,10 @@ espaco_mix/
 **TypeScript errors?**
 - Run `npm run lint` to see all type issues
 - Check imports use correct paths (no relative path issues with aliases)
+
+**Erro 'unsupported_properties' no Mercado Pago?**
+- A Orders API (`/v1/orders`) não aceita `application_fee` — esse campo é exclusivo do Checkout Pro (Preferences API)
+- Verificar se nenhum campo extra foi adicionado ao payload de `/v1/orders`
+
+**Rate limiter lançando ERR_ERL_FORWARDED_HEADER na Vercel?**
+- Confirmar que `app.set('trust proxy', 1)` está logo após `const app = express()` em `server.ts`
