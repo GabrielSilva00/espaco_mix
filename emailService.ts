@@ -43,13 +43,15 @@ const PURCHASE_BODY_DEFAULT = `<!DOCTYPE html>
         <p style="color:#000000;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:0 0 6px;font-weight:bold;">C&#xf3;digo da Reserva</p>
         <p style="color:#000000;font-size:22px;font-weight:bold;margin:0;letter-spacing:3px;">{{reservation_id}}</p>
       </div>
+      {{tickets_html}}
       <div style="border-top:1px solid #2a2a2a;padding-top:16px;display:flex;justify-content:space-between;">
         <span style="color:#888888;font-size:14px;">Total pago</span>
         <span style="color:#d4af37;font-size:20px;font-weight:bold;">{{total}}</span>
       </div>
     </div>
     <p style="color:#555555;font-size:12px;text-align:center;margin-top:24px;line-height:1.6;">
-      Apresente este e-mail ou o c&#xf3;digo da reserva na entrada do evento.<br>
+      Apresente o QR code do seu ingresso na entrada do evento.<br>
+      Voc&#xea; tamb&#xe9;m encontra seus ingressos em "Minhas Reservas" no site.<br>
       Em caso de d&#xfa;vidas, entre em contato com o suporte.
     </p>
   </div>
@@ -126,6 +128,33 @@ function formatPaymentMethod(method: string): string {
     boleto: 'Boleto Bancário',
   };
   return map[method] ?? method;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Bloco de ingressos com QR code (mesmo serviço usado nas telas do app — o
+// QR codifica o id do ticket_items, validado no check-in).
+function buildTicketsHtml(tickets: Array<{ id: string; name: string }>): string {
+  if (!tickets.length) return '';
+  const cards = tickets
+    .map(t => `
+        <div style="background:#ffffff;border-radius:12px;padding:16px;margin:0 0 16px;text-align:center;">
+          <p style="color:#000000;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px;border-bottom:1px solid #e5e5e5;padding-bottom:10px;">${escapeHtml(t.name)}</p>
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(t.id)}" alt="QR Code do ingresso" width="160" height="160" style="display:block;margin:0 auto;" />
+          <p style="color:#888888;font-size:10px;font-family:monospace;letter-spacing:1px;margin:12px 0 0;word-break:break-all;">${escapeHtml(t.id)}</p>
+        </div>`)
+    .join('');
+  return `
+      <div style="margin-bottom:24px;">
+        <h3 style="color:#d4af37;font-size:15px;text-transform:uppercase;letter-spacing:2px;margin:0 0 16px;text-align:center;">Seus ingressos</h3>
+        ${cards}
+      </div>`;
 }
 
 function getAdminClient() {
@@ -255,16 +284,21 @@ export interface ConfirmationData {
   eventLocation: string;
   total: number;
   paymentMethod: string;
+  tickets?: Array<{ id: string; name: string }>;
 }
 
-export async function sendConfirmationEmail(data: ConfirmationData): Promise<void> {
+/**
+ * Envia o e-mail de confirmação de compra. Lança em caso de falha — quem chama
+ * (webhook/rotas) decide registrar em audit_logs e/ou liberar reenvio.
+ * Retorna false quando o envio foi pulado por escolha do admin (notify_purchase).
+ */
+export async function sendConfirmationEmail(data: ConfirmationData): Promise<boolean> {
   const config = await loadConfig();
-  if (config?.notify_purchase === false) return;
+  if (config?.notify_purchase === false) return false;
 
   const email = await resolveEmailConfig();
   if (email.provider === 'resend' && !email.resendApiKey) {
-    console.log('[EMAIL] Provedor de e-mail não configurado — confirmação ignorada');
-    return;
+    throw new Error('Provedor de e-mail não configurado (Resend sem API key e SMTP ausente).');
   }
 
   const vars: Record<string, string> = {
@@ -276,18 +310,16 @@ export async function sendConfirmationEmail(data: ConfirmationData): Promise<voi
     reservation_id: data.reservationId,
     total: `R$ ${data.total.toFixed(2).replace('.', ',')}`,
     payment_method: formatPaymentMethod(data.paymentMethod),
+    tickets_html: buildTicketsHtml(data.tickets ?? []),
   };
 
   const subject = processTemplate(config?.email_purchase_subject ?? PURCHASE_SUBJECT_DEFAULT, vars);
   const html = processTemplate(config?.email_purchase_body ?? PURCHASE_BODY_DEFAULT, vars);
 
-  try {
-    await sendMail(email, data.buyerEmail, subject, html);
-    const masked = data.buyerEmail.replace(/(^.).*(@.*$)/, '$1***$2');
-    console.log(`[EMAIL] Confirmação enviada → ${masked}`);
-  } catch (err: any) {
-    console.error('[EMAIL] Falha ao enviar confirmação:', err?.message ?? err);
-  }
+  await sendMail(email, data.buyerEmail, subject, html);
+  const masked = data.buyerEmail.replace(/(^.).*(@.*$)/, '$1***$2');
+  console.log(`[EMAIL] Confirmação enviada → ${masked}`);
+  return true;
 }
 
 export async function sendReminderEmails(): Promise<{ sent: number; errors: number }> {

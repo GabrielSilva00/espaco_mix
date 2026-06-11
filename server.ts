@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
-import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, resolveEmailConfig, type ConfirmationData } from "./emailService.js";
+import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, resolveEmailConfig } from "./emailService.js";
 
 dotenv.config();
 
@@ -140,7 +140,6 @@ function verifyStaffToken(token: string): StaffTokenPayload | null {
 const isProduction = process.env.NODE_ENV === "production";
 const appUrl = process.env.APP_URL;
 const paymentProvider = process.env.PAYMENT_PROVIDER ?? (isProduction ? "disabled" : "mock");
-const allowMockPayments = process.env.ALLOW_MOCK_PAYMENTS === "true";
 
 async function getPaymentProvider(): Promise<string> {
   const admin = await getAdminClient();
@@ -252,6 +251,144 @@ function payerEmailForEnv(email?: string): string {
   if (isProduction) return email || "comprador@email.com";
   const local = (email || "comprador").split("@")[0].replace(/[^a-zA-Z0-9._-]/g, "") || "comprador";
   return `test_${local}@testuser.com`;
+}
+
+// ─── Consulta o status REAL de um pagamento no MP ────────────────────────────
+// O id da notificação pode ser de uma order (Orders API) ou de um payment
+// (legado); tenta /v1/orders primeiro e cai para /v1/payments.
+type MpPaymentInfo = { externalRef?: string; normalized: string; resolvedPaymentId: string };
+
+async function resolveMpPayment(mpId: string, accessToken: string): Promise<MpPaymentInfo | null> {
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  const orderRes = await fetch(`https://api.mercadopago.com/v1/orders/${mpId}`, { headers });
+  if (orderRes.ok) {
+    const order: any = await orderRes.json();
+    const pay = order?.transactions?.payments?.[0] ?? {};
+    return {
+      externalRef: order?.external_reference ?? undefined,
+      normalized: orderStatusToNormalized(pay?.status || order?.status),
+      resolvedPaymentId: String(pay?.id ?? mpId),
+    };
+  }
+  const payRes = await fetch(`https://api.mercadopago.com/v1/payments/${mpId}`, { headers });
+  if (!payRes.ok) {
+    console.error("[MP] Falha ao consultar order/pagamento:", orderRes.status, payRes.status);
+    return null;
+  }
+  const payment: any = await payRes.json();
+  return {
+    externalRef: payment?.external_reference ?? undefined,
+    normalized: orderStatusToNormalized(payment?.status),
+    resolvedPaymentId: String(mpId),
+  };
+}
+
+// ─── Aplica o status confirmado à reserva (service role) ─────────────────────
+// Casa por external_reference (id da reserva) ou, na falta, pelo payment_id já
+// salvo. Retorna a reserva atingida para o chamador encadear o e-mail.
+async function applyPaymentUpdate(
+  admin: NonNullable<Awaited<ReturnType<typeof getAdminClient>>>,
+  info: MpPaymentInfo
+): Promise<{ reservationId: string; newStatus: string } | null> {
+  const newStatus = mpStatusToReservation(info.normalized);
+  if (!newStatus) return null;
+  let query = admin.from("reservations").update({
+    payment_status: newStatus,
+    payment_id: info.resolvedPaymentId,
+    updated_at: new Date().toISOString(),
+  });
+  query = info.externalRef ? query.eq("id", info.externalRef) : query.eq("payment_id", info.resolvedPaymentId);
+  const { data, error } = await query.select("id");
+  if (error) throw new Error(`Falha ao atualizar reserva: ${error.message}`);
+  const reservationId = (data as any[])?.[0]?.id;
+  if (!reservationId) return null;
+  return { reservationId: String(reservationId), newStatus };
+}
+
+// ─── E-mail de confirmação a partir do BANCO (fonte da verdade) ──────────────
+// O claim atômico em confirmation_email_sent_at garante envio único mesmo com
+// webhooks duplicados ou corrida entre webhook e rota de cartão/polling.
+// force=true (reenvio manual pelo painel) ignora o claim.
+async function sendReservationConfirmation(
+  admin: NonNullable<Awaited<ReturnType<typeof getAdminClient>>>,
+  reservationId: string,
+  opts: { force?: boolean } = {}
+): Promise<{ sent: boolean; reason?: string }> {
+  const now = new Date().toISOString();
+  if (opts.force) {
+    await admin.from("reservations").update({ confirmation_email_sent_at: now }).eq("id", reservationId);
+  } else {
+    const { data: claimed, error: claimErr } = await admin
+      .from("reservations")
+      .update({ confirmation_email_sent_at: now })
+      .eq("id", reservationId)
+      .is("confirmation_email_sent_at", null)
+      .select("id");
+    if (claimErr) throw new Error(`Falha no claim do e-mail: ${claimErr.message}`);
+    if (!claimed || claimed.length === 0) return { sent: false, reason: "e-mail já enviado anteriormente" };
+  }
+
+  const releaseClaim = async () => {
+    try {
+      await admin.from("reservations").update({ confirmation_email_sent_at: null }).eq("id", reservationId);
+    } catch { /* melhor-esforço: o reenvio manual cobre o claim preso */ }
+  };
+
+  try {
+    const { data: reservation, error } = await admin
+      .from("reservations")
+      .select("id, buyer_name, buyer_email, total, payment_method, payment_status, event_id, ticket_items(id, name, status)")
+      .eq("id", reservationId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!reservation) throw new Error("Reserva não encontrada.");
+    if (reservation.payment_status !== "approved") {
+      await releaseClaim();
+      return { sent: false, reason: `reserva não aprovada (${reservation.payment_status})` };
+    }
+    if (!reservation.buyer_email) {
+      await releaseClaim();
+      return { sent: false, reason: "reserva sem e-mail do comprador" };
+    }
+
+    const { data: event } = await admin
+      .from("events")
+      .select("title, date, time, location")
+      .eq("id", reservation.event_id)
+      .maybeSingle();
+
+    const tickets = ((reservation as any).ticket_items ?? [])
+      .filter((t: any) => t.status !== "cancelled")
+      .map((t: any) => ({ id: String(t.id), name: String(t.name ?? "Ingresso") }));
+
+    const sent = await sendConfirmationEmail({
+      buyerName: reservation.buyer_name ?? "Cliente",
+      buyerEmail: reservation.buyer_email,
+      reservationId: reservation.id,
+      eventTitle: event?.title ?? "Evento",
+      eventDate: event?.date ?? "",
+      eventTime: event?.time ?? undefined,
+      eventLocation: event?.location ?? "",
+      total: Number(reservation.total ?? 0),
+      paymentMethod: reservation.payment_method ?? "pix",
+      tickets,
+    });
+    if (!sent) return { sent: false, reason: "notificação de compra desativada no painel" };
+    return { sent: true };
+  } catch (err: any) {
+    await releaseClaim();
+    try {
+      await admin.from("audit_logs").insert({
+        user_id: null,
+        action: "email_confirmation_failed",
+        entity_type: "reservation",
+        entity_id: reservationId,
+        changes: { error: String(err?.message ?? err) },
+      });
+    } catch { /* auditoria é melhor-esforço */ }
+    console.error(`[EMAIL] Falha na confirmação da reserva ${reservationId}:`, err?.message ?? err);
+    return { sent: false, reason: String(err?.message ?? err) };
+  }
 }
 
 // ─── Parse de JSON tolerante a falhas ────────────────────────────────────────
@@ -406,9 +543,36 @@ async function getOccupiedTables(admin: any, eventId: number | string): Promise<
   return [...set];
 }
 
+// ─── Validação de ambiente no startup ────────────────────────────────────────
+// Apenas avisa (não derruba o servidor): facilita diagnosticar deploy com env
+// incompleta na Vercel sem quebrar ambientes de desenvolvimento.
+function validateEnv() {
+  const warn = (msg: string) => console.warn(`[STARTUP] ${msg}`);
+
+  if (!process.env.VITE_SUPABASE_URL) {
+    warn("VITE_SUPABASE_URL ausente — integrações com o banco não funcionarão.");
+  }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    warn("SUPABASE_SERVICE_ROLE_KEY ausente — webhook, pagamentos e e-mail não funcionarão.");
+  }
+  const encKey = process.env.ENCRYPTION_KEY;
+  if (!encKey) {
+    warn("ENCRYPTION_KEY ausente — segredos salvos no painel admin (SMTP/MP) não poderão ser lidos.");
+  } else if (!/^[0-9a-fA-F]{64}$/.test(encKey)) {
+    warn("ENCRYPTION_KEY em formato inválido — esperado 64 caracteres hex (32 bytes).");
+  }
+  if (!process.env.MERCADOPAGO_WEBHOOK_SECRET) {
+    warn("MERCADOPAGO_WEBHOOK_SECRET ausente — webhooks do Mercado Pago serão aceitos SEM validação de assinatura.");
+  }
+  if (!process.env.RESEND_API_KEY && !process.env.SMTP_HOST) {
+    warn("Nenhum provedor de e-mail em env (RESEND_API_KEY/SMTP_HOST) — usará apenas a config do painel admin, se houver.");
+  }
+}
+
 // ─── Express app factory ─────────────────────────────────────────────────────
 
 export async function createExpressApp() {
+  validateEnv();
   const app = express();
   app.set('trust proxy', 1);
 
@@ -492,10 +656,24 @@ export async function createExpressApp() {
     message: { error: "Muitas tentativas de autenticação. Aguarde 15 minutos." },
   });
 
+  // O polling de status do pagamento (PIX em aberto consulta a cada poucos
+  // segundos) ficaria refém das 200 req/15min do limite global e derrubaria o
+  // restante da API do mesmo IP — por isso tem um limite próprio, mais alto.
+  const paymentStatusLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Muitas consultas de status. Aguarde alguns minutos." },
+  });
+
   // Aplica o limite global APENAS às rotas de API. No dev o Express serve
   // todos os módulos/assets via Vite middleware; limitá-los derrubaria o app
   // (cada page load = dezenas de requisições). Em produção o Express só atende /api.
-  app.use("/api", globalLimiter);
+  app.use("/api", (req, res, next) => {
+    if (req.path.startsWith("/payment/status/")) { next(); return; }
+    globalLimiter(req, res, next);
+  });
 
   // ── Auth Middleware ───────────────────────────────────────────────────────
   const requireAuth = async (
@@ -878,90 +1056,6 @@ export async function createExpressApp() {
       status: "pending",
       createdAt: new Date().toISOString(),
     });
-  });
-
-  // ── Payment Intent ────────────────────────────────────────────────────────
-  app.post("/api/create-payment-intent", paymentLimiter, requireAuth, async (req, res) => {
-    const { items, guestData, paymentMethod } = req.body as {
-      items?: unknown[];
-      guestData?: { name?: string; email?: string; cpf?: string };
-      paymentMethod?: string;
-    };
-
-    const allowedMethods = new Set(["pix", "credit_card", "debit_card", "boleto"]);
-    const provider = await getPaymentProvider();
-
-    if (isProduction && provider === "mock" && !allowMockPayments) {
-      res.status(503).json({
-        error: "Pagamento indisponível: provedor real não configurado em produção.",
-      });
-      return;
-    }
-
-    if (provider === "disabled") {
-      res.status(503).json({ error: "Pagamento desabilitado no servidor." });
-      return;
-    }
-
-    if (!guestData?.email || !guestData?.name) {
-      res.status(400).json({ error: "Dados do comprador ausentes ou inválidos." });
-      return;
-    }
-
-    if (!paymentMethod || !allowedMethods.has(paymentMethod)) {
-      res.status(400).json({ error: "Forma de pagamento não selecionada ou inválida." });
-      return;
-    }
-
-    const guestName = String(guestData.name).trim();
-    const guestEmail = String(guestData.email).trim().toLowerCase();
-
-    if (guestName.length < 2 || guestName.length > 120) {
-      res.status(400).json({ error: "Nome do comprador inválido." });
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail)) {
-      res.status(400).json({ error: "E-mail do comprador inválido." });
-      return;
-    }
-
-    if (!Array.isArray(items) || items.length === 0) {
-      res.status(400).json({ error: "Nenhum item informado para pagamento." });
-      return;
-    }
-
-    if (guestData.cpf && !validateCpf(guestData.cpf)) {
-      res.status(400).json({ error: "CPF do comprador inválido." });
-      return;
-    }
-
-    const maskedEmail = guestEmail.replace(/(^.).*(@.*$)/, "$1***$2");
-    console.log(`[PAYMENT] Provider: ${provider} | Mode: ${paymentMethod} | User: ${maskedEmail}`);
-
-    const response = {
-      id: "tr_" + Math.random().toString(36).substring(7),
-      status: "pending",
-      method: paymentMethod,
-    };
-
-    // TODO: integrate real gateway when PAYMENT_PROVIDER is set to stripe/mercadopago.
-    if (paymentMethod === "pix") {
-      res.json({
-        ...response,
-        pix: {
-          qr_code: "00020101021226...",
-          qr_code_base64: "",
-          copy_paste: "00020101021226850014br.gov.bcb.pix0123yourkeyhere...",
-        },
-      });
-    } else {
-      res.json({
-        ...response,
-        clientSecret: "pi_fake_secret_" + Math.random().toString(36).substring(7),
-        paymentUrl: "https://example.com/pay",
-      });
-    }
   });
 
   // ── Mercado Pago - Test Connection ────────────────────────────────────────
@@ -1483,15 +1577,26 @@ export async function createExpressApp() {
 
       // Atualiza a reserva (service role) com o status real — não confia no cliente.
       // O webhook é a rede de segurança caso esta atualização falhe.
+      // Salva o id da ORDER (não o do pagamento interno): é ele que a rota de
+      // status usa para re-consultar /v1/orders quando o webhook não chega.
       if (reservationId) {
         const newStatus = mpStatusToReservation(normalized);
         const admin = await getAdminClient();
         if (admin && newStatus) {
           const { error: upErr } = await admin
             .from("reservations")
-            .update({ payment_status: newStatus, payment_id: String(paymentId), updated_at: new Date().toISOString() })
+            .update({ payment_status: newStatus, payment_id: String(data.id ?? paymentId), updated_at: new Date().toISOString() })
             .eq("id", reservationId);
-          if (upErr) console.error("[MERCADOPAGO] Falha ao atualizar reserva:", upErr.message);
+          if (upErr) {
+            console.error("[MERCADOPAGO] Falha ao atualizar reserva:", upErr.message);
+          } else if (newStatus === "approved") {
+            // Cartão aprovado na hora: envia a confirmação já — o webhook que
+            // chegar depois é no-op graças ao claim de idempotência.
+            const mail = await sendReservationConfirmation(admin, reservationId);
+            if (!mail.sent && mail.reason) {
+              console.warn(`[MERCADOPAGO] E-mail de confirmação não enviado: ${mail.reason}`);
+            }
+          }
         }
       }
 
@@ -1593,13 +1698,14 @@ export async function createExpressApp() {
         : (qrCode ? `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCode)}&size=250x250` : "");
 
       const paymentId = payment.id ?? data.id;
-      // Vincula o payment_id à reserva (service role) para o webhook casar a confirmação.
+      // Vincula a ORDER à reserva (service role): o webhook casa a confirmação
+      // por external_reference e a rota de status re-consulta /v1/orders/{id}.
       if (reservationId) {
         const admin = await getAdminClient();
         if (admin) {
           const { error: upErr } = await admin
             .from("reservations")
-            .update({ payment_id: String(paymentId), updated_at: new Date().toISOString() })
+            .update({ payment_id: String(data.id ?? paymentId), updated_at: new Date().toISOString() })
             .eq("id", reservationId);
           if (upErr) console.error("[PIX] Falha ao vincular payment_id à reserva:", upErr.message);
         }
@@ -1618,6 +1724,72 @@ export async function createExpressApp() {
     }
   });
 
+  // ── Status do pagamento de uma reserva (polling do checkout) ──────────────
+  // O frontend consulta enquanto o PIX/cartão está pendente. Com ?refresh=1,
+  // re-consulta o Mercado Pago e aplica o status — rede de segurança para o
+  // caso de o webhook não estar cadastrado ou ainda não ter chegado.
+  app.get("/api/payment/status/:reservationId", paymentStatusLimiter, requireAuth, async (req, res) => {
+    const reservationId = String(req.params.reservationId ?? "").trim();
+    if (!reservationId) {
+      res.status(400).json({ error: "Reserva inválida." });
+      return;
+    }
+    const admin = await getAdminClient();
+    if (!admin) {
+      res.status(503).json({ error: "Serviço não configurado." });
+      return;
+    }
+    try {
+      const { data: reservation, error } = await admin
+        .from("reservations")
+        .select("id, user_id, payment_status, payment_id, updated_at")
+        .eq("id", reservationId)
+        .maybeSingle();
+      if (error) throw error;
+
+      const user = (req as any).user;
+      // Autorização: dono da reserva; reserva de convidado (sem user_id) é
+      // acessível por quem tem o UUID; admin/developer sempre.
+      let allowed = Boolean(reservation && (!reservation.user_id || reservation.user_id === user?.uid));
+      if (reservation && !allowed && user?.uid) {
+        const role = await getProfileRole(user.uid);
+        allowed = role === "admin" || role === "developer";
+      }
+      // 404 genérico: não revela a existência da reserva a terceiros.
+      if (!reservation || !allowed) {
+        res.status(404).json({ error: "Reserva não encontrada." });
+        return;
+      }
+
+      let paymentStatus: string = reservation.payment_status;
+      if (req.query.refresh === "1" && paymentStatus === "pending" && reservation.payment_id) {
+        const accessToken = await getMpAccessToken();
+        if (accessToken) {
+          const info = await resolveMpPayment(String(reservation.payment_id), accessToken);
+          if (info) {
+            const updated = await applyPaymentUpdate(admin, {
+              ...info,
+              externalRef: info.externalRef ?? reservation.id,
+            });
+            if (updated) {
+              paymentStatus = updated.newStatus;
+              if (updated.newStatus === "approved") {
+                const mail = await sendReservationConfirmation(admin, updated.reservationId);
+                if (!mail.sent && mail.reason) {
+                  console.warn(`[STATUS] E-mail de confirmação não enviado: ${mail.reason}`);
+                }
+              }
+            }
+          }
+        }
+      }
+      res.json({ paymentStatus, updatedAt: reservation.updated_at ?? null });
+    } catch (err: any) {
+      console.error("[STATUS] Erro ao consultar status do pagamento:", err?.message);
+      res.status(500).json({ error: "Erro ao consultar status." });
+    }
+  });
+
   // ── Mercado Pago - Webhook ────────────────────────────────────────────────
   // Sem auth de usuário, mas valida a ASSINATURA do MP e confirma o status real
   // consultando a API (nunca confia no corpo recebido). Atualiza a reserva via
@@ -1631,9 +1803,12 @@ export async function createExpressApp() {
       express.text({ type: '*/*' })(req, res, next);
     }
   }, async (req, res) => {
-    // Responde 200 imediatamente para evitar retries; processa em seguida.
-    res.status(200).json({ received: true });
-
+    // IMPORTANTE: todo o processamento acontece ANTES da resposta. Na Vercel a
+    // função serverless é congelada assim que responde — responder 200 primeiro
+    // fazia o update no banco nunca executar. O MP tolera ~22s e reenvia a
+    // notificação quando recebe 5xx, então usamos isso como fila de retry:
+    //   • notificação irrelevante/sem id/assinatura inválida → 200 (descarta)
+    //   • falha transitória (MP fora, banco indisponível)     → 500 (MP reenvia)
     try {
       // 1. Extrai o ID do pagamento (corpo ou querystring)
       const body: any = typeof req.body === "string" ? safeJsonParse(req.body) : req.body;
@@ -1642,8 +1817,14 @@ export async function createExpressApp() {
         body?.data?.id ?? body?.["data.id"] ?? req.query["data.id"] ?? req.query.id;
 
       // Aceita notificações de order (Orders API) e payment (legado)
-      if (topic && !/order|payment/i.test(String(topic))) return;
-      if (!paymentId) return;
+      if (topic && !/order|payment/i.test(String(topic))) {
+        res.status(200).json({ received: true });
+        return;
+      }
+      if (!paymentId) {
+        res.status(200).json({ received: true });
+        return;
+      }
 
       // 2. Valida a assinatura HMAC do Mercado Pago (se o secret estiver configurado)
       const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
@@ -1663,6 +1844,7 @@ export async function createExpressApp() {
           crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expected));
         if (!ok) {
           console.warn("[WEBHOOK] Assinatura inválida — notificação descartada.");
+          res.status(200).json({ received: true });
           return;
         }
       } else {
@@ -1670,66 +1852,46 @@ export async function createExpressApp() {
       }
 
       // 3. Confirma o status REAL consultando a API do MP (não confia no corpo).
-      //    Tenta a Orders API (/v1/orders/{id}) e, se não for uma order, cai no
-      //    pagamento legado (/v1/payments/{id}, id numérico).
       const accessToken = await getMpAccessToken();
       if (!accessToken) {
         console.error("[WEBHOOK] Access Token não configurado — impossível confirmar pagamento.");
+        res.status(500).json({ error: "Pagamento não configurado." });
         return;
       }
-      const headers = { Authorization: `Bearer ${accessToken}` };
-      let externalRef: string | undefined;
-      let normalized: string = "unknown";
-      let resolvedPaymentId = String(paymentId);
-
-      const orderRes = await fetch(`https://api.mercadopago.com/v1/orders/${paymentId}`, { headers });
-      if (orderRes.ok) {
-        const order: any = await orderRes.json();
-        externalRef = order?.external_reference ?? undefined;
-        const pay = order?.transactions?.payments?.[0] ?? {};
-        resolvedPaymentId = pay?.id ?? resolvedPaymentId;
-        normalized = orderStatusToNormalized(pay?.status || order?.status);
-      } else {
-        const payRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, { headers });
-        if (!payRes.ok) {
-          console.error("[WEBHOOK] Falha ao consultar order/pagamento no MP:", orderRes.status, payRes.status);
-          return;
-        }
-        const payment: any = await payRes.json();
-        externalRef = payment?.external_reference ?? undefined;
-        normalized = orderStatusToNormalized(payment?.status);
+      const info = await resolveMpPayment(String(paymentId), accessToken);
+      if (!info) {
+        res.status(500).json({ error: "Falha ao consultar o Mercado Pago." });
+        return;
       }
 
-      // 4. Mapeia status normalizado → status interno da reserva
-      const newStatus = mpStatusToReservation(normalized);
-      if (!newStatus) return;
-
-      // 5. Atualiza a reserva (service role) — casa por payment_id ou external_reference
+      // 4. Atualiza a reserva (service role)
       const admin = await getAdminClient();
       if (!admin) {
         console.error("[WEBHOOK] Service role não configurado — reserva não atualizada.");
+        res.status(500).json({ error: "Banco não configurado." });
         return;
       }
-      const pidStr = String(resolvedPaymentId);
-      let query = admin.from("reservations").update({
-        payment_status: newStatus,
-        payment_id: pidStr,
-        updated_at: new Date().toISOString(),
-      });
-      // Prioriza external_reference (id da reserva); senão casa pelo payment_id já salvo
-      if (externalRef) {
-        query = query.eq("id", externalRef);
-      } else {
-        query = query.eq("payment_id", pidStr);
-      }
-      const { error } = await query;
-      if (error) {
-        console.error("[WEBHOOK] Erro ao atualizar reserva:", error.message);
+      const updated = await applyPaymentUpdate(admin, info);
+      if (!updated) {
+        // Status sem mapeamento ou nenhuma reserva casou — nada a fazer.
+        console.warn(`[WEBHOOK] Notificação ${paymentId} sem reserva correspondente (status=${info.normalized}).`);
+        res.status(200).json({ received: true });
         return;
       }
-      console.log(`[WEBHOOK] ${pidStr} → ${newStatus} (ref=${externalRef ?? "via payment_id"})`);
+      console.log(`[WEBHOOK] ${info.resolvedPaymentId} → ${updated.newStatus} (reserva ${updated.reservationId})`);
+
+      // 5. Pagamento aprovado → e-mail de confirmação (idempotente via claim).
+      //    Falha de e-mail NÃO derruba o webhook: fica em audit_logs p/ reenvio.
+      if (updated.newStatus === "approved") {
+        const mail = await sendReservationConfirmation(admin, updated.reservationId);
+        if (!mail.sent && mail.reason) {
+          console.warn(`[WEBHOOK] E-mail de confirmação não enviado: ${mail.reason}`);
+        }
+      }
+      res.status(200).json({ received: true });
     } catch (err: any) {
       console.error("[WEBHOOK] Erro ao processar notificação:", err?.message);
+      if (!res.headersSent) res.status(500).json({ error: "Erro interno." });
     }
   });
 
@@ -2019,29 +2181,51 @@ export async function createExpressApp() {
     res.json({ valid: true });
   });
 
-  // ── Email - Confirmação de Compra ─────────────────────────────────────────
+  // ── Email - Confirmação de Compra (reenvio) ───────────────────────────────
+  // Todos os dados saem do BANCO (nunca do corpo da requisição). Autorizado
+  // para o dono da reserva ou admin/developer; exige reserva paga.
   app.post("/api/email/send-confirmation", requireAuth, async (req, res) => {
-    const { buyerName, buyerEmail, reservationId, eventTitle, eventDate, eventTime, eventLocation, total, paymentMethod } =
-      req.body as Partial<ConfirmationData>;
+    const { reservationId } = req.body as { reservationId?: string };
+    if (!reservationId || typeof reservationId !== "string") {
+      res.status(400).json({ error: "reservationId é obrigatório." });
+      return;
+    }
 
-    if (!buyerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyerEmail)) {
-      res.status(400).json({ error: "E-mail inválido." });
-      return;
-    }
-    if (!buyerName || !reservationId || !eventTitle || !eventDate || !eventLocation) {
-      res.status(400).json({ error: "Dados incompletos." });
-      return;
-    }
-    if (typeof total !== "number" || total < 0) {
-      res.status(400).json({ error: "Valor inválido." });
+    const admin = await getAdminClient();
+    if (!admin) {
+      res.status(503).json({ error: "Serviço de e-mail não configurado." });
       return;
     }
 
     try {
-      await sendConfirmationEmail({
-        buyerName, buyerEmail, reservationId, eventTitle, eventDate,
-        eventTime, eventLocation, total, paymentMethod: paymentMethod ?? "credit_card",
-      });
+      const { data: reservation, error } = await admin
+        .from("reservations")
+        .select("id, user_id, payment_status")
+        .eq("id", reservationId.trim())
+        .maybeSingle();
+      if (error) throw error;
+
+      const user = (req as any).user;
+      let allowed = Boolean(reservation?.user_id && user?.uid === reservation.user_id);
+      if (reservation && !allowed && user?.uid) {
+        const role = await getProfileRole(user.uid);
+        allowed = role === "admin" || role === "developer";
+      }
+      // 404 genérico: não revela a existência da reserva a terceiros.
+      if (!reservation || !allowed) {
+        res.status(404).json({ error: "Reserva não encontrada." });
+        return;
+      }
+      if (reservation.payment_status !== "approved") {
+        res.status(409).json({ error: "A reserva ainda não está paga." });
+        return;
+      }
+
+      const result = await sendReservationConfirmation(admin, reservation.id, { force: true });
+      if (!result.sent) {
+        res.status(500).json({ error: `E-mail não enviado: ${result.reason ?? "falha desconhecida"}` });
+        return;
+      }
       res.json({ sent: true });
     } catch (err: any) {
       console.error("[EMAIL] Erro ao enviar confirmação:", err.message);

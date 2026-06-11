@@ -9,12 +9,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 **Eventix** is a full-stack event ticketing platform built with React + Express, featuring:
-- User registration and authentication via Firebase
-- Event management and ticket sales
-- Multiple payment methods (PIX, Credit/Debit Card, Boleto)
-- Producer onboarding and KYC verification
-- Admin dashboard for event management
-- Security-first architecture with rate limiting and input validation
+- User registration and authentication via Supabase Auth
+- Event management and ticket sales (tables + individual tickets)
+- Payments via Mercado Pago Orders API (PIX, Credit/Debit Card)
+- Server-side confirmation e-mails with ticket QR codes
+- Admin dashboard, staff (portaria) check-in flow, and onboarding
+- Security-first architecture: RLS, rate limiting, input validation, encrypted secrets
 
 ## Essential Commands
 
@@ -30,8 +30,9 @@ npm run preview      # Preview production build locally
 # Code Quality
 npm run lint         # Type-check with TypeScript
 
-# Database/Setup
-npm run seed:admin   # Seed admin user (requires configured Firebase)
+# Database
+npx tsx scripts/run-migration.ts supabase/migrations/<file>.sql  # Apply migration
+npx tsx scripts/check-schema.ts                                  # Verify schema state (read-only)
 ```
 
 **Development Setup:** Run both servers in separate terminals:
@@ -45,36 +46,40 @@ npm run dev
 
 ## Architecture
 
-### Frontend (React + Vite)
+### Frontend (React 19 + Vite)
 - **Entry:** `src/main.tsx` → `src/App.tsx`
-- **Styling:** Tailwind CSS with custom theme (src/index.css)
-- **State Management:** Firebase Realtime Database + local component state
-- **Key Components:**
-  - `Home`: Landing page and main entry point
-  - `ProducerOnboardingFlow`: Multi-step producer registration (KYC, Banking)
-  - `ProducerDashboard`: Producer event management interface
-  - `ApprovalQueue`: Admin interface for reviewing producer applications
-  - `AdminSettings`: Admin configuration panel
+- **Styling:** Tailwind CSS — identidade visual: ouro `#d4af37`, fundo preto/cinza escuro, títulos serif
+- **State Management:** `src/context/AppContext.tsx` (contexto único, ~2300 linhas) + Supabase
+- **Key Modules:**
+  - `src/modules/payment/CheckoutModal.tsx`: fluxo de compra completo (seleção → login → pagamento → polling → sucesso)
+  - `src/modules/dashboard/DashboardView.tsx`: dashboard admin/produtor
+  - `src/modules/reservations/ReservationsView.tsx`: "Minhas Reservas" com QR codes
+  - `src/lib/supabase.ts`: client + helpers de dados (config pública via view `system_config_public`, admin via `getSystemConfigAdmin`)
 
 ### Backend (Express.js + Node.js)
-- **Server:** `server.ts` - Single Express instance handling both API and frontend serving
-- **Architecture:**
-  - Security middleware (Helmet, CORS, Rate Limiting)
-  - Firebase authentication verification
-  - REST API endpoints for orders, payments, and user management
-  - Vite dev server proxy in development; static files in production
+- **Server:** `server.ts` — Express instance única (API + serving); na Vercel roda como serverless via `api/index.ts`
+- Security middleware (Helmet, CORS, Rate Limiting), `validateEnv()` loga avisos `[STARTUP]` para env incompleta
+- Supabase **service role** no backend (bypassa RLS) — é a única fonte de verdade de pagamento e o único emissor de e-mail; o frontend apenas observa status
 
 ### Database & Auth
-- **Firebase:** Authentication, user data, and event storage
-- **Firestore:** Planned for order persistence (currently logged but not persisted)
-- **Auth Flow:** Firebase ID tokens validated server-side via Google's tokeninfo endpoint
+- **Supabase:** Auth (tokens validados server-side), PostgreSQL com RLS
+- **Migrações:** `supabase/migrations/*.sql`, aplicadas via `scripts/run-migration.ts` usando `SUPABASE_DB_URL` (transaction pooler porta **6543** — 5432 e host direto NÃO funcionam)
+- **`system_config`:** tabela restrita a admin; leitura pública via view `system_config_public` (colunas seguras apenas — nunca expor smtp_*, email_*, notify_*)
 
 ### Payment Integration
-- **Providers:** Mercado Pago (PIX e cartão integrados via Orders API); Stripe ainda não implementado
-- **API:** Orders API (`/v1/orders`) — rotas `/api/payment/pix` e `/api/payment/mercadopago`
+- **Provider:** Mercado Pago **Orders API** (`/v1/orders`) — rotas `/api/payment/pix` e `/api/payment/mercadopago`
 - **Payment Methods:** PIX, Credit Card, Debit Card
-- **Note:** Set `PAYMENT_PROVIDER` env var to enable real payment processing
-- **Restrição MP:** `application_fee` NÃO é suportado pela Orders API (`/v1/orders`) — exclusivo do Checkout Pro (Preferences API). Nunca incluir esse campo no payload de `/v1/orders`
+- **`payment_id` na reserva = ORDER id** (`data.id` da Orders API), usado para re-consultar `/v1/orders/{id}`
+- **Sandbox:** Orders API NÃO aceita credenciais `TEST-`; use credenciais `APP_USR-` de um vendedor de teste + comprador com e-mail `@testuser.com`
+- **Restrição MP:** `application_fee` NÃO é suportado pela Orders API — exclusivo do Checkout Pro (Preferences API). Nunca incluir esse campo no payload de `/v1/orders`
+
+### Payment Flow (server-side como fonte de verdade)
+1. Frontend cria a reserva (`pending`) e chama `/api/payment/pix` ou `/api/payment/mercadopago`
+2. Servidor valida preço server-side, cria a order no MP e grava `payment_id` (order id)
+3. **PIX:** frontend exibe QR e inicia polling em `GET /api/payment/status/:reservationId` (5s; a cada 5ª iteração `?refresh=1` re-consulta o MP)
+4. **Cartão:** `approved` → sucesso imediato; `pending`/`in_process` → estado `in_review` + polling
+5. **Webhook `/api/webhook/mercadopago`:** valida assinatura HMAC, processa ANTES de responder (serverless congela após a resposta!), atualiza a reserva e dispara o e-mail de confirmação. Falha transitória → responde 500 (MP reenvia = fila de retry)
+6. **E-mail de confirmação:** enviado APENAS pelo servidor (`sendReservationConfirmation`), com claim atômico de idempotência em `reservations.confirmation_email_sent_at`, QR codes dos `ticket_items` e dados do banco (nunca do cliente)
 
 ## API Routes
 
@@ -82,95 +87,86 @@ npm run dev
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | GET | `/api/health` | Health check with environment info |
-| GET | `/api/privacy-policy` | LGPD privacy policy |
 | POST | `/api/validate-cpf` | Validate Brazilian CPF (rate limited) |
-| POST | `/api/users/register` | User registration with LGPD consent |
+| GET | `/api/events/:id/occupied-tables` | Mesas ocupadas (sem PII) |
+| POST | `/api/webhook/mercadopago` | Webhook MP (assinatura HMAC) |
 
-### Authenticated Routes (require Firebase ID token in `Authorization: Bearer <token>`)
+### Authenticated Routes (Supabase access token in `Authorization: Bearer <token>`)
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| POST | `/api/orders` | Create order for event tickets |
-| POST | `/api/create-payment-intent` | Initialize payment (PIX/Cards/Boleto) |
-| GET | `/api/admin/settings` | Admin settings (role check required server-side) |
-| POST | `/api/producer/rejection-email` | Queue rejection notification email |
+| POST | `/api/payment/pix` | Cria order PIX no MP |
+| POST | `/api/payment/mercadopago` | Cria order de cartão no MP |
+| GET | `/api/payment/status/:reservationId` | Status do pagamento (`?refresh=1` re-consulta MP) |
+| POST | `/api/email/send-confirmation` | Reenvio do e-mail (body `{ reservationId }`; dono ou admin) |
+| GET | `/api/admin/settings` | Admin settings (role check server-side) |
 
 ## Environment Variables
 
-### Firebase Configuration (VITE_ prefix = exposed to frontend)
+Ver `.env.example` para a lista completa comentada. Resumo (backend, sem prefixo `VITE_`):
+
 ```
-VITE_FIREBASE_API_KEY
-VITE_FIREBASE_AUTH_DOMAIN
-VITE_FIREBASE_PROJECT_ID
-VITE_FIREBASE_STORAGE_BUCKET
-VITE_FIREBASE_MESSAGING_SENDER_ID
-VITE_FIREBASE_APP_ID
-VITE_FIREBASE_DATABASE_ID
+NODE_ENV                     # "development" or "production"
+PORT                         # Default: 3000
+APP_URL                      # Required in production (CORS)
+PAYMENT_PROVIDER             # "mercadopago" | "disabled"
+MERCADOPAGO_ACCESS_TOKEN     # APP_USR-... (vendedor de teste em sandbox)
+MERCADOPAGO_WEBHOOK_SECRET   # Assinatura secreta do webhook (painel MP)
+SUPABASE_SERVICE_ROLE_KEY    # Service role (bypassa RLS) — NUNCA no frontend
+SUPABASE_DB_URL              # Postgres via transaction pooler :6543 (migrações)
+ENCRYPTION_KEY               # 64 hex chars — descriptografa segredos do painel (app_secrets)
+RESEND_API_KEY               # E-mail via Resend (ou SMTP_* / config no painel)
+CRON_SECRET                  # Protege /api/email/send-reminders
 ```
 
-### Server Configuration (backend only, .env)
-```
-NODE_ENV              # "development" or "production"
-PORT                  # Default: 3000
-APP_URL              # Required in production (for CORS)
-PAYMENT_PROVIDER     # "mock" (dev) or "stripe"/"mercadopago" (production)
-ALLOW_MOCK_PAYMENTS  # "true" to allow mock payments in production
-GEMINI_API_KEY       # For Google GenAI integration
-```
+Frontend (`VITE_` = exposto): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_MERCADOPAGO_PUBLIC_KEY`.
+
+### Checklist manual de deploy (produção)
+1. Cadastrar TODAS as env vars de backend na Vercel (Settings → Environment Variables)
+2. No painel do Mercado Pago: Suas integrações → Webhooks → cadastrar `https://<domínio>/api/webhook/mercadopago` (evento: Pagamentos) e copiar a **assinatura secreta** para `MERCADOPAGO_WEBHOOK_SECRET`
+3. Aplicar migrações pendentes: `npx tsx scripts/run-migration.ts supabase/migrations/<file>.sql` (após o deploy do código)
+4. Conferir com `npx tsx scripts/check-schema.ts`
 
 ## Key Implementation Details
 
 ### Rate Limiting
-- **Global:** 200 requests per 15 minutes
+- **Global:** 200 requests per 15 minutes (rota `/api/payment/status/` é isenta)
 - **Auth:** 20 attempts per 15 minutes
 - **Payments:** 10 attempts per 10 minutes
+- **Payment status polling:** 300 per 10 minutes (limiter dedicado)
 - **Proxy:** `app.set('trust proxy', 1)` configurado para que `req.ip` reflita o IP real do cliente via `X-Forwarded-For` (Vercel). Sem isso o `express-rate-limit` lança `ERR_ERL_FORWARDED_HEADER` e bloqueia todas as requisições
-
-### CPF Validation
-- Server-side validation checks digit verification algorithm
-- Format: accepts only digits, strips formatting
-- Required for user registration and payment processing
 
 ### Security Headers
 - **Production:** CSP enabled with strict directives
 - **Development:** CSP disabled for easier debugging
 - CORS restricted to `APP_URL` in production; unrestricted in development
 
-### Firebase Integration Notes
-- ID token verification uses Google's tokeninfo endpoint (lightweight)
-- TODO: Implement Firebase Admin SDK for production token verification
-- Dev mode allows mock tokens when Firebase not configured
-- Firestore integration commented out—requires Firebase Admin setup
-
-### Payment Flow
-1. Frontend calls `/api/create-payment-intent` with guest data
-2. Server validates and returns provider-specific response
-3. For PIX: returns QR code and copy-paste key
-4. For Cards: returns Stripe/Mercado Pago client secret
-5. Frontend handles UI rendering per payment method
-
 ## File Structure Highlights
 
 ```
 espaco_mix/
-├── server.ts              # Express backend + Vite dev proxy
+├── server.ts              # Express backend (~2400 linhas) + Vite dev proxy
+├── emailService.ts        # Envio de e-mail (Resend/SMTP) + templates com QR codes
+├── api/index.ts           # Entry serverless Vercel → createExpressApp
 ├── vite.config.ts         # Frontend build config
 ├── src/
-│   ├── main.tsx           # React app entry
-│   ├── App.tsx            # Main component (routing logic)
-│   ├── index.css          # Global Tailwind styles
-│   └── components/        # React components
+│   ├── App.tsx            # Componente principal (routing + modais globais)
+│   ├── context/AppContext.tsx  # Estado global (auth, checkout, polling de pagamento)
+│   ├── lib/supabase.ts    # Client + data helpers
+│   └── modules/           # payment/, dashboard/, reservations/, auth/, ...
 ├── scripts/
-│   └── seed-admin.ts      # Admin seeding script
-├── dist/                  # Build output (production)
-├── firestore.rules        # Firestore security rules (in progress)
-└── firebase-blueprint.json # Firebase project config
+│   ├── run-migration.ts   # Aplica SQL via pooler 6543
+│   └── check-schema.ts    # Verifica estado do schema (read-only)
+├── supabase/migrations/   # Migrações SQL versionadas
+└── dist/                  # Build output (production)
 ```
 
 ## Deployment (Vercel)
 
 - **Backend:** Serverless function em `api/index.ts` — importa `createExpressApp` do `server.ts` e despacha cada request para o Express
 - **Rewrites:** `/api/*` → `api/index`; demais rotas → `index.html` (SPA)
-- **Cron jobs:** Removidos do `vercel.json` — requerem plano Pro. O endpoint `/api/email/send-reminders` existe mas deve ser disparado manualmente ou via serviço externo (ex: [cron-job.org](https://cron-job.org))
+- **`maxDuration: 30`** no `vercel.json` — dá folga para o webhook processar antes de responder
+- **Serverless gotcha:** NUNCA responder antes de terminar o processamento — a função é congelada após `res.send()` e código posterior pode não executar
+- **Cron jobs:** Removidos do `vercel.json` — requerem plano Pro. O endpoint `/api/email/send-reminders` existe mas deve ser disparado via serviço externo (ex: [cron-job.org](https://cron-job.org)) com `CRON_SECRET`
 - **Build:** `npm run build` gera `dist/`; `outputDirectory: "dist"` no `vercel.json`
 
 ## Common Development Tasks
@@ -183,24 +179,21 @@ espaco_mix/
 5. Return proper HTTP status codes (201 for creation, 400 for validation, 401 for auth)
 
 ### Adding a New React Component
-- Place in `src/components/`
-- Use Tailwind classes for styling (no inline CSS)
-- Handle Firebase auth state via `onAuthStateChanged`
+- Place in `src/components/` (or the matching `src/modules/<area>/`)
+- Use Tailwind classes for styling (no inline CSS); manter identidade visual (ouro `#d4af37`, serif nos títulos)
+- Auth state vem do `AppContext` (`useApp()`); token via `getAccessTokenSafe()`
 - Call API endpoints with Bearer token in Authorization header
 
-### Testing Payment Integration
-- Set `NODE_ENV=development` and `PAYMENT_PROVIDER=mock`
-- Mock implementation returns fake transaction IDs and URLs
-- No real charges are made in mock mode
+### Database Migrations
+- Criar em `supabase/migrations/AAAAMMDD_descricao.sql`, idempotente (`IF NOT EXISTS`), com `BEGIN/COMMIT`
+- Aplicar via `npx tsx scripts/run-migration.ts <arquivo>` (usa `SUPABASE_DB_URL`, pooler 6543)
+- NUNCA aplicar migração que remove acesso (DROP POLICY) antes do deploy do código que a acomoda
 
 ## Known Limitations & TODOs
 
-1. **Firestore Persistence:** Orders are logged but not persisted to database
-2. **Firebase Admin SDK:** Not installed; switch to server-side token verification when adding
-3. **Real Payment Gateway:** Mercado Pago (PIX e cartão) integrado via Orders API; Stripe ainda não implementado
-4. **Admin Role Verification:** Currently not enforced; requires Firestore user roles collection
-5. **Rejection Email:** Queued but not sent; implement email service integration
-6. **Email Reminders Cron:** Removido do `vercel.json` (plano Hobby); disparar `/api/email/send-reminders` manualmente ou via serviço externo
+1. **Stripe:** não implementado (apenas Mercado Pago)
+2. **Email Reminders Cron:** removido do `vercel.json` (plano Hobby); disparar `/api/email/send-reminders` via serviço externo
+3. **PIX em sandbox:** QR code de teste tem limitações no ambiente sandbox do MP
 
 ## Troubleshooting
 
@@ -208,17 +201,18 @@ espaco_mix/
 - Ensure `npm run dev:server` runs before `npm run dev`
 - Frontend should connect to `http://localhost:3000` (backend), not the Vite port
 
-**Firebase token verification failing?**
-- Check `VITE_FIREBASE_PROJECT_ID` is set in `.env`
-- Dev mode without Firebase credentials defaults to mock auth (`dev-user`)
+**Pagamento aprovado mas reserva continua `pending`?**
+- Verificar se o webhook está cadastrado no painel MP e `MERCADOPAGO_WEBHOOK_SECRET` setado na Vercel
+- O polling do frontend com `?refresh=1` é a rede de segurança: re-consulta `/v1/orders/{payment_id}` diretamente
+- Conferir logs `[WEBHOOK]` na Vercel
 
-**Payment button disabled?**
-- Verify `PAYMENT_PROVIDER` is not `disabled` in `.env`
-- Check `ALLOW_MOCK_PAYMENTS=true` if using mock in production
+**E-mail de confirmação não chegou?**
+- Conferir provedor: `RESEND_API_KEY`/`SMTP_*` em env ou config no painel admin (exige `ENCRYPTION_KEY` correta)
+- Falhas ficam em `audit_logs` com `action = 'email_confirmation_failed'`
+- Reenvio: botão "Reenviar e-mail" no dashboard (Visualizar comprador) ou `POST /api/email/send-confirmation`
 
 **TypeScript errors?**
 - Run `npm run lint` to see all type issues
-- Check imports use correct paths (no relative path issues with aliases)
 
 **Erro 'unsupported_properties' no Mercado Pago?**
 - A Orders API (`/v1/orders`) não aceita `application_fee` — esse campo é exclusivo do Checkout Pro (Preferences API)
@@ -226,3 +220,6 @@ espaco_mix/
 
 **Rate limiter lançando ERR_ERL_FORWARDED_HEADER na Vercel?**
 - Confirmar que `app.set('trust proxy', 1)` está logo após `const app = express()` em `server.ts`
+
+**Migração falhando ao conectar?**
+- Usar `SUPABASE_DB_URL` com o transaction pooler porta **6543** — a 5432 e o host direto falham neste projeto

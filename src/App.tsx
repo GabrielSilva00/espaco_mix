@@ -5,7 +5,7 @@ import {
   Users, Mail, RefreshCcw, ShieldAlert, Tag,
 } from 'lucide-react';
 import { useApp } from './context/AppContext';
-import { supabase } from './lib/supabase';
+import { supabase, getAccessTokenSafe, isSupabaseConfigured } from './lib/supabase';
 import { AdminSidebar } from './shared/components/AdminSidebar';
 import { Navbar } from './shared/components/Navbar';
 import { Toast } from './shared/components/Toast';
@@ -85,7 +85,55 @@ export function App() {
     isMessageModalOpen, setIsMessageModalOpen, messageText, setMessageText, buyers,
     isLogsModalOpen, setIsLogsModalOpen, userRole,
     showOnboarding, developerConfig,
+    dataLoadError, retryDataLoad,
   } = useApp();
+
+  const [resendingEmail, setResendingEmail] = React.useState(false);
+
+  const handleResendConfirmationEmail = async (reservationId: string) => {
+    if (resendingEmail) return;
+    setResendingEmail(true);
+    try {
+      const token = await getAccessTokenSafe();
+      const resp = await fetch('/api/email/send-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ reservationId }),
+      });
+      if (resp.ok) {
+        showToast('E-mail de confirmação reenviado.', 'success');
+      } else {
+        const body = await resp.json().catch(() => null);
+        showToast(body?.error || 'Não foi possível reenviar o e-mail.', 'error');
+      }
+    } catch {
+      showToast('Não foi possível reenviar o e-mail.', 'error');
+    } finally {
+      setResendingEmail(false);
+    }
+  };
+
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] text-[#e5e5e5] flex items-center justify-center p-6">
+        <div className="max-w-md text-center">
+          <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 flex items-center justify-center">
+            <ShieldAlert className="w-8 h-8 text-[#d4af37]" />
+          </div>
+          <h1 className="text-2xl font-serif text-[#d4af37] mb-3">Configuração incompleta</h1>
+          <p className="text-sm text-white/60 leading-relaxed mb-6">
+            O servidor não está configurado corretamente. Se o problema persistir, entre em contato com o suporte.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-3 bg-[#d4af37] text-black rounded-full text-[11px] font-bold uppercase tracking-widest hover:brightness-110 transition"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen bg-[#0a0a0a] text-[#e5e5e5] font-sans selection:bg-[#d4af37]/30 overflow-x-hidden ${isAdminLayout ? 'flex' : ''}`}>
@@ -319,6 +367,16 @@ export function App() {
                       </div>
                       <p className="text-[10px] opacity-30 font-mono pt-2 border-t border-white/5">ID: {actionTicket.data?.id}</p>
                     </div>
+                    {actionTicket.data?.status === 'Pago' && actionTicket.data?.email && (
+                      <button
+                        onClick={() => handleResendConfirmationEmail(actionTicket.data.id)}
+                        disabled={resendingEmail}
+                        className="w-full py-3 bg-[#d4af37]/10 hover:bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#d4af37] rounded-xl text-xs uppercase font-bold tracking-widest transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-wait"
+                      >
+                        <Mail className="w-4 h-4" />
+                        {resendingEmail ? 'Reenviando…' : 'Reenviar e-mail de confirmação'}
+                      </button>
+                    )}
                     <button
                       onClick={() => setActionTicket(null)}
                       className="w-full py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-xs uppercase font-bold tracking-widest transition"
@@ -723,6 +781,29 @@ export function App() {
       <Toast />
       <InstallPrompt />
       {showOnboarding && <AdminOnboarding />}
+
+      {/* Banner de falha de carregamento de dados (P3) */}
+      <AnimatePresence>
+        {dataLoadError && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-24 md:bottom-6 inset-x-4 z-[110] max-w-md mx-auto bg-[#1a1a1a] border border-amber-500/40 rounded-2xl p-4 shadow-2xl flex items-center gap-3"
+          >
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+            <p className="text-[11px] text-white/70 flex-1 leading-snug">
+              Não foi possível carregar alguns dados. Verifique sua conexão.
+            </p>
+            <button
+              onClick={retryDataLoad}
+              className="shrink-0 px-3 py-2 bg-[#d4af37] text-black rounded-lg text-[9px] font-bold uppercase tracking-widest hover:brightness-110 transition flex items-center gap-1.5"
+            >
+              <RefreshCcw className="w-3 h-3" /> Tentar novamente
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

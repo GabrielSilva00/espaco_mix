@@ -320,13 +320,18 @@ export interface AuditLog {
 const supabaseUrl  = import.meta.env.VITE_SUPABASE_URL  as string;
 const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-if (!supabaseUrl || !supabaseAnon) {
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnon);
+
+if (!isSupabaseConfigured) {
   console.error(
     '[Supabase] VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY não definidos no .env'
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnon, {
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnon || 'placeholder-anon-key',
+  {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -344,7 +349,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnon, {
         .finally(() => clearTimeout(timeout));
     },
   },
-});
+  },
+);
 
 // ═══════════════════════════════════════════════════════════════
 // AUTH — Login, Cadastro, Logout, Sessão
@@ -1117,7 +1123,31 @@ const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   site_name: 'Espaço Mix',
 };
 
+// Leitura pública: a tabela system_config tem RLS restrito a admins; o site
+// lê a view system_config_public, que expõe só os campos seguros. O fallback
+// para a tabela cobre a janela de deploy em que a view ainda não existe.
 export async function getSystemConfig(): Promise<SystemConfig> {
+  const { data, error } = await supabase
+    .from('system_config_public')
+    .select('*')
+    .eq('id', 'main')
+    .maybeSingle();
+
+  if (error) {
+    const { data: legacy, error: legacyError } = await supabase
+      .from('system_config')
+      .select('*')
+      .eq('id', 'main')
+      .maybeSingle();
+    if (legacyError) throw error;
+    return (legacy as SystemConfig) ?? DEFAULT_SYSTEM_CONFIG;
+  }
+  return (data as SystemConfig) ?? DEFAULT_SYSTEM_CONFIG;
+}
+
+// Leitura completa (inclui SMTP, templates de e-mail, flags internas) — só
+// funciona para admin/developer; as telas de configuração usam esta.
+export async function getSystemConfigAdmin(): Promise<SystemConfig> {
   const { data, error } = await supabase
     .from('system_config')
     .select('*')

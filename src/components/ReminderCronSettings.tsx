@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Clock, Send, Loader2, Check } from 'lucide-react';
-import { getSystemConfig, updateSystemConfig, getAccessTokenSafe } from '../lib/supabase';
+import { getSystemConfigAdmin, updateSystemConfig, getAccessTokenSafe } from '../lib/supabase';
 
 /**
  * Lembretes automáticos (Vercel Cron). O cron roda de hora em hora (vercel.json:
@@ -15,7 +15,7 @@ export function ReminderCronSettings() {
   const [trigMsg, setTrigMsg] = useState('');
 
   useEffect(() => {
-    getSystemConfig().then(c => { if (typeof c.reminder_cron_hour === 'number') setHour(c.reminder_cron_hour); }).catch(() => {});
+    getSystemConfigAdmin().then(c => { if (typeof c.reminder_cron_hour === 'number') setHour(c.reminder_cron_hour); }).catch(() => {});
   }, []);
 
   // Mostra a hora local equivalente à hora UTC escolhida, para evitar confusão.

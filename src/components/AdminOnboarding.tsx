@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import {
-  updateProfile, updateMyCredentials, updateSystemConfig, getSystemConfig,
+  updateProfile, updateMyCredentials, updateSystemConfig, getSystemConfigAdmin,
   uploadAsset,
 } from '../lib/supabase';
 
@@ -58,7 +58,7 @@ export function AdminOnboarding() {
 
   // Pré-preenche com o que já existir
   useEffect(() => {
-    getSystemConfig().then(c => {
+    getSystemConfigAdmin().then(c => {
       setSiteName(c.site_name ?? '');
       setLogoPreview(c.site_logo_url ?? '');
       setCompanyName(c.company_name ?? '');

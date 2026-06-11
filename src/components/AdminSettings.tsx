@@ -3,7 +3,7 @@ import {
   Settings, Image as ImageIcon, Save, Check, Filter,
   Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, CreditCard, Mail, Loader2
 } from 'lucide-react';
-import { getSystemConfig, updateSystemConfig, updateMyCredentials, getMyFullProfile, updateProfile } from '../lib/supabase';
+import { getSystemConfigAdmin, updateSystemConfig, updateMyCredentials, getMyFullProfile, updateProfile } from '../lib/supabase';
 import { User, Phone, FileText } from 'lucide-react';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { MercadoPagoSettings } from './MercadoPagoSettings';
@@ -163,7 +163,7 @@ export function AdminSettings({
 
   useEffect(() => {
     if (!userRole) return;
-    getSystemConfig()
+    getSystemConfigAdmin()
       .then((c) => {
         setSettings((prev) => ({
           ...prev,

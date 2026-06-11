@@ -28,11 +28,14 @@ export function CheckoutModal() {
 
   const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
   const [localPaymentMethod, setLocalPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [verifyMessage, setVerifyMessage] = useState('');
 
   const {
     isCheckoutOpen, setIsCheckoutOpen,
     checkoutStep, setCheckoutStep,
     paymentStatus, setPaymentStatus,
+    verifyPaymentNow,
     guestData, setGuestData,
     selectedTables, singleTickets, maleTickets, femaleTickets,
     grandTotal, ticketsTotal, tablesTotal,
@@ -80,6 +83,8 @@ export function CheckoutModal() {
       setCardData({ number: '', holderName: '', expiryMonth: '', expiryYear: '', cvv: '', installments: '1' });
       setCardErrors({});
       setLocalPaymentMethod(null);
+      setVerifyingPayment(false);
+      setVerifyMessage('');
     }
   }, [isCheckoutOpen]);
 
@@ -106,7 +111,7 @@ export function CheckoutModal() {
             >
               <button 
                 onClick={() => setIsCheckoutOpen(false)}
-                disabled={paymentStatus !== 'idle'}
+                disabled={paymentStatus !== 'idle' && paymentStatus !== 'in_review'}
                 className="absolute top-4 right-4 p-2 text-white/50 hover:text-white rounded-full hover:bg-white/5 transition z-50 disabled:opacity-0"
               >
                 <X className="w-5 h-5" />
@@ -774,16 +779,31 @@ export function CheckoutModal() {
                         
                         <div className="flex items-center justify-center gap-3 py-4">
                            <div className="w-2 h-2 bg-[#d4af37] rounded-full animate-ping"></div>
-                           <p className="text-[10px] uppercase font-bold text-[#d4af37] animate-pulse">Sincronizando com Banco Central...</p>
+                           <p className="text-[10px] uppercase font-bold text-[#d4af37] animate-pulse">Verificando pagamento automaticamente…</p>
                         </div>
 
-                        <button 
-                           onClick={() => {
-                             setPaymentStatus('success');
+                        {verifyMessage && (
+                          <p className="text-[10px] uppercase tracking-widest text-amber-400 text-center">{verifyMessage}</p>
+                        )}
+
+                        <button
+                           onClick={async () => {
+                             if (verifyingPayment) return;
+                             setVerifyingPayment(true);
+                             setVerifyMessage('');
+                             try {
+                               const confirmed = await verifyPaymentNow();
+                               if (!confirmed) {
+                                 setVerifyMessage('Pagamento ainda não identificado. Aguarde alguns instantes após pagar.');
+                               }
+                             } finally {
+                               setVerifyingPayment(false);
+                             }
                            }}
-                           className="w-full py-4 border border-[#d4af37]/30 text-[#d4af37] text-[10px] font-bold uppercase tracking-widest rounded-full hover:bg-[#d4af37]/10 transition"
+                           disabled={verifyingPayment}
+                           className="w-full py-4 border border-[#d4af37]/30 text-[#d4af37] text-[10px] font-bold uppercase tracking-widest rounded-full hover:bg-[#d4af37]/10 transition disabled:opacity-50 disabled:cursor-wait"
                         >
-                          Já realizei o pagamento
+                          {verifyingPayment ? 'Verificando…' : 'Já realizei o pagamento'}
                         </button>
                       </div>
                     </div>
@@ -800,6 +820,41 @@ export function CheckoutModal() {
                       <p className="text-[10px] uppercase tracking-widest opacity-50">Por favor aguarde...</p>
                     </div>
                   )}
+                </motion.div>
+              )}
+
+              {paymentStatus === 'in_review' && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex flex-col items-center justify-center py-12 text-center"
+                >
+                  <div className="w-20 h-20 bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] rounded-full flex items-center justify-center mb-6">
+                    <Clock className="w-10 h-10" />
+                  </div>
+                  <h3 className="text-2xl font-serif text-white mb-2">Pagamento em análise</h3>
+                  <p className="text-[11px] text-white/60 mb-8 max-w-[280px] mx-auto leading-relaxed">
+                    Seu pagamento está sendo analisado pela operadora. Assim que for aprovado, seus ingressos serão liberados e enviados para o seu e-mail.
+                  </p>
+
+                  <div className="flex items-center justify-center gap-3 mb-8">
+                    <div className="w-2 h-2 bg-[#d4af37] rounded-full animate-ping"></div>
+                    <p className="text-[10px] uppercase font-bold text-[#d4af37] animate-pulse">Verificando automaticamente…</p>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setIsCheckoutOpen(false);
+                      setSelectedTables([]);
+                      setSingleTickets(0);
+                      setCurrentView('reservations');
+                      setPaymentStatus('idle');
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="w-full py-4 text-[11px] font-bold tracking-[0.2em] uppercase text-[#0a0a0a] bg-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.2)] rounded-full hover:brightness-110 transition"
+                  >
+                    Acompanhar em Minhas Reservas
+                  </button>
                 </motion.div>
               )}
 
@@ -881,34 +936,39 @@ export function CheckoutModal() {
                   )}
 
                   {/* MULTIPLE QR CODES */}
-                  <div className={`grid grid-cols-2 gap-4 w-full pb-2 mb-6 max-h-[300px] overflow-y-auto custom-scrollbar p-1`}>
-                    {reservations[0]?.ticketsObj && reservations[0].ticketsObj.length > 0 ? (
-                      reservations[0].ticketsObj.map((tkt, idx) => (
-                        <div key={tkt.id} className="flex flex-col items-center gap-2">
-                          <div className="bg-white p-3 rounded-xl relative group w-full flex flex-col items-center border-[3px] border-white shadow-xl">
-                            <div className="text-[#0a0a0a] text-[8px] font-bold uppercase tracking-widest mb-2 border-b border-black/10 pb-2 w-full text-center truncate px-1">
-                              {tkt.name}
+                  {(() => {
+                    const validTickets = (reservations[0]?.ticketsObj ?? []).filter(t => t.id);
+                    return (
+                      <div className={`grid grid-cols-2 gap-4 w-full pb-2 mb-6 max-h-[300px] overflow-y-auto custom-scrollbar p-1`}>
+                        {validTickets.length > 0 ? (
+                          validTickets.map((tkt) => (
+                            <div key={tkt.id} className="flex flex-col items-center gap-2">
+                              <div className="bg-white p-3 rounded-xl relative group w-full flex flex-col items-center border-[3px] border-white shadow-xl">
+                                <div className="text-[#0a0a0a] text-[8px] font-bold uppercase tracking-widest mb-2 border-b border-black/10 pb-2 w-full text-center truncate px-1">
+                                  {tkt.name}
+                                </div>
+                                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(tkt.id)}`} alt={`QR Code ${tkt.id}`} className="w-20 h-20 mx-auto" loading="lazy" decoding="async" />
+                                <p className="text-black/40 text-[7px] font-mono tracking-widest text-center mt-2">{tkt.id}</p>
+                              </div>
                             </div>
-                            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt={`QR Code ${tkt.id}`} className="w-20 h-20 mx-auto" loading="lazy" decoding="async" />
-                            <p className="text-black/40 text-[7px] font-mono tracking-widest text-center mt-2">{tkt.id}</p>
+                          ))
+                        ) : (
+                          <div className="flex w-full flex-col items-center justify-center gap-4 col-span-2">
+                            <div className="bg-white p-4 rounded-2xl relative group">
+                              <div className="absolute inset-0 bg-[#d4af37]/10 opacity-0 group-hover:opacity-100 transition rounded-2xl"></div>
+                              <QrCode className="w-20 h-20 text-black mx-auto" strokeWidth={1.5} />
+                              <p className="text-black/40 text-[8px] font-bold uppercase tracking-widest text-center mt-4">Seus QR codes estão em Minhas Reservas e no seu e-mail</p>
+                            </div>
                           </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="flex w-full flex-col items-center justify-center gap-4 col-span-2">
-                        <div className="bg-white p-4 rounded-2xl relative group">
-                          <div className="absolute inset-0 bg-[#d4af37]/10 opacity-0 group-hover:opacity-100 transition rounded-2xl"></div>
-                          <QrCode className="w-20 h-20 text-black mx-auto" strokeWidth={1.5} />
-                          <p className="text-black/40 text-[8px] font-bold uppercase tracking-widest text-center mt-4">Reserva de Mesa(s)</p>
-                        </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
                   
                   <div className="flex flex-col gap-3 w-full mb-6">
                     <button
                       onClick={() => {
-                        const tickets = reservations[0]?.ticketsObj;
+                        const tickets = reservations[0]?.ticketsObj?.filter(t => t.id);
                         if (!tickets?.length) return;
                         tickets.forEach(tkt => downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName }));
                       }}

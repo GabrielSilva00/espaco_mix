@@ -1,10 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import {
   supabase,
   signIn, signOut, signUp, getMyProfile, resolveUsernameToEmail, updateProfile, getAccessTokenSafe,
   getEvents, getEventBatches, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations, getAllReservations,
-  getSystemConfig, updateSystemConfig,
+  getSystemConfig, getSystemConfigAdmin, updateSystemConfig,
   getRegisteredUsersCount, getAllProfiles,
   getPendingApplications, approveProducer, rejectProducer,
   subscribeToEvents, subscribeToEventReservations, subscribeToPendingApplications,
@@ -25,6 +25,10 @@ import type {
 import { loadDeveloperConfig, saveDeveloperConfig } from '../services/developerConfig';
 import type { DeveloperConfig } from '../types/developer';
 import Lenis from 'lenis';
+
+// 'in_review': cartão aceito pelo MP mas ainda em análise — os ingressos só
+// são liberados quando o webhook/polling confirmar a aprovação.
+type PaymentFlowStatus = 'idle' | 'processing' | 'in_review' | 'success' | 'error';
 
 // Converte uma reserva do banco (snake_case + ticket_items) no shape do app
 // (camelCase) que as views consomem (dashboard, "Minhas Reservas").
@@ -178,8 +182,13 @@ interface AppContextValue {
   setCheckoutStep: React.Dispatch<React.SetStateAction<CheckoutStep>>;
   paymentMethod: PaymentMethod | null;
   setPaymentMethod: React.Dispatch<React.SetStateAction<PaymentMethod | null>>;
-  paymentStatus: 'idle' | 'processing' | 'success' | 'error';
-  setPaymentStatus: React.Dispatch<React.SetStateAction<'idle' | 'processing' | 'success' | 'error'>>;
+  paymentStatus: PaymentFlowStatus;
+  setPaymentStatus: React.Dispatch<React.SetStateAction<PaymentFlowStatus>>;
+  /** Verificação manual do pagamento pendente (botão "Já realizei o pagamento"). */
+  verifyPaymentNow: () => Promise<boolean>;
+  /** Falha ao carregar dados essenciais do banco (config/reservas) — exibe banner com retry. */
+  dataLoadError: boolean;
+  retryDataLoad: () => void;
   pixData: PixData | null;
   setPixData: React.Dispatch<React.SetStateAction<PixData | null>>;
   isProcessingPayment: boolean;
@@ -423,11 +432,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [selectedBuyerForDetails, setSelectedBuyerForDetails] = useState<Buyer | null>(null);
 
+  // Falha de carregamento de dados essenciais: banner com "Tentar novamente".
+  // `reloadKey` reexecuta os effects de fetch sem recarregar a página.
+  const [dataLoadError, setDataLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const retryDataLoad = useCallback(() => {
+    setDataLoadError(false);
+    setReloadKey(k => k + 1);
+  }, []);
+
   // Checkout
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState<CheckoutStep>('selection');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
-  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [paymentStatus, setPaymentStatus] = useState<PaymentFlowStatus>('idle');
   const [pixData, setPixData] = useState<PixData | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [guestData, setGuestData] = useState<GuestData>({ name: '', email: '', cpf: '' });
@@ -926,12 +944,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.error(`[Context] Erro ao carregar lotes do evento (tentativa ${attempts}):`, (e as Error)?.message);
           if (cancelled) return;
           if (attempts < 3) setTimeout(run, 1200 * attempts);
-          else setLoadingBatches(false);
+          else { setLoadingBatches(false); setDataLoadError(true); }
         });
     };
     run();
     return () => { cancelled = true; };
-  }, [currentView, activeEvent?.id]);
+  }, [currentView, activeEvent?.id, reloadKey]);
 
   useEffect(() => {
     if (userRole !== 'admin' && userRole !== 'developer') { setPendingApprovalsCount(0); return; }
@@ -942,23 +960,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     getSystemConfig()
-      .then(cfg => setSiteConfig(prev => ({
-        ...prev,
-        venueMaxCapacity: cfg.venue_max_capacity ?? null,
-        platformName: cfg.site_name ?? prev.platformName,
-        platformFeePercent: cfg.platform_fee_percent ?? 10,
-        gatewayFeePercent: cfg.gateway_fee_percent ?? 0,
-      })))
+      .then(cfg => {
+        try { sessionStorage.removeItem('eventix-config-reload'); } catch {}
+        setDataLoadError(false);
+        setSiteConfig(prev => ({
+          ...prev,
+          venueMaxCapacity: cfg.venue_max_capacity ?? null,
+          platformName: cfg.site_name ?? prev.platformName,
+          platformFeePercent: cfg.platform_fee_percent ?? 10,
+          gatewayFeePercent: cfg.gateway_fee_percent ?? 0,
+        }));
+      })
       .catch(() => {
-        // Limpa tokens Supabase corrompidos e recarrega para forçar nova sessão
-        try {
-          Object.keys(localStorage)
-            .filter(k => k.startsWith('sb-') || k.includes('supabase'))
-            .forEach(k => localStorage.removeItem(k));
-        } catch {}
-        window.location.reload();
+        // Autocorreção (1x por sessão): limpa tokens Supabase possivelmente
+        // corrompidos e recarrega. Em recidiva, mostra banner com retry em vez
+        // de entrar em loop de reload.
+        let alreadyReloaded = false;
+        try { alreadyReloaded = sessionStorage.getItem('eventix-config-reload') === '1'; } catch {}
+        if (!alreadyReloaded) {
+          try { sessionStorage.setItem('eventix-config-reload', '1'); } catch {}
+          try {
+            Object.keys(localStorage)
+              .filter(k => k.startsWith('sb-') || k.includes('supabase'))
+              .forEach(k => localStorage.removeItem(k));
+          } catch {}
+          window.location.reload();
+          return;
+        }
+        setDataLoadError(true);
       });
-  }, []);
+  }, [reloadKey]);
 
   // Carrega a contagem de usuários cadastrados para o dashboard
   useEffect(() => {
@@ -974,7 +1005,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let done = false;
     try { done = localStorage.getItem('eventix-onboarding-done') === '1'; } catch { /* ignore */ }
     if (done) return;
-    getSystemConfig()
+    getSystemConfigAdmin()
       .then(cfg => { if (cfg.onboarding_completed !== true) setShowOnboarding(true); })
       .catch(() => {});
   }, [userRole]);
@@ -1039,6 +1070,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           apply((data.reservations ?? []) as any[]);
         } catch (e) {
           console.error('[Reservas] Falha ao carregar (staff):', (e as Error)?.message);
+          if (!cancelled) setDataLoadError(true);
         }
       })();
       return () => { cancelled = true; };
@@ -1047,9 +1079,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const load = isStaffRole ? getAllReservations() : getMyReservations(loggedInUserId);
     load
       .then(rows => apply(rows as any[]))
-      .catch(e => console.error('[Reservas] Falha ao carregar do banco:', (e as Error)?.message));
+      .catch(e => {
+        console.error('[Reservas] Falha ao carregar do banco:', (e as Error)?.message);
+        if (!cancelled) setDataLoadError(true);
+      });
     return () => { cancelled = true; };
-  }, [loggedInUserId, userRole, isApprovedEventCreator]);
+  }, [loggedInUserId, userRole, isApprovedEventCreator, reloadKey]);
 
   // Mesas ocupadas do evento ativo (bloqueia mesa já vendida no mapa).
   useEffect(() => {
@@ -1061,7 +1096,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .then(d => { if (!cancelled) setOccupiedTableIds(Array.isArray(d?.tables) ? d.tables.map(Number) : []); })
       .catch(() => { if (!cancelled) setOccupiedTableIds([]); });
     return () => { cancelled = true; };
-  }, [activeEvent?.id, paymentStatus]);
+  }, [activeEvent?.id, paymentStatus, reloadKey]);
 
   // Session persistence
   useEffect(() => {
@@ -1124,7 +1159,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Não persistir estados de pagamento em andamento ou finalizado
-    if (paymentStatus === 'processing' || paymentStatus === 'success') return;
+    if (paymentStatus === 'processing' || paymentStatus === 'in_review' || paymentStatus === 'success') return;
     if (selectedTables.length === 0 && singleTickets === 0) {
       sessionStorage.removeItem('eventix-cart');
       return;
@@ -1154,6 +1189,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ─── Reset de estados transientes ────────────────────────────────────────
 
   const resetAllTransientState = () => {
+    stopPaymentPolling();
+    pendingPaymentRef.current = null;
     setIsCheckoutOpen(false);
     setCheckoutStep('selection');
     setPaymentStatus('idle');
@@ -1864,6 +1901,164 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCheckoutStep('selection');
   };
 
+  // ─── Confirmação de pagamento (PIX/cartão pendente) ───────────────────────
+  // O banco é a fonte da verdade: o frontend NUNCA marca uma compra como paga
+  // sozinho — ele consulta /api/payment/status até o webhook (ou o ?refresh=1,
+  // que re-consulta o MP) confirmar a aprovação.
+
+  const paymentPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingPaymentRef = useRef<{ reservationId: string; dbTickets: any[]; method: PaymentMethod } | null>(null);
+
+  const stopPaymentPolling = () => {
+    if (paymentPollTimerRef.current) {
+      clearInterval(paymentPollTimerRef.current);
+      paymentPollTimerRef.current = null;
+    }
+  };
+
+  const fetchPaymentStatus = async (reservationId: string, refresh: boolean): Promise<string | null> => {
+    try {
+      const token = await getAccessTokenSafe();
+      const resp = await fetch(`/api/payment/status/${reservationId}${refresh ? '?refresh=1' : ''}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json().catch(() => ({} as any));
+      return typeof data.paymentStatus === 'string' ? data.paymentStatus : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Constrói a reserva local com os ingressos REAIS do banco e mostra o sucesso.
+  // Só é chamada quando o pagamento está 'approved' no banco.
+  const finalizePaidReservation = (resId: string, dbTickets: any[] = [], method?: PaymentMethod | null) => {
+    const buyer = {
+      name: guestData.name || sessionUser?.name || '',
+      email: guestData.email || sessionUser?.email || '',
+      cpf: guestData.cpf || '',
+    };
+    const generatedTickets: TicketItem[] = [];
+    const getOwnerData = (isFirst: boolean) => {
+      if (identificationOption === 'same_as_buyer') return { ownerName: buyer.name, ownerCpf: buyer.cpf, ownerEmail: buyer.email };
+      if (isFirst) return { ownerName: buyer.name, ownerCpf: buyer.cpf, ownerEmail: buyer.email };
+      return { ownerName: '', ownerCpf: '', ownerEmail: '' };
+    };
+    // Usa SOMENTE o id real do ticket no banco (o QR Code precisa casar no
+    // check-in). Sem id real, a UI não renderiza QR — o ingresso fica em
+    // "Minhas Reservas"/e-mail, que recarregam do banco.
+    const ticketIdAt = (idx: number) => dbTickets[idx]?.id ?? '';
+    let tIndex = 0;
+    selectedTables.forEach((tableId) => {
+      const tbl = derivedTables.find(t => t.id === tableId);
+      const seats = tbl?.capacity ?? 4;
+      for (let i = 0; i < seats; i++) {
+        generatedTickets.push({
+          id: ticketIdAt(tIndex),
+          name: `Mesa #${tableId} — Assento ${i + 1}`,
+          isTable: true,
+          tableNumber: tableId,
+          occupantIndex: i,
+          status: 'active',
+          ...getOwnerData(tIndex === 0),
+        });
+        tIndex++;
+      }
+    });
+    const ticketCount = singleTickets + maleTickets + femaleTickets;
+    for (let i = 0; i < ticketCount; i++) {
+      generatedTickets.push({
+        id: ticketIdAt(tIndex),
+        name: `Ingresso Individual`,
+        isTable: false,
+        status: 'active',
+        ...getOwnerData(tIndex === 0),
+      });
+      tIndex++;
+    }
+    const newRes: Reservation = {
+      id: resId,
+      date: new Date().toISOString(),
+      tables: [...selectedTables],
+      singleTickets,
+      ticketsObj: generatedTickets,
+      total: grandTotal,
+      eventId: activeEvent?.id ?? 1,
+      buyerName: buyer.name,
+      paymentStatus: 'approved',
+      paymentMethod: method || 'credit_card',
+      platformFee: taxAmount,
+      netAmount: subTotal,
+      createdAt: new Date().toISOString(),
+    };
+    setReservations(prev => [newRes, ...prev.filter(r => r.id !== resId)]);
+    setPaymentStatus('success');
+    setIsProcessingPayment(false);
+    setCartExpiresAt(null);
+    setSelectedTables([]);
+    setSingleTickets(0);
+    setMaleTickets(0);
+    setFemaleTickets(0);
+  };
+
+  const startPaymentPolling = (reservationId: string, dbTickets: any[], method: PaymentMethod) => {
+    stopPaymentPolling();
+    pendingPaymentRef.current = { reservationId, dbTickets, method };
+    const startedAt = Date.now();
+    let tick = 0;
+    let busy = false;
+    paymentPollTimerRef.current = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        tick++;
+        const info = pendingPaymentRef.current;
+        if (!info) { stopPaymentPolling(); return; }
+        // A cada 5ª checagem pede ?refresh=1 (re-consulta o MP no servidor) —
+        // rede de segurança caso o webhook não esteja chegando.
+        const status = await fetchPaymentStatus(info.reservationId, tick % 5 === 0);
+        if (!pendingPaymentRef.current) return;
+        if (status === 'approved') {
+          stopPaymentPolling();
+          pendingPaymentRef.current = null;
+          finalizePaidReservation(info.reservationId, info.dbTickets, info.method);
+          showToast('Pagamento confirmado! Seus ingressos foram liberados.', 'success');
+        } else if (status === 'cancelled' || status === 'refunded') {
+          stopPaymentPolling();
+          pendingPaymentRef.current = null;
+          setErrors({ payment: 'O pagamento foi recusado ou cancelado.' });
+          setPaymentStatus('error');
+          setIsProcessingPayment(false);
+        } else if (Date.now() - startedAt > 31 * 60 * 1000) {
+          // O PIX expira em 30 minutos — encerra o acompanhamento.
+          stopPaymentPolling();
+          pendingPaymentRef.current = null;
+          setErrors({ payment: 'Não identificamos o pagamento. Se você já pagou, confira em "Minhas Reservas" ou contate o suporte.' });
+          setPaymentStatus('error');
+          setIsProcessingPayment(false);
+        }
+      } finally {
+        busy = false;
+      }
+    }, 5000);
+  };
+
+  // Botão "Já realizei o pagamento": força uma verificação real no MP agora.
+  const verifyPaymentNow = async (): Promise<boolean> => {
+    const info = pendingPaymentRef.current;
+    if (!info) return false;
+    const status = await fetchPaymentStatus(info.reservationId, true);
+    if (status === 'approved' && pendingPaymentRef.current) {
+      stopPaymentPolling();
+      pendingPaymentRef.current = null;
+      finalizePaidReservation(info.reservationId, info.dbTickets, info.method);
+      return true;
+    }
+    return false;
+  };
+
+  useEffect(() => () => stopPaymentPolling(), []);
+
   const handleConfirmReservation = async (cardData?: CardData, selectedPaymentMethod?: PaymentMethod | null) => {
     if (isProcessingPayment) return;
     if (!role) {
@@ -1886,70 +2081,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       name: guestData.name || sessionUser?.name || '',
       email: guestData.email || sessionUser?.email || '',
       cpf: guestData.cpf || '',
-    };
-
-    const finalizeSuccess = (resId = `RES-${Date.now()}`, dbTickets: any[] = []) => {
-      const generatedTickets: TicketItem[] = [];
-      const getOwnerData = (isFirst: boolean) => {
-        if (identificationOption === 'same_as_buyer') return { ownerName: buyer.name, ownerCpf: buyer.cpf, ownerEmail: buyer.email };
-        if (isFirst) return { ownerName: buyer.name, ownerCpf: buyer.cpf, ownerEmail: buyer.email };
-        return { ownerName: '', ownerCpf: '', ownerEmail: '' };
-      };
-      // Usa o id REAL do ticket no banco (para o QR Code casar no check-in);
-      // cai num id local só se o servidor não retornou os ticket_items.
-      const ticketIdAt = (idx: number) =>
-        dbTickets[idx]?.id ?? `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
-      let tIndex = 0;
-      selectedTables.forEach((tableId) => {
-        const tbl = derivedTables.find(t => t.id === tableId);
-        const seats = tbl?.capacity ?? 4;
-        for (let i = 0; i < seats; i++) {
-          generatedTickets.push({
-            id: ticketIdAt(tIndex),
-            name: `Mesa #${tableId} — Assento ${i + 1}`,
-            isTable: true,
-            tableNumber: tableId,
-            occupantIndex: i,
-            status: 'active',
-            ...getOwnerData(tIndex === 0),
-          });
-          tIndex++;
-        }
-      });
-      const ticketCount = singleTickets + maleTickets + femaleTickets;
-      for (let i = 0; i < ticketCount; i++) {
-        generatedTickets.push({
-          id: ticketIdAt(tIndex),
-          name: `Ingresso Individual`,
-          isTable: false,
-          status: 'active',
-          ...getOwnerData(tIndex === 0),
-        });
-        tIndex++;
-      }
-      const newRes: Reservation = {
-        id: resId,
-        date: new Date().toISOString(),
-        tables: [...selectedTables],
-        singleTickets,
-        ticketsObj: generatedTickets,
-        total: grandTotal,
-        eventId: activeEvent?.id ?? 1,
-        buyerName: buyer.name,
-        paymentStatus: 'approved',
-        paymentMethod: selectedPaymentMethod || 'credit_card',
-        platformFee: taxAmount,
-        netAmount: subTotal,
-        createdAt: new Date().toISOString(),
-      };
-      setReservations([newRes, ...reservations]);
-      setPaymentStatus('success');
-      setIsProcessingPayment(false);
-      setCartExpiresAt(null);
-      setSelectedTables([]);
-      setSingleTickets(0);
-      setMaleTickets(0);
-      setFemaleTickets(0);
     };
 
     try {
@@ -2046,8 +2177,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) throw new Error(data.error || `Erro ao gerar PIX (HTTP ${res.status})`);
         setPixData({ qrCode: data.qrCodeUrl, copyPaste: data.qrCode });
         setCheckoutStep('processing');
-        // Mostra QR code; pagamento confirmado via webhook. isProcessingPayment liberado para interação.
+        // Mostra o QR e acompanha o status no banco até o webhook (ou o
+        // ?refresh=1) confirmar — só então a compra vira "sucesso".
         setIsProcessingPayment(false);
+        startPaymentPolling(dbReservationId, dbTicketItems, 'pix');
       } else {
         if (!cardData) throw new Error('Dados do cartão não informados');
         const cardBrand = detectCardBrand(cardData.number);
@@ -2076,23 +2209,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json().catch(() => ({} as any));
         if (!res.ok) throw new Error(data.error || `Erro ao processar pagamento (HTTP ${res.status})`);
 
-        if (data.status === 'approved' || data.status === 'in_process' || data.status === 'pending') {
-          finalizeSuccess(dbReservationId, dbTicketItems);
-          fetch('/api/email/send-confirmation', {
-            method: 'POST',
-            headers: authHeaders,
-            body: JSON.stringify({
-              buyerName: buyer.name,
-              buyerEmail: buyer.email,
-              reservationId: dbReservationId,
-              eventTitle: activeEvent?.title ?? '',
-              eventDate: activeEvent?.date ?? '',
-              eventTime: activeEvent?.time ?? '',
-              eventLocation: activeEvent?.location ?? '',
-              total: grandTotal,
-              paymentMethod: selectedPaymentMethod ?? 'credit_card',
-            }),
-          }).catch(() => {});
+        if (data.status === 'approved') {
+          // O e-mail de confirmação é enviado pelo SERVIDOR (rota de pagamento
+          // e webhook), com os dados do banco — nada parte do cliente.
+          finalizePaidReservation(dbReservationId, dbTicketItems, selectedPaymentMethod);
+        } else if (data.status === 'in_process' || data.status === 'pending') {
+          // Pagamento em análise: NÃO libera ingressos — acompanha o status
+          // até o MP decidir (webhook ou re-consulta).
+          setPaymentStatus('in_review');
+          setIsProcessingPayment(false);
+          startPaymentPolling(dbReservationId, dbTicketItems, selectedPaymentMethod ?? 'credit_card');
         } else if (data.status === 'rejected') {
           throw new Error(`Pagamento recusado: ${data.statusDetail || 'tente outro cartão'}`);
         } else {
@@ -2166,6 +2292,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     checkoutStep, setCheckoutStep,
     paymentMethod, setPaymentMethod,
     paymentStatus, setPaymentStatus,
+    verifyPaymentNow,
+    dataLoadError, retryDataLoad,
     pixData, setPixData,
     isProcessingPayment,
     guestData, setGuestData,
