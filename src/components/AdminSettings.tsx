@@ -173,6 +173,7 @@ export function AdminSettings({
           mainUrl:              c.main_url               ?? prev.mainUrl,
           venueMaxCapacity:     c.venue_max_capacity     ?? prev.venueMaxCapacity,
           platformFee:          String(c.platform_fee_percent    ?? prev.platformFee),
+          feeType:              (c as any).platform_fee_type  ?? prev.feeType,
           gatewayFee:           String(c.gateway_fee_percent     ?? prev.gatewayFee),
           feePayer:             c.fee_payer              ?? prev.feePayer,
           showFeeToBuyer:       c.show_fee_to_buyer      ?? prev.showFeeToBuyer,
@@ -249,6 +250,7 @@ export function AdminSettings({
         default_event_status:    settings.defaultEventStatus,
         // Pagamento
         platform_fee_percent:    Number(settings.platformFee) || undefined,
+        platform_fee_type:       settings.feeType as 'percentage' | 'fixed',
         gateway_fee_percent:     Number(settings.gatewayFee) || undefined,
         fee_payer:               settings.feePayer as 'buyer' | 'seller',
         show_fee_to_buyer:       settings.showFeeToBuyer,

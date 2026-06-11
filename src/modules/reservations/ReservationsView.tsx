@@ -57,9 +57,15 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
         <div className="flex-1">
           <p className="text-sm font-bold text-[#d4af37]">{tkt.name}</p>
           <div className="flex items-center gap-2 mt-1 mb-2">
-            <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full ${tkt.status === 'active' ? 'bg-green-500/10 text-green-400' : tkt.status === 'transferred' ? 'bg-blue-500/10 text-blue-400' : tkt.status === 'pending_transfer' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-500'}`}>
-              {tkt.status === 'active' ? 'Ativo' : tkt.status === 'transferred' ? 'Transferido' : tkt.status === 'pending_transfer' ? 'Ag. Transferência' : 'Cancelado'}
-            </span>
+            {tkt.checkedIn ? (
+              <span className="text-[8px] uppercase font-bold px-2 py-0.5 rounded-full bg-green-400/10 text-green-300 flex items-center gap-1">
+                <Check className="w-2 h-2" /> Usado
+              </span>
+            ) : (
+              <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full ${tkt.status === 'active' ? 'bg-green-500/10 text-green-400' : tkt.status === 'transferred' ? 'bg-blue-500/10 text-blue-400' : tkt.status === 'pending_transfer' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-500'}`}>
+                {tkt.status === 'active' ? 'Ativo' : tkt.status === 'transferred' ? 'Transferido' : tkt.status === 'pending_transfer' ? 'Ag. Transferência' : 'Cancelado'}
+              </span>
+            )}
             <span className="text-[10px] opacity-40 font-mono tracking-widest">{tkt.id}</span>
           </div>
           {tkt.status === 'pending_transfer' && (
@@ -77,7 +83,7 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 w-full md:w-auto mt-2 md:mt-0">
-        {tkt.status === 'active' && (
+        {tkt.status === 'active' && !tkt.checkedIn && (
           <>
             {singleCount > 1 && (
               <button
@@ -123,6 +129,20 @@ export function ReservationsView() {
     actionTicket, setActionTicket,
   } = useApp();
 
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'cancelled'>('all');
+
+  const filteredReservations = React.useMemo(() => {
+    if (statusFilter === 'all') return reservations;
+    if (statusFilter === 'cancelled') return reservations.filter(r =>
+      r.paymentStatus === 'cancelled' || r.paymentStatus === 'refunded' ||
+      (r.ticketsObj?.length ?? 0) > 0 && r.ticketsObj!.every(t => t.status === 'cancelled')
+    );
+    return reservations.filter(r =>
+      r.paymentStatus === 'approved' &&
+      (r.ticketsObj?.some(t => t.status === 'active') ?? false)
+    );
+  }, [reservations, statusFilter]);
+
   return (
     <>
       <div className="max-w-5xl mx-auto px-6 sm:px-10 mt-12">
@@ -141,7 +161,7 @@ export function ReservationsView() {
           </button>
         </div>
 
-        <div className="flex gap-6 mb-8 border-b border-white/10 select-none">
+        <div className="flex gap-6 mb-4 border-b border-white/10 select-none">
            <button
              onClick={() => setReservationsTab('upcoming')}
              className={`pb-4 text-[10px] md:text-[11px] uppercase tracking-widest font-bold transition-all relative ${reservationsTab === 'upcoming' ? 'text-[#d4af37]' : 'text-white/40 hover:text-white/80'}`}
@@ -158,7 +178,21 @@ export function ReservationsView() {
            </button>
         </div>
 
-        {reservations.length === 0 || reservationsTab === 'past' ? (
+        {reservationsTab === 'upcoming' && reservations.length > 0 && (
+          <div className="flex gap-2 mb-6">
+            {(['all', 'active', 'cancelled'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setStatusFilter(f)}
+                className={`px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest font-bold transition ${statusFilter === f ? 'bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/30' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'}`}
+              >
+                {f === 'all' ? 'Todos' : f === 'active' ? 'Ativos' : 'Cancelados'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {filteredReservations.length === 0 || reservationsTab === 'past' ? (
           <div className="border border-white/10 bg-[#0d0d0d] rounded-2xl p-12 md:p-16 flex flex-col items-center justify-center text-center shadow-xl">
             <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6">
               <span className="text-4xl grayscale opacity-50">🎫</span>
@@ -180,7 +214,7 @@ export function ReservationsView() {
           </div>
         ) : (
           <div className="grid gap-4">
-            {reservations.map(res => {
+            {filteredReservations.map(res => {
               const isExpanded = expandedRes === res.id;
 
               return (
@@ -204,7 +238,7 @@ export function ReservationsView() {
                               <Check className="w-2 h-2" /> Confirmado
                             </span>
                           </div>
-                          <h3 className="text-sm md:text-base font-serif text-[#d4af37]">Midnight Soirée</h3>
+                          <h3 className="text-sm md:text-base font-serif text-[#d4af37]">{events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}</h3>
                           <p className="text-[10px] md:text-xs opacity-50 uppercase tracking-widest">{res.date}</p>
                         </div>
                       </div>
@@ -251,17 +285,17 @@ export function ReservationsView() {
                                  </button>
                               </div>
                             </div>
-                            <h3 className="text-xl md:text-2xl font-serif text-[#d4af37] mb-1">Midnight Soirée</h3>
-                            <p className="text-[11px] opacity-60 flex items-center gap-2 mb-3"><MapPin className="w-3 h-3"/> Villa d'Este, S.P. • {res.date}</p>
+                            <h3 className="text-xl md:text-2xl font-serif text-[#d4af37] mb-1">{events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}</h3>
+                            <p className="text-[11px] opacity-60 flex items-center gap-2 mb-3"><MapPin className="w-3 h-3"/> {events.find(ev => ev.id === res.eventId)?.location ?? ''}{res.date ? ` • ${res.date}` : ''}</p>
 
                             <div className="flex gap-2">
                                 <button onClick={(e) => {
                                   e.stopPropagation();
                                   const evt = events.find(ev => ev.id === res.eventId);
-                                  const title = encodeURIComponent(evt?.title || 'Midnight Soirée');
-                                  const location = encodeURIComponent(evt?.location || 'Villa d\'Este, S.P.');
+                                  const title = encodeURIComponent(evt?.title || 'Evento');
+                                  const location = encodeURIComponent(evt?.location || '');
                                   const details = encodeURIComponent('Ingresso: ' + res.id);
-                                  const dateStr = evt?.date?.replace(/-/g, '') || '20261115';
+                                  const dateStr = evt?.date?.replace(/-/g, '') || '';
                                   const timeStr = (evt?.time || '22:00').replace(':', '') + '00';
                                   const endHour = String(Math.min(parseInt((evt?.time || '22:00').split(':')[0]) + 4, 23)).padStart(2,'0');
                                   const endStr = dateStr + 'T' + endHour + '0000';
@@ -297,10 +331,12 @@ export function ReservationsView() {
                                 <p className="text-[8px] uppercase tracking-[0.2em] opacity-50 mb-0.5">Começa em</p>
                                 <p className="text-sm font-mono font-bold text-[#d4af37] tracking-widest">
                                   {(() => {
-                                    const tDate = new Date('2026-11-15T22:00:00');
-                                    const now = new Date('2026-05-01T14:24:00Z');
-                                    return Math.max(0, Math.ceil((tDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-                                  })()} DIAS
+                                    const evt = events.find(ev => ev.id === res.eventId);
+                                    if (!evt?.date) return '—';
+                                    const tDate = new Date(`${evt.date}T${evt.time ?? '00:00'}:00`);
+                                    const diff = Math.ceil((tDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                                    return diff > 0 ? `${diff} DIAS` : 'Hoje';
+                                  })()}
                                 </p>
                              </div>
                           </div>

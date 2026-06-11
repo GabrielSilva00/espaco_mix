@@ -169,6 +169,7 @@ export interface SystemConfig {
   primary_color?: string;
   venue_max_capacity?: number;
   platform_fee_percent?: number;
+  platform_fee_type?: 'percentage' | 'fixed';
   max_tickets_per_purchase?: number;
   cart_expiration_minutes?: number;
   allow_scheduled?: boolean;

@@ -29,11 +29,12 @@ import { isEventPast } from '../../shared/utils/eventMapper';
 import type { Event, Buyer, Reservation } from '../../types';
 
 // ─── Admin Overview ────────────────────────────────────────────
-function AdminOverviewPanel({ events, reservations, registeredUsersCount, platformFeePercent, gatewayFeePercent }: {
+function AdminOverviewPanel({ events, reservations, registeredUsersCount, platformFeePercent, platformFeeType, gatewayFeePercent }: {
   events: Event[];
   reservations: Reservation[];
   registeredUsersCount: number;
   platformFeePercent: number;
+  platformFeeType: 'percentage' | 'fixed';
   gatewayFeePercent: number;
 }) {
   const [period, setPeriod] = React.useState<'day' | 'week' | 'month'>('month');
@@ -57,7 +58,10 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
     [reservations, periodStart]);
 
   const totalRevenue = approved.reduce((s, r) => s + (r.total || 0), 0);
-  const revenueAfterPlatformFee = totalRevenue * (1 - platformFeePercent / 100);
+  const platformFeeTotal = platformFeeType === 'fixed'
+    ? platformFeePercent * approved.length
+    : totalRevenue * (platformFeePercent / 100);
+  const revenueAfterPlatformFee = totalRevenue - platformFeeTotal;
   const revenueAfterGatewayFee = revenueAfterPlatformFee * (1 - gatewayFeePercent / 100);
 
   const activeEvents = events.filter(e => e.status === 'Ativo' || e.status === 'Vendas liberadas').length;
@@ -167,7 +171,7 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-green-400"><TrendingUp className="w-5 h-5" /></div>
           <p className="text-2xl font-bold text-white">{brl(revenueAfterPlatformFee)}</p>
-          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Após taxa da plataforma ({platformFeePercent}%)</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Após taxa da plataforma ({platformFeeType === 'fixed' ? `R$ ${platformFeePercent.toFixed(2)}/venda` : `${platformFeePercent}%`})</p>
         </div>
         <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
           <div className="mb-3 text-emerald-400"><DollarSign className="w-5 h-5" /></div>
@@ -449,7 +453,22 @@ export function DashboardView() {
   } = useApp();
 
   const [eventFilter, setEventFilter] = React.useState<'upcoming' | 'past'>('upcoming');
-  const [pendingCheckin, setPendingCheckin] = React.useState<Buyer | null>(null);
+
+  type CheckInRow = { ticketId: string; name: string; cpf: string; type: string; status: string; checkedIn: boolean };
+  const [pendingCheckin, setPendingCheckin] = React.useState<CheckInRow | null>(null);
+
+  const checkInRows = React.useMemo<CheckInRow[]>(() => {
+    return reservations
+      .filter(r => r.eventId === selectedDashboardEvent && r.paymentStatus === 'approved')
+      .flatMap(r => (r.ticketsObj ?? []).filter(t => t.status !== 'cancelled').map(t => ({
+        ticketId: t.id,
+        name: t.ownerName || r.buyerName || '—',
+        cpf: t.ownerCpf || '',
+        type: t.name || (t.isTable ? `Mesa ${t.tableNumber}` : 'Ingresso'),
+        status: 'Pago',
+        checkedIn: !!t.checkedIn,
+      })));
+  }, [reservations, selectedDashboardEvent]);
   const [editingStaffId, setEditingStaffId] = React.useState<string | null>(null);
   const [editStaffForm, setEditStaffForm] = React.useState({ name: '', username: '', password: '' });
 
@@ -900,14 +919,28 @@ export function DashboardView() {
                          <p className="text-[9px] uppercase opacity-30">Mesas</p>
                          <p className="text-xs text-[#d4af37] font-mono">{brl(evMetrics.tableRevenue)}</p>
                        </div>
-                       <div className="flex justify-between border-t border-white/5 pt-1.5">
-                         <p className="text-[9px] uppercase opacity-30">-Taxa plat. ({siteConfig.platformFeePercent ?? 10}%)</p>
-                         <p className="text-xs text-orange-400 font-mono">{brl(evMetrics.revenue * (1 - (siteConfig.platformFeePercent ?? 10) / 100))}</p>
-                       </div>
-                       <div className="flex justify-between">
-                         <p className="text-[9px] uppercase opacity-30">-Taxa MP ({siteConfig.gatewayFeePercent ?? 0}%)</p>
-                         <p className="text-xs text-emerald-400 font-mono">{brl(evMetrics.revenue * (1 - (siteConfig.platformFeePercent ?? 10) / 100) * (1 - (siteConfig.gatewayFeePercent ?? 0) / 100))}</p>
-                       </div>
+                       {(() => {
+                         const feeType = siteConfig.platformFeeType ?? 'percentage';
+                         const feePct = siteConfig.platformFeePercent ?? 10;
+                         const evPlatformFee = feeType === 'fixed'
+                           ? feePct * evMetrics.paidOrders
+                           : evMetrics.revenue * (feePct / 100);
+                         const afterPlatform = evMetrics.revenue - evPlatformFee;
+                         const afterGateway = afterPlatform * (1 - (siteConfig.gatewayFeePercent ?? 0) / 100);
+                         const feeLabel = feeType === 'fixed' ? `R$ ${feePct.toFixed(2)}/venda` : `${feePct}%`;
+                         return (
+                           <>
+                             <div className="flex justify-between border-t border-white/5 pt-1.5">
+                               <p className="text-[9px] uppercase opacity-30">-Taxa plat. ({feeLabel})</p>
+                               <p className="text-xs text-orange-400 font-mono">{brl(afterPlatform)}</p>
+                             </div>
+                             <div className="flex justify-between">
+                               <p className="text-[9px] uppercase opacity-30">-Taxa MP ({siteConfig.gatewayFeePercent ?? 0}%)</p>
+                               <p className="text-xs text-emerald-400 font-mono">{brl(afterGateway)}</p>
+                             </div>
+                           </>
+                         );
+                       })()}
                      </div>
                   </div>
 
@@ -1310,12 +1343,12 @@ export function DashboardView() {
                    <div className="flex items-center justify-center gap-6 w-full sm:w-auto bg-white/5 p-3 rounded-xl">
                       <div className="text-center">
                          <p className="text-[9px] uppercase tracking-widest opacity-50 mb-1">Entraram</p>
-                         <p className="text-2xl font-black text-green-400 leading-none">{eventBuyers.filter(b => b.checkedIn).length}</p>
+                         <p className="text-2xl font-black text-green-400 leading-none">{checkInRows.filter(b => b.checkedIn).length}</p>
                       </div>
                       <div className="w-px h-8 bg-white/10"></div>
                       <div className="text-center">
                          <p className="text-[9px] uppercase tracking-widest opacity-50 mb-1">Restam</p>
-                         <p className="text-2xl font-black text-white leading-none">{eventBuyers.filter(b => !b.checkedIn && b.status === "Pago").length}</p>
+                         <p className="text-2xl font-black text-white leading-none">{checkInRows.filter(b => !b.checkedIn).length}</p>
                       </div>
                    </div>
                 </div>
@@ -1449,11 +1482,11 @@ export function DashboardView() {
                       </div>
 
                       <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/10 custom-scrollbar">
-                         {buyers
+                         {checkInRows
                             .filter(b => checkInFilter === 'all' || (checkInFilter === 'pendentes' ? !b.checkedIn : b.checkedIn))
                             .filter(b => b.name.toLowerCase().includes(checkInSearch.toLowerCase()) || b.cpf.replace(/\D/g, '').includes(checkInSearch.replace(/\D/g, '')))
                             .map(b => (
-                            <div key={b.id} className={`flex items-center justify-between p-3 sm:p-4 border rounded-2xl transition-all ${b.checkedIn ? 'bg-green-500/5 border-green-500/10' : 'bg-white/[0.02] hover:bg-white/[0.05] border-white/5'}`}>
+                            <div key={b.ticketId} className={`flex items-center justify-between p-3 sm:p-4 border rounded-2xl transition-all ${b.checkedIn ? 'bg-green-500/5 border-green-500/10' : 'bg-white/[0.02] hover:bg-white/[0.05] border-white/5'}`}>
                               <div className="flex items-center gap-3">
                                 <div className={`w-10 h-10 flex items-center justify-center rounded-xl ${b.checkedIn ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-white/50'}`}>
                                    {b.checkedIn ? <Check className="w-5 h-5" /> : <User className="w-5 h-5" />}
@@ -1468,14 +1501,14 @@ export function DashboardView() {
                                   </div>
                                 </div>
                               </div>
-                              
+
                               <div className="flex items-center">
                                 {!b.checkedIn ? (
                                   <button onClick={() => setPendingCheckin(b)} className="px-4 py-2.5 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-[#ffe380] active:scale-95 transition-all">
                                     ENTRAR
                                   </button>
                                 ) : (
-                                  <button onClick={() => handleUndoCheckIn(b.id)} className="px-3 py-2 text-[9px] uppercase tracking-widest font-bold text-white/40 hover:text-red-400 bg-white/5 hover:bg-red-500/10 rounded-lg transition-all">
+                                  <button onClick={() => handleUndoCheckIn(b.ticketId)} className="px-3 py-2 text-[9px] uppercase tracking-widest font-bold text-white/40 hover:text-red-400 bg-white/5 hover:bg-red-500/10 rounded-lg transition-all">
                                     Desfazer
                                   </button>
                                 )}
@@ -1513,7 +1546,7 @@ export function DashboardView() {
                         </div>
                         <div className="flex gap-3">
                           <button
-                            onClick={() => { handleCheckIn(pendingCheckin.id); setPendingCheckin(null); }}
+                            onClick={() => { handleCheckIn(pendingCheckin.ticketId); setPendingCheckin(null); }}
                             className="flex-1 py-3 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition"
                           >Confirmar</button>
                           <button
@@ -2599,6 +2632,7 @@ export function DashboardView() {
                 reservations={reservations}
                 registeredUsersCount={registeredUsersCount}
                 platformFeePercent={siteConfig.platformFeePercent ?? 10}
+                platformFeeType={siteConfig.platformFeeType ?? 'percentage'}
                 gatewayFeePercent={siteConfig.gatewayFeePercent ?? 0}
               />
             ) : dashboardMode === 'dev-overview' && userRole === 'developer' ? (

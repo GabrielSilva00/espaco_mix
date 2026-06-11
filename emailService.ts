@@ -314,7 +314,15 @@ export async function sendConfirmationEmail(data: ConfirmationData): Promise<boo
   };
 
   const subject = processTemplate(config?.email_purchase_subject ?? PURCHASE_SUBJECT_DEFAULT, vars);
-  const html = processTemplate(config?.email_purchase_body ?? PURCHASE_BODY_DEFAULT, vars);
+  let bodyTemplate = config?.email_purchase_body ?? PURCHASE_BODY_DEFAULT;
+  // Template customizado sem {{tickets_html}}: injetar QRs antes do </body>
+  if (config?.email_purchase_body && !bodyTemplate.includes('{{tickets_html}}') && (data.tickets?.length ?? 0) > 0) {
+    const qrBlock = buildTicketsHtml(data.tickets ?? []);
+    bodyTemplate = bodyTemplate.includes('</body>')
+      ? bodyTemplate.replace('</body>', `${qrBlock}</body>`)
+      : bodyTemplate + qrBlock;
+  }
+  const html = processTemplate(bodyTemplate, vars);
 
   await sendMail(email, data.buyerEmail, subject, html);
   const masked = data.buyerEmail.replace(/(^.).*(@.*$)/, '$1***$2');

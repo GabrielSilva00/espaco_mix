@@ -89,6 +89,59 @@ export function App() {
   } = useApp();
 
   const [resendingEmail, setResendingEmail] = React.useState(false);
+  const [cancellingTicket, setCancellingTicket] = React.useState(false);
+
+  const handleCancelConfirm = async () => {
+    if (!actionTicket || cancellingTicket) return;
+    setCancellingTicket(true);
+    setActionError('');
+    try {
+      const token = await getAccessTokenSafe();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      if (actionTicket.type === 'cancel') {
+        const resp = await fetch(`/api/ticket/${actionTicket.id}/cancel`, { method: 'POST', headers });
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          throw new Error(body.error ?? 'Erro ao cancelar ingresso');
+        }
+        const data = await resp.json();
+        setReservations(reservations.map(res => ({
+          ...res,
+          ticketsObj: res.ticketsObj?.map(t => t.id === actionTicket.id ? { ...t, status: 'cancelled' as const } : t),
+        })));
+        const res = reservations.find(r => r.ticketsObj?.some(t => t.id === actionTicket.id));
+        if (res?.paymentMethod === 'pix') {
+          showToast('Ingresso cancelado. O estorno PIX é processado automaticamente pelo Mercado Pago (até 10 dias úteis).', 'info');
+        } else if (data.refundAmount) {
+          showToast(`Ingresso cancelado. Estorno de R$ ${data.refundAmount.toFixed(2)} em processamento.`, 'success');
+        } else {
+          showToast('Ingresso cancelado com sucesso.', 'success');
+        }
+      } else if (actionTicket.type === 'cancel_table') {
+        const reservation = reservations.find(r => r.id === actionTicket.reservationId);
+        const tableTickets = reservation?.ticketsObj?.filter(t => t.tableNumber === actionTicket.id && t.status === 'active') ?? [];
+        for (const tkt of tableTickets) {
+          const resp = await fetch(`/api/ticket/${tkt.id}/cancel`, { method: 'POST', headers });
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.error ?? 'Erro ao cancelar mesa');
+          }
+        }
+        setReservations(reservations.map(res => {
+          if (res.id !== actionTicket.reservationId) return res;
+          return { ...res, ticketsObj: res.ticketsObj?.map(t => t.tableNumber === actionTicket.id ? { ...t, status: 'cancelled' as const } : t) };
+        }));
+        showToast('Mesa cancelada com sucesso.', 'success');
+      }
+      setActionTicket(null);
+    } catch (err: any) {
+      setActionError(err.message ?? 'Erro ao processar cancelamento');
+    } finally {
+      setCancellingTicket(false);
+    }
+  };
 
   const handleResendConfirmationEmail = async (reservationId: string) => {
     if (resendingEmail) return;
@@ -391,32 +444,32 @@ export function App() {
                         ? 'Tem certeza que deseja cancelar esta mesa inteira? Esta ação invalidará o QR Code de todos os ocupantes.'
                         : 'Tem certeza que deseja cancelar este ingresso? Esta ação invalidará o QR Code permanentemente.'}
                     </p>
-                    <div className="bg-white/5 p-4 rounded-xl border border-white/5 mb-6 text-xs text-white/50">
-                      Regras de reembolso: O estorno será processado automaticamente para pagamentos via PIX ou em até 2 faturas no cartão de crédito, caso o cancelamento ocorra em até 48h antes do evento.
+                    <div className="bg-white/5 p-4 rounded-xl border border-white/5 mb-4 text-xs text-white/50">
+                      {(() => {
+                        const res = actionTicket.type === 'cancel'
+                          ? reservations.find(r => r.ticketsObj?.some(t => t.id === actionTicket.id))
+                          : reservations.find(r => r.id === actionTicket.reservationId);
+                        if (res?.paymentMethod === 'pix') {
+                          return 'Pagamento via PIX: o estorno é processado automaticamente pelo Mercado Pago para a chave PIX de origem. Prazo: até 10 dias úteis.';
+                        }
+                        return 'Regras de reembolso: O estorno será processado em até 2 faturas no cartão de crédito, caso o cancelamento ocorra em até 48h antes do evento.';
+                      })()}
                     </div>
+                    {actionError && <p className="text-red-400 text-xs text-center mb-3">{actionError}</p>}
                     <div className="flex gap-4">
                       <button
                         onClick={() => { setActionTicket(null); setActionError(''); }}
-                        className="flex-1 py-3 text-[10px] uppercase tracking-widest bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition"
+                        disabled={cancellingTicket}
+                        className="flex-1 py-3 text-[10px] uppercase tracking-widest bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition disabled:opacity-40"
                       >
                         Manter
                       </button>
                       <button
-                        onClick={() => {
-                          const updated = reservations.map(res => {
-                            if (actionTicket.type === 'cancel_table' && res.id === actionTicket.reservationId) {
-                              return { ...res, ticketsObj: res.ticketsObj?.map(t => t.tableNumber === actionTicket.id ? { ...t, status: 'cancelled' as const } : t) };
-                            } else if (actionTicket.type === 'cancel') {
-                              return { ...res, ticketsObj: res.ticketsObj?.map(t => t.id === actionTicket.id ? { ...t, status: 'cancelled' as const } : t) };
-                            }
-                            return res;
-                          });
-                          setReservations(updated);
-                          setActionTicket(null);
-                        }}
-                        className="flex-1 py-3 text-[10px] uppercase font-bold tracking-widest bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 rounded-xl transition"
+                        onClick={handleCancelConfirm}
+                        disabled={cancellingTicket}
+                        className="flex-1 py-3 text-[10px] uppercase font-bold tracking-widest bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 rounded-xl transition disabled:opacity-40"
                       >
-                        Confirmar Cancelamento
+                        {cancellingTicket ? 'Cancelando...' : 'Confirmar Cancelamento'}
                       </button>
                     </div>
                   </>

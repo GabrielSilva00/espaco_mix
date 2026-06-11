@@ -427,17 +427,21 @@ function escapeHtml(str: string): string {
 const PLATFORM_FEE_RATE = 0.10; // fallback quando system_config não está disponível
 const DEFAULT_TICKET_PRICE = 50; // EVENT_TICKET_PRICE (fallback sem setor)
 
-async function getPlatformFeeRates(): Promise<{ platformRate: number; gatewayRate: number }> {
+async function getPlatformFeeRates(): Promise<{ platformRate: number; gatewayRate: number; feeType: 'percentage' | 'fixed'; feeRaw: number }> {
   try {
     const admin = await getAdminClient();
-    if (!admin) return { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0 };
-    const { data } = await admin.from("system_config").select("platform_fee_percent, gateway_fee_percent").eq("id", "main").maybeSingle();
+    if (!admin) return { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0, feeType: 'percentage', feeRaw: PLATFORM_FEE_RATE * 100 };
+    const { data } = await admin.from("system_config").select("platform_fee_percent, gateway_fee_percent, platform_fee_type").eq("id", "main").maybeSingle();
+    const feeRaw = typeof data?.platform_fee_percent === "number" ? data.platform_fee_percent : PLATFORM_FEE_RATE * 100;
+    const feeType: 'percentage' | 'fixed' = data?.platform_fee_type === 'fixed' ? 'fixed' : 'percentage';
     return {
-      platformRate: typeof data?.platform_fee_percent === "number" ? data.platform_fee_percent / 100 : PLATFORM_FEE_RATE,
+      platformRate: feeType === 'percentage' ? feeRaw / 100 : PLATFORM_FEE_RATE,
       gatewayRate: typeof data?.gateway_fee_percent === "number" ? data.gateway_fee_percent / 100 : 0,
+      feeType,
+      feeRaw,
     };
   } catch {
-    return { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0 };
+    return { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0, feeType: 'percentage', feeRaw: PLATFORM_FEE_RATE * 100 };
   }
 }
 
@@ -1294,8 +1298,10 @@ export async function createExpressApp() {
       res.status(400).json({ error: e?.message ?? "Não foi possível validar o valor do pedido." });
       return;
     }
-    const { platformRate } = await getPlatformFeeRates();
-    const platformFee = Math.round(grandTotal * platformRate * 100) / 100;
+    const { platformRate, feeType, feeRaw } = await getPlatformFeeRates();
+    const platformFee = feeType === 'fixed'
+      ? Math.round(Math.min(feeRaw, grandTotal) * 100) / 100
+      : Math.round(grandTotal * platformRate * 100) / 100;
     const netAmount = Math.round((grandTotal - platformFee) * 100) / 100;
 
     // Bloqueia dupla reserva: rejeita se alguma mesa pedida já está ocupada.
@@ -1448,6 +1454,140 @@ export async function createExpressApp() {
     } catch (err: any) {
       console.error("[CHECKIN] Erro:", err?.message ?? err);
       res.status(500).json({ result: "error", error: "Erro ao validar ingresso." });
+    }
+  });
+
+  // ── Desfazer check-in (restaura QR para ser bipado novamente) ────────────
+  app.post("/api/checkin/undo", requireAuthOrStaff, async (req, res) => {
+    const user = (req as any).user;
+    const staff = (req as any).staff as StaffTokenPayload | undefined;
+    const { ticketId } = req.body as { ticketId?: string };
+    if (!ticketId || typeof ticketId !== "string") {
+      res.status(400).json({ error: "ticketId obrigatório." });
+      return;
+    }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const { data: ticket } = await admin
+        .from("ticket_items")
+        .select("id, event_id, checked_in_at")
+        .eq("id", ticketId.trim())
+        .maybeSingle();
+      if (!ticket) { res.status(404).json({ error: "Ingresso não encontrado." }); return; }
+
+      let allowed = false;
+      if (staff) {
+        allowed = Array.isArray(staff.eventIds) && staff.eventIds.map(String).includes(String(ticket.event_id));
+      } else {
+        const role = await getProfileRole(user.uid);
+        allowed = role === "admin" || role === "developer";
+        if (!allowed) {
+          const { data: ev } = await admin.from("events").select("created_by").eq("id", ticket.event_id).maybeSingle();
+          allowed = ev?.created_by === user.uid;
+        }
+      }
+      if (!allowed) { res.status(403).json({ error: "Sem permissão." }); return; }
+
+      await admin.from("ticket_items").update({ checked_in_at: null }).eq("id", ticket.id);
+      console.log(`[CHECKIN] Check-in desfeito: ticket ${ticket.id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[CHECKIN/UNDO] Erro:", err?.message ?? err);
+      res.status(500).json({ error: "Erro ao desfazer check-in." });
+    }
+  });
+
+  // ── Cancelar ingresso individual + estorno proporcional ──────────────────
+  app.post("/api/ticket/:ticketId/cancel", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const { ticketId } = req.params;
+    if (!ticketId) { res.status(400).json({ error: "ticketId obrigatório." }); return; }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const { data: ticket } = await admin
+        .from("ticket_items")
+        .select("id, reservation_id, status, checked_in_at, name")
+        .eq("id", ticketId)
+        .maybeSingle();
+      if (!ticket) { res.status(404).json({ error: "Ingresso não encontrado." }); return; }
+      if (ticket.status !== "active") {
+        res.status(400).json({ error: `Ingresso não pode ser cancelado (status: ${ticket.status}).` });
+        return;
+      }
+      if (ticket.checked_in_at) {
+        res.status(409).json({ error: "Ingresso já utilizado no evento — não pode ser cancelado." });
+        return;
+      }
+
+      const { data: reservation } = await admin
+        .from("reservations")
+        .select("id, user_id, payment_status, payment_id, total, platform_fee, ticket_items(id, status)")
+        .eq("id", ticket.reservation_id)
+        .maybeSingle();
+      if (!reservation) { res.status(404).json({ error: "Reserva não encontrada." }); return; }
+
+      const role = await getProfileRole(user.uid);
+      const isAdmin = role === "admin" || role === "developer";
+      if (!isAdmin && (reservation as any).user_id !== user.uid) {
+        res.status(403).json({ error: "Sem permissão para cancelar este ingresso." });
+        return;
+      }
+
+      // Cancelar o ticket_item
+      await admin.from("ticket_items").update({ status: "cancelled" }).eq("id", ticket.id);
+
+      // Verificar se todos os itens da reserva agora estão cancelados
+      const remainingItems: any[] = (reservation as any).ticket_items ?? [];
+      const activeAfterCancel = remainingItems.filter((t: any) => t.id !== ticket.id && t.status === "active");
+
+      let refundAmount: number | null = null;
+
+      if (activeAfterCancel.length === 0 && reservation.payment_status === "approved") {
+        // Todos cancelados: estornar via MP
+        const settings = await admin
+          .from("system_config")
+          .select("allow_cancellation,refund_type,cancel_fee_percent,auto_refund")
+          .eq("id", "main")
+          .maybeSingle();
+        const cfg = settings.data;
+
+        if (cfg?.allow_cancellation && cfg?.auto_refund) {
+          const total: number = (reservation as any).total ?? 0;
+          if (cfg.refund_type === "partial") {
+            refundAmount = total * (1 - (cfg.cancel_fee_percent ?? 0) / 100);
+          } else if (cfg.refund_type === "no-fee") {
+            refundAmount = total - ((reservation as any).platform_fee ?? 0);
+          } else {
+            refundAmount = total; // total refund
+          }
+          const paymentId = (reservation as any).payment_id;
+          if (paymentId) {
+            try {
+              const mpToken = await getMpAccessToken();
+              const mpBody = refundAmount !== undefined && refundAmount < total ? { amount: Math.round(refundAmount * 100) / 100 } : {};
+              const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}/refunds`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${mpToken}`, "Content-Type": "application/json" },
+                body: JSON.stringify(mpBody),
+              });
+              if (!mpRes.ok) {
+                console.error("[TICKET/CANCEL] Falha no estorno MP:", await mpRes.text());
+              }
+            } catch (mpErr: any) {
+              console.error("[TICKET/CANCEL] Erro ao chamar MP refund:", mpErr?.message);
+            }
+          }
+        }
+        await admin.from("reservations").update({ payment_status: "refunded" }).eq("id", reservation.id);
+      }
+
+      console.log(`[TICKET/CANCEL] Ticket ${ticket.id} cancelado por ${user.uid}`);
+      res.json({ cancelled: true, refundAmount });
+    } catch (err: any) {
+      console.error("[TICKET/CANCEL] Erro:", err?.message ?? err);
+      res.status(500).json({ error: "Erro ao cancelar ingresso." });
     }
   });
 

@@ -352,7 +352,7 @@ interface AppContextValue {
   handleEditStaff: (id: string, updates: { name?: string; username?: string; password?: string }) => Promise<void>;
   handleStaffLogin: (e: React.FormEvent) => Promise<void>;
   handleCheckIn: (input: string) => Promise<void>;
-  handleUndoCheckIn: (id: string) => void;
+  handleUndoCheckIn: (id: string) => Promise<void>;
   handleScannerError: (err: unknown) => void;
   toggleTableSelection: (tableId: number, status: 'available' | 'reserved') => void;
   getTableStatus: (tableId: number, baseStatus: 'available' | 'reserved') => TableStatus;
@@ -629,7 +629,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     : (singleTickets * (expandedSector.price || EVENT_TICKET_PRICE));
 
   const subTotal = tablesTotal + ticketsTotal;
-  const taxAmount = subTotal * 0.10;
+  const taxAmount = siteConfig.platformFeeType === 'fixed'
+    ? (siteConfig.platformFeePercent ?? 0)
+    : subTotal * ((siteConfig.platformFeePercent ?? 10) / 100);
   const grandTotal = subTotal;
 
   const isAdminLayout = (userRole === 'admin' || userRole === 'developer' || userRole === 'staff') && !isPreviewingEvent;
@@ -968,6 +970,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           venueMaxCapacity: cfg.venue_max_capacity ?? null,
           platformName: cfg.site_name ?? prev.platformName,
           platformFeePercent: cfg.platform_fee_percent ?? 10,
+          platformFeeType: (cfg as any).platform_fee_type === 'fixed' ? 'fixed' : 'percentage',
           gatewayFeePercent: cfg.gateway_fee_percent ?? 0,
         }));
       })
@@ -1803,6 +1806,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         case 'ok':
           setCheckInResult({ type: 'success', message: '✔ PODE ENTRAR!', data });
           setCheckInHistory(prev => [{ id: ticketId, name: data.name || '', type: data.type || '', time: new Date() }, ...prev]);
+          // Atualiza o estado local para refletir o check-in imediatamente nos KPIs
+          setReservations(prev => prev.map(r => ({
+            ...r,
+            ticketsObj: r.ticketsObj?.map(t =>
+              t.id === ticketId ? { ...t, checkedIn: true, checked_in_at: new Date().toISOString() } : t
+            ),
+          })));
           vibrate(200);
           break;
         case 'duplicate':
@@ -1834,9 +1844,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleUndoCheckIn = (id: string) => {
-    setCheckInHistory(prev => prev.filter(h => h.id !== id));
-    showToast('Check-in removido do histórico local.', 'info');
+  const handleUndoCheckIn = async (id: string) => {
+    try {
+      const token = await getAccessTokenSafe();
+      const staffToken = (() => { try { return localStorage.getItem('eventix-staff-token'); } catch { return null; } })();
+      const bearer = token || staffToken;
+      const resp = await fetch('/api/checkin/undo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
+        body: JSON.stringify({ ticketId: id }),
+      });
+      if (resp.ok) {
+        setCheckInHistory(prev => prev.filter(h => h.id !== id));
+        setReservations(prev => prev.map(r => ({
+          ...r,
+          ticketsObj: r.ticketsObj?.map(t =>
+            t.id === id ? { ...t, checkedIn: false, checked_in_at: undefined } : t
+          ),
+        })));
+        showToast('Check-in desfeito — QR liberado.', 'success');
+      } else {
+        showToast('Não foi possível desfazer o check-in.', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão ao desfazer check-in.', 'error');
+    }
   };
 
   const handleScannerError = (err: unknown) => {

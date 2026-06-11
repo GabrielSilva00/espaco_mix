@@ -331,12 +331,30 @@ export function CheckoutModal() {
                       </div>
                     </button>
 
+                    <AnimatePresence>
+                      {localPaymentMethod === 'debit_card' && (
+                        <motion.div
+                          key="dc-form"
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="px-2 pb-2 overflow-hidden"
+                        >
+                          <CreditCardForm
+                            cardData={cardData}
+                            onCardDataChange={(cd) => { setCardData(cd); if (Object.keys(cardErrors).length) setCardErrors({}); }}
+                            cardErrors={cardErrors}
+                            grandTotal={grandTotal}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
                   </div>
 
-                  <button 
+                  <button
                     onClick={() => {
-                      if (localPaymentMethod === 'credit_card') {
-                        // Validar dados do cartão
+                      if (localPaymentMethod === 'credit_card' || localPaymentMethod === 'debit_card') {
                         const validation = validateCardData(cardData);
                         if (!validation.isValid) {
                           setCardErrors(validation.errors);
@@ -345,7 +363,10 @@ export function CheckoutModal() {
                         }
                         setCardErrors({});
                       }
-                      handleConfirmReservation(localPaymentMethod === 'credit_card' ? cardData : undefined, localPaymentMethod);
+                      handleConfirmReservation(
+                        (localPaymentMethod === 'credit_card' || localPaymentMethod === 'debit_card') ? cardData : undefined,
+                        localPaymentMethod,
+                      );
                     }}
                     disabled={!localPaymentMethod || isProcessingPayment}
                     className="w-full py-3 md:py-4 mt-2 text-[10px] md:text-[11px] font-bold tracking-[0.2em] uppercase text-[#0a0a0a] bg-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.2)] rounded-full hover:brightness-110 transition flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"

@@ -172,6 +172,7 @@ export interface SiteConfig {
   platformName: string;
   platformLogo: string | null;
   platformFeePercent?: number;
+  platformFeeType?: 'percentage' | 'fixed';
   gatewayFeePercent?: number;
   address?: string;
   contactPhone?: string;
