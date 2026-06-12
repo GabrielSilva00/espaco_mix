@@ -31,6 +31,15 @@ function formatPurchaseDate(raw: string | undefined): string {
   });
 }
 
+// Data e hora do EVENTO (date = 'YYYY-MM-DD', time = 'HH:mm'), ex.: "sáb, 15 de jun · 22:00".
+function formatEventDateTime(date: string | undefined, time: string | undefined): string {
+  if (!date) return '';
+  const d = new Date(`${date}T${time ?? '00:00'}:00`);
+  if (isNaN(d.getTime())) return '';
+  const datePart = d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
+  return time ? `${datePart} · ${time}` : datePart;
+}
+
 function useCountdown(expiresAt: number | undefined): string {
   const [remaining, setRemaining] = useState('');
   useEffect(() => {
@@ -60,12 +69,17 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
   const countdown = useCountdown(tkt.transferExpiresAt);
   return (
     <div className={`p-4 rounded-xl border ${tkt.status === 'cancelled' ? 'border-red-500/20 bg-red-500/5' : needsData && tkt.status === 'active' ? 'bg-amber-500/5 border-amber-500/30' : 'border-white/10 bg-white/5'} flex flex-col md:flex-row justify-between items-start md:items-center gap-4`}>
-      <div className="flex gap-4 items-center w-full md:w-auto">
-        <div className="relative group cursor-pointer" onClick={(e) => { e.stopPropagation(); setQrFullscreen({ id: tkt.id, name: tkt.name }); }}>
-          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-16 h-16 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} loading="lazy" decoding="async" />
-          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition backdrop-blur-[2px]">
-            <Expand className="w-5 h-5 text-white" />
-          </div>
+      <div className="flex gap-3 md:gap-4 items-center w-full md:w-auto">
+        <div
+          className={`relative group ${tkt.status === 'active' ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+          onClick={(e) => { e.stopPropagation(); if (tkt.status === 'active') setQrFullscreen({ id: tkt.id, name: tkt.name }); }}
+        >
+          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-14 h-14 md:w-16 md:h-16 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} loading="lazy" decoding="async" />
+          {tkt.status === 'active' && (
+            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition backdrop-blur-[2px]">
+              <Expand className="w-5 h-5 text-white" />
+            </div>
+          )}
         </div>
         <div className="flex-1">
           <p className="text-sm font-bold text-[#d4af37]">{tkt.name}</p>
@@ -174,7 +188,7 @@ export function ReservationsView() {
 
   return (
     <>
-      <div className="max-w-5xl mx-auto px-6 sm:px-10 mt-12">
+      <div className="max-w-5xl mx-auto px-4 sm:px-10 mt-12">
         <div className="flex justify-between items-start md:items-center mb-8 flex-col md:flex-row gap-4">
           <div className="flex items-center gap-4">
             <div>
@@ -242,12 +256,12 @@ export function ReservationsView() {
 
                   {/* View Colapsada */}
                   {!isExpanded && (
-                    <div className="flex justify-between items-center relative z-10 gap-4">
-                      <div className="flex items-center gap-4">
+                    <div className="flex justify-between items-center relative z-10 gap-3">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div className="w-14 h-14 md:w-16 md:h-16 flex-shrink-0 bg-[#111] overflow-hidden rounded-xl border border-white/10 group-hover:border-[#d4af37]/30 transition">
                           <img src={events.find(ev => ev.id === res.eventId)?.img || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80"} alt="Cover" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                            <div className="flex items-center gap-2 mb-1">
                             {(() => {
                               const tickets = res.ticketsObj ?? [];
@@ -263,14 +277,23 @@ export function ReservationsView() {
                               return <span className="px-2 py-0.5 bg-green-500/10 text-green-400 border border-green-500/20 text-[8px] uppercase tracking-widest rounded-full flex items-center gap-1"><Check className="w-2 h-2" /> Confirmado</span>;
                             })()}
                           </div>
-                          <h3 className="text-sm md:text-base font-serif text-[#d4af37]">{events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}</h3>
-                          <p className="text-[10px] md:text-xs opacity-50 tracking-widest">Comprado em {formatPurchaseDate(res.createdAt ?? res.date)}</p>
+                          <h3 className="text-sm md:text-base font-serif text-[#d4af37] truncate">{events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}</h3>
+                          {(() => {
+                            const ev = events.find(e => e.id === res.eventId);
+                            const dt = formatEventDateTime(ev?.date, ev?.time);
+                            return dt ? (
+                              <p className="text-[10px] md:text-xs font-bold text-[#d4af37]/90 flex items-center gap-1.5 mt-0.5 capitalize">
+                                <CalendarDays className="w-3 h-3 shrink-0" /> {dt}
+                              </p>
+                            ) : null;
+                          })()}
+                          <p className="text-[9px] md:text-[10px] opacity-40 tracking-widest mt-0.5">Comprado em {formatPurchaseDate(res.createdAt ?? res.date)}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                         <div className="flex flex-col items-end mr-4">
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                         <div className="flex flex-col items-end">
                            <span className="text-[9px] uppercase opacity-40 tracking-widest">Total</span>
-                           <span className="text-sm font-serif text-white">R$ {res.total.toFixed(2)}</span>
+                           <span className="text-xs md:text-sm font-serif text-white whitespace-nowrap">R$ {res.total.toFixed(2)}</span>
                          </div>
                          <ChevronDown className="w-4 h-4 opacity-30" />
                       </div>
@@ -305,7 +328,7 @@ export function ReservationsView() {
                                 return <span className="px-3 py-1 bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] uppercase tracking-widest rounded-full flex items-center gap-1.5"><Check className="w-3 h-3" /> Confirmado</span>;
                               })()}
                               <div className="flex items-center gap-2">
-                                 <span className="text-[10px] opacity-70 uppercase tracking-widest bg-white/5 py-1 px-3 rounded-md font-mono border border-white/10">Cod: {res.id}</span>
+                                 <span className="text-[10px] opacity-70 uppercase tracking-widest bg-white/5 py-1 px-3 rounded-md font-mono border border-white/10 truncate max-w-[150px] sm:max-w-none">Cod: {res.id}</span>
                                  <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -320,9 +343,18 @@ export function ReservationsView() {
                                  </button>
                               </div>
                             </div>
-                            <h3 className="text-xl md:text-2xl font-serif text-[#d4af37] mb-1">{events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}</h3>
-                            <p className="text-[11px] opacity-60 flex items-center gap-2 mb-1"><MapPin className="w-3 h-3"/> {events.find(ev => ev.id === res.eventId)?.location ?? ''}</p>
-                            <p className="text-[10px] opacity-40 flex items-center gap-2 mb-3"><Clock className="w-3 h-3"/> Comprado em {formatPurchaseDate(res.createdAt ?? res.date)}</p>
+                            <h3 className="text-lg md:text-2xl font-serif text-[#d4af37] mb-1">{events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}</h3>
+                            {(() => {
+                              const ev = events.find(e => e.id === res.eventId);
+                              const dt = formatEventDateTime(ev?.date, ev?.time);
+                              return dt ? (
+                                <p className="text-xs md:text-sm font-bold text-[#d4af37] flex items-center gap-2 mb-1 capitalize">
+                                  <CalendarDays className="w-3.5 h-3.5 shrink-0"/> {dt}
+                                </p>
+                              ) : null;
+                            })()}
+                            <p className="text-[11px] opacity-60 flex items-center gap-2 mb-1"><MapPin className="w-3 h-3 shrink-0"/> {events.find(ev => ev.id === res.eventId)?.location ?? ''}</p>
+                            <p className="text-[10px] opacity-40 flex items-center gap-2 mb-3"><Clock className="w-3 h-3 shrink-0"/> Comprado em {formatPurchaseDate(res.createdAt ?? res.date)}</p>
 
                             <div className="flex gap-2">
                                 <button onClick={(e) => {
@@ -423,11 +455,16 @@ export function ReservationsView() {
                                             return (
                                             <div key={tkt.id} className={`flex flex-col md:flex-row justify-between items-start md:items-center gap-4 p-4 rounded-xl border ${needsData && tkt.status === 'active' && !allCancelled ? 'bg-amber-500/5 border-amber-500/30' : 'bg-black/20 border-white/5'}`}>
                                               <div className="flex gap-4 items-center w-full md:w-auto">
-                                                <div className="relative group cursor-pointer" onClick={(e) => { e.stopPropagation(); setQrFullscreen({ id: tkt.id, name: tkt.name }); }}>
+                                                <div
+                                                   className={`relative group ${tkt.status === 'active' ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                                                   onClick={(e) => { e.stopPropagation(); if (tkt.status === 'active') setQrFullscreen({ id: tkt.id, name: tkt.name }); }}
+                                                >
                                                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-14 h-14 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} loading="lazy" decoding="async" />
-                                                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition backdrop-blur-[2px]">
-                                                      <Expand className="w-4 h-4 text-white" />
-                                                   </div>
+                                                   {tkt.status === 'active' && (
+                                                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition backdrop-blur-[2px]">
+                                                        <Expand className="w-4 h-4 text-white" />
+                                                     </div>
+                                                   )}
                                                 </div>
                                                 <div className="flex-1">
                                                   <p className="text-xs font-bold text-white">{tkt.name}</p>

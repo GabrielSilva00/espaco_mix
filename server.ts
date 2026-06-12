@@ -225,8 +225,8 @@ function mpStatusToReservation(mpStatus: string): string | null {
 // A Orders API usa status próprios (processed/processing/failed...). Converte
 // para o vocabulário que o frontend já entende (approved/pending/rejected),
 // evitando mudanças no cliente.
-function orderStatusToNormalized(status?: string): "approved" | "pending" | "rejected" | "refunded" | "unknown" {
-  const map: Record<string, "approved" | "pending" | "rejected" | "refunded"> = {
+function orderStatusToNormalized(status?: string): "approved" | "pending" | "rejected" | "refunded" | "partially_refunded" | "unknown" {
+  const map: Record<string, "approved" | "pending" | "rejected" | "refunded" | "partially_refunded"> = {
     processed: "approved",
     accredited: "approved",
     approved: "approved",
@@ -239,7 +239,10 @@ function orderStatusToNormalized(status?: string): "approved" | "pending" | "rej
     cancelled: "rejected",
     canceled: "rejected",
     refunded: "refunded",
-    partially_refunded: "refunded",
+    // Reembolso PARCIAL não deve marcar a reserva inteira como reembolsada:
+    // mantém status próprio e o webhook ignora (a rota de cancelamento é quem
+    // controla a transição para 'refunded' quando TODOS os ingressos são cancelados).
+    partially_refunded: "partially_refunded",
   };
   return map[status ?? ""] ?? "unknown";
 }
@@ -311,6 +314,37 @@ async function applyPaymentUpdate(
   const reservationId = (data as any[])?.[0]?.id;
   if (!reservationId) return null;
   return { reservationId: String(reservationId), newStatus };
+}
+
+// ─── Estorno via Orders API (/v1/orders/{id}/refund) ─────────────────────────
+// O endpoint legado /v1/payments/{id}/refunds NÃO aceita o id ULID (PAY01...) da
+// Orders API (404). O refund de uma order vai por /v1/orders/{orderId}/refund.
+// Como a regra de negócio sempre retém a taxa administrativa, o estorno é sempre
+// PARCIAL — informa o id do pagamento interno e o valor (string, 2 casas).
+async function refundMpOrder(
+  orderId: string,
+  innerPaymentId: string,
+  amountCents: number,
+  token: string,
+  idempotencyKey: string,
+): Promise<{ ok: boolean; status: number; body: any }> {
+  const amount = (amountCents / 100).toFixed(2);
+  const res = await fetch(`https://api.mercadopago.com/v1/orders/${orderId}/refund`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "X-Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify({
+      transactions: { payments: [{ id: innerPaymentId, amount }] },
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.error(`[REFUND] Falha Orders API (order ${orderId}, ${amount}):`, res.status, JSON.stringify(body));
+  }
+  return { ok: res.ok, status: res.status, body };
 }
 
 // ─── E-mail de confirmação a partir do BANCO (fonte da verdade) ──────────────
@@ -1559,7 +1593,7 @@ export async function createExpressApp() {
       if (reservation.payment_status === "approved") {
         const settings = await admin
           .from("system_config")
-          .select("allow_cancellation,refund_type,cancel_fee_percent,auto_refund")
+          .select("allow_cancellation")
           .eq("id", "main")
           .maybeSingle();
         const cfg = settings.data;
@@ -1569,87 +1603,66 @@ export async function createExpressApp() {
           return;
         }
 
-        if (!cfg?.auto_refund) {
+        // Reembolso obrigatório retendo a taxa administrativa (platform_fee).
+        // Cálculo em CENTAVOS INTEIROS para não acumular erro de ponto flutuante.
+        const totalCents = Math.round(total * 100);
+        const feeCents = Math.round(((reservation as any).platform_fee ?? 0) * 100);
+        const refundableCents = Math.max(totalCents - feeCents, 0);
+        // Proporcional pelo nº ORIGINAL de ingressos (não pelo ativo decrescente,
+        // que super-estornaria em cancelamentos sucessivos).
+        const shareCents = Math.max(Math.round(refundableCents / totalTickets), 0);
+
+        const orderId = (reservation as any).payment_id;
+        if (!orderId) {
           refundStatus = "manual_required";
+          refundError = "Pagamento sem identificador — estorno manual necessário.";
+        } else if (shareCents <= 0) {
+          // Taxa administrativa >= valor do ingresso: nada a estornar.
+          refundStatus = "not_applicable";
         } else {
-          // Calcula o valor a estornar para este ingresso (proporcional ao total).
-          const activeItems = allItems.filter((t: any) => t.status === "active");
-          const isLastTicket = activeItems.length === 1;
-
-          if (isLastTicket) {
-            // Último ingresso ativo: estorno do restante conforme política.
-            if (cfg.refund_type === "partial") {
-              refundAmount = Math.round(total * (1 - (cfg.cancel_fee_percent ?? 0) / 100) * 100) / 100;
-            } else if (cfg.refund_type === "no-fee") {
-              refundAmount = Math.round((total - ((reservation as any).platform_fee ?? 0)) * 100) / 100;
+          try {
+            const mpToken = await getMpAccessToken();
+            const info = await resolveMpPayment(String(orderId), mpToken);
+            const innerPaymentId = info?.innerPaymentId ?? String(orderId);
+            const result = await refundMpOrder(
+              String(orderId), innerPaymentId, shareCents, mpToken,
+              `refund-${reservation.id}-${ticket.id}`,
+            );
+            if (result.ok) {
+              refundAmount = shareCents / 100;
+              refundStatus = "processed";
             } else {
-              refundAmount = null; // sem amount = MP estorna o saldo restante
-            }
-          } else {
-            // Cancelamento parcial: proporcional pelos tickets ativos restantes.
-            const activeCount = Math.max(activeItems.length, 1);
-            const unitValue = Math.round((total / activeCount) * 100) / 100;
-            refundAmount = unitValue;
-          }
-
-          const orderId = (reservation as any).payment_id;
-          if (!orderId) {
-            refundStatus = "manual_required";
-            refundError = "Pagamento sem identificador — estorno manual necessário.";
-          } else {
-            try {
-              const mpToken = await getMpAccessToken();
-              const info = await resolveMpPayment(String(orderId), mpToken);
-              const realPaymentId = info?.innerPaymentId ?? String(orderId);
-              const mpBody = refundAmount !== null ? { amount: Math.round(refundAmount * 100) / 100 } : {};
-              const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${realPaymentId}/refunds`, {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${mpToken}`,
-                  "Content-Type": "application/json",
-                  "X-Idempotency-Key": `refund-${reservation.id}-${ticket.id}`,
-                },
-                body: JSON.stringify(mpBody),
-              });
-              if (mpRes.ok) {
-                const mpData = await mpRes.json().catch(() => ({}));
-                refundAmount = refundAmount ?? (mpData.amount ?? total);
-                refundStatus = "processed";
-              } else {
-                const errText = await mpRes.text();
-                refundStatus = "failed";
-                refundError = errText;
-                console.error("[TICKET/CANCEL] Falha no estorno MP:", errText);
-                try {
-                  await admin.from("audit_logs").insert({
-                    user_id: user.uid,
-                    action: "refund_failed",
-                    entity_type: "reservation",
-                    entity_id: reservation.id,
-                    changes: { paymentId: realPaymentId, refundAmount, error: errText },
-                  });
-                } catch { /* auditoria é melhor-esforço */ }
-                // Estorno falhou — não cancelar o ingresso.
-                res.status(422).json({ error: `Não foi possível processar o estorno. ${errText}`, refundStatus, refundError });
-                return;
-              }
-            } catch (mpErr: any) {
               refundStatus = "failed";
-              refundError = String(mpErr?.message ?? mpErr);
-              console.error("[TICKET/CANCEL] Erro ao chamar MP refund:", refundError);
+              refundError = typeof result.body === "object" ? JSON.stringify(result.body) : String(result.body);
               try {
                 await admin.from("audit_logs").insert({
                   user_id: user.uid,
                   action: "refund_failed",
                   entity_type: "reservation",
                   entity_id: reservation.id,
-                  changes: { refundAmount, error: refundError },
+                  changes: { orderId: String(orderId), innerPaymentId, refundCents: shareCents, status: result.status, error: result.body },
                 });
               } catch { /* auditoria é melhor-esforço */ }
-              // Estorno falhou — não cancelar o ingresso.
-              res.status(422).json({ error: `Erro ao processar estorno: ${refundError}`, refundStatus, refundError });
+              // Estorno falhou — NÃO cancela o ingresso (sem falha silenciosa).
+              res.status(422).json({ error: "Não foi possível processar o estorno. Tente novamente ou contate o suporte.", refundStatus, refundError });
               return;
             }
+          } catch (mpErr: any) {
+            refundStatus = "failed";
+            refundError = String(mpErr?.message ?? mpErr);
+            console.error("[TICKET/CANCEL] Erro ao chamar MP refund:", refundError);
+            try {
+              await admin.from("audit_logs").insert({
+                user_id: user.uid,
+                action: "refund_failed",
+                entity_type: "reservation",
+                entity_id: reservation.id,
+                changes: { orderId: String(orderId), refundCents: shareCents, error: refundError },
+              });
+            } catch { /* auditoria é melhor-esforço */ }
+            // Estorno falhou — NÃO cancela o ingresso (sem falha silenciosa).
+            res.status(422).json({ error: `Erro ao processar estorno: ${refundError}`, refundStatus, refundError });
+            return;
           }
         }
       }
@@ -1976,8 +1989,13 @@ export async function createExpressApp() {
 
     try {
       const isDebit = paymentMethod === 'debit_card';
-      const brandMap: Record<string, string> = { visa: 'visa', mastercard: 'master', amex: 'amex', elo: 'elo' };
-      const brandId = brandMap[cardBrand || 'visa'] ?? 'visa';
+      // A Orders API exige o payment_method.id da variante de DÉBITO para cartões
+      // de débito (debvisa/debmaster/debelo) — mandar 'elo' num Elo Débito faz o
+      // MP rejeitar com "value must be 'debelo'".
+      const creditMap: Record<string, string> = { visa: 'visa', mastercard: 'master', amex: 'amex', elo: 'elo' };
+      const debitMap: Record<string, string> = { visa: 'debvisa', mastercard: 'debmaster', elo: 'debelo' };
+      const brandKey = (cardBrand || 'visa').toLowerCase();
+      const brandId = isDebit ? (debitMap[brandKey] ?? 'debvisa') : (creditMap[brandKey] ?? 'visa');
       const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
 
       // Orders API (/v1/orders) — o /v1/payments legado foi descontinuado para
@@ -2937,7 +2955,7 @@ export async function createExpressApp() {
       // site não chegavam ao estorno do Mercado Pago.
       const { data: settings } = await adminClient
         .from("system_config")
-        .select("allow_cancellation,refund_type,cancel_max_delay_hours,auto_refund,cancel_fee_percent")
+        .select("allow_cancellation,cancel_max_delay_hours")
         .eq("id", "main")
         .maybeSingle();
       if (!settings?.allow_cancellation) {
@@ -2972,36 +2990,28 @@ export async function createExpressApp() {
         return;
       }
 
-      // 3. Calcular valor conforme refund_type (regra definida no site):
-      //    total  → reembolso integral (corpo vazio = full refund no MP)
-      //    partial→ desconta a multa de cancelamento (cancel_fee_percent)
-      //    no-fee → devolve tudo menos a taxa da plataforma já retida
-      const total: number = reservation.total;
-      let refundAmount: number | undefined;
-      if (settings.refund_type === "partial") {
-        const cancelFee = settings.cancel_fee_percent ?? 0;
-        refundAmount = total * (1 - cancelFee / 100);
-      } else if (settings.refund_type === "no-fee") {
-        refundAmount = total - (reservation.platform_fee ?? 0);
+      // 3. Valor a estornar = total − taxa administrativa (sempre retida),
+      //    em CENTAVOS INTEIROS para evitar erro de ponto flutuante.
+      const totalCents = Math.round(((reservation as any).total ?? 0) * 100);
+      const feeCents = Math.round(((reservation as any).platform_fee ?? 0) * 100);
+      const refundCents = Math.max(totalCents - feeCents, 0);
+      if (refundCents <= 0) {
+        // Nada a estornar (taxa >= total) — apenas marca como reembolsada.
+        await adminClient.from("reservations").update({ payment_status: "refunded" }).eq("id", reservationId);
+        res.json({ success: true, refundAmount: 0 });
+        return;
       }
 
-      // 4. Chamar API do Mercado Pago
-      const mpBody = refundAmount !== undefined ? { amount: refundAmount } : {};
+      // 4. Estorno pela Orders API (paymentId = id da ORDER salvo na reserva).
       const refundToken = await getMpAccessToken();
-      const mpRes = await fetch(
-        `https://api.mercadopago.com/v1/payments/${paymentId}/refunds`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${refundToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(mpBody),
-        }
+      const info = await resolveMpPayment(String(paymentId), refundToken);
+      const innerPaymentId = info?.innerPaymentId ?? String(paymentId);
+      const result = await refundMpOrder(
+        String(paymentId), innerPaymentId, refundCents, refundToken,
+        `refund-full-${reservationId}`,
       );
-      if (!mpRes.ok) {
-        const err = await mpRes.json();
-        res.status(502).json({ error: "Erro no Mercado Pago", details: err });
+      if (!result.ok) {
+        res.status(502).json({ error: "Erro no Mercado Pago", details: result.body });
         return;
       }
 
@@ -3011,7 +3021,7 @@ export async function createExpressApp() {
         .update({ payment_status: "refunded" })
         .eq("id", reservationId);
 
-      res.json({ success: true });
+      res.json({ success: true, refundAmount: refundCents / 100 });
     } catch (err: any) {
       console.error("[Refund] Erro:", err?.message);
       res.status(500).json({ error: "Erro interno ao processar estorno" });

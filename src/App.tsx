@@ -121,9 +121,9 @@ export function App() {
           showToast('Ingresso cancelado. O estorno será processado manualmente pela organização.', 'info');
         } else if (data.refundStatus === 'processed') {
           if (res?.paymentMethod === 'pix') {
-            showToast(`Ingresso cancelado. Estorno de R$ ${(data.refundAmount ?? 0).toFixed(2)} via PIX em processamento (até 10 dias úteis).`, 'success');
+            showToast(`Ingresso cancelado. Estorno de R$ ${(data.refundAmount ?? 0).toFixed(2)} devolvido automaticamente à conta PIX usada no pagamento (pode levar alguns dias úteis).`, 'success');
           } else {
-            showToast(`Ingresso cancelado. Estorno de R$ ${(data.refundAmount ?? 0).toFixed(2)} em processamento.`, 'success');
+            showToast(`Ingresso cancelado. Estorno de R$ ${(data.refundAmount ?? 0).toFixed(2)} devolvido ao cartão usado no pagamento.`, 'success');
           }
         } else {
           showToast('Ingresso cancelado com sucesso.', 'success');
