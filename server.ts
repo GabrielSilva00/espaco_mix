@@ -2041,7 +2041,7 @@ export async function createExpressApp() {
         },
       };
 
-      console.log(`[MERCADOPAGO] Processando pagamento (orders): R$ ${amount} | Método: ${paymentMethod} | payer.email: ${payload.payer.email}`);
+      console.log(`[MERCADOPAGO] Processando pagamento (orders): R$ ${amount} | Método: ${paymentMethod} | payment_method.id: ${brandId} (recebido do front: ${paymentMethodId ?? '—'}, fallback: ${fallbackBrandId}) | payer.email: ${payload.payer.email}`);
 
       const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
