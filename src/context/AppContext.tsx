@@ -1045,6 +1045,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           platformFeePercent: cfg.platform_fee_percent ?? 10,
           platformFeeType: (cfg as any).platform_fee_type === 'fixed' ? 'fixed' : 'percentage',
           gatewayFeePercent: cfg.gateway_fee_percent ?? 0,
+          allowTransfer: cfg.allow_transfer ?? false,
         }));
       })
       .catch(() => {
@@ -2333,8 +2334,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else {
         if (!cardData) throw new Error('Dados do cartão não informados');
         const cardBrand = detectCardBrand(cardData.number);
-        const cardToken = await tokenizeCard({ ...cardData, holderCpf: cardData.holderCpf || buyer.cpf });
-        if (!cardToken) throw new Error('Falha ao tokenizar cartão. Verifique os dados e tente novamente.');
+        const tokenized = await tokenizeCard(
+          { ...cardData, holderCpf: cardData.holderCpf || buyer.cpf },
+          { isDebit: selectedPaymentMethod === 'debit_card' }
+        );
+        if (!tokenized?.token) throw new Error('Falha ao tokenizar cartão. Verifique os dados e tente novamente.');
+        const { token: cardToken, paymentMethodId } = tokenized;
         const paymentFetch = fetch('/api/payment/mercadopago', {
           method: 'POST',
           signal,
@@ -2342,6 +2347,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({
             cardToken,
             cardBrand,
+            paymentMethodId,
             amount: grandTotal,
             description: activeEvent?.title || 'Ingresso',
             paymentMethod: selectedPaymentMethod,

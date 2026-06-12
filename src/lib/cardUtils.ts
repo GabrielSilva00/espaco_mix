@@ -124,8 +124,15 @@ export function detectCardBrand(cardNumber: string): 'visa' | 'mastercard' | 'am
   return 'unknown';
 }
 
-// Tokenizar cartão com Mercado Pago SDK
-export async function tokenizeCard(cardData: CardData): Promise<string | null> {
+// Tokenizar cartão com Mercado Pago SDK.
+// Além do token, resolve o payment_method_id REAL consultando o próprio MP
+// (mp.getPaymentMethods({ bin })). Isso elimina a detecção frágil por regex:
+// p.ex. um BIN Elo que começa com 4 era classificado como Visa e o backend
+// montava 'debvisa' em vez de 'debelo', fazendo o MP rejeitar o débito.
+export async function tokenizeCard(
+  cardData: CardData,
+  opts: { isDebit?: boolean } = {}
+): Promise<{ token: string; paymentMethodId: string | null } | null> {
   // A env é a fonte da verdade (igual ao backend, que usa MERCADOPAGO_ACCESS_TOKEN
   // da env antes do runtime). Sem env, usa a public key configurada pelo admin no
   // painel (salva em system_config.mp_public_key — não-secreta). localStorage é
@@ -160,8 +167,9 @@ export async function tokenizeCard(cardData: CardData): Promise<string | null> {
 
     const cpf = (cardData.holderCpf || '').replace(/\D/g, '');
 
+    const cleanNumber = cardData.number.replace(/\s/g, '');
     const result = await mp.createCardToken({
-      cardNumber: cardData.number.replace(/\s/g, ''),
+      cardNumber: cleanNumber,
       cardholderName: cardData.holderName,
       cardExpirationMonth: cardData.expiryMonth.padStart(2, '0'),
       cardExpirationYear: expiryYear,
@@ -170,7 +178,22 @@ export async function tokenizeCard(cardData: CardData): Promise<string | null> {
       identificationNumber: cpf || '12345678909',
     });
 
-    return result.id ?? null;
+    if (!result.id) return null;
+
+    // Pergunta ao MP o payment_method_id exato para este BIN (ex.: 'debelo').
+    // Falha aqui não impede o pagamento — o backend cai no mapa de fallback.
+    let paymentMethodId: string | null = null;
+    try {
+      const wantType = opts.isDebit ? 'debit_card' : 'credit_card';
+      const pm = await mp.getPaymentMethods({ bin: cleanNumber.slice(0, 8) });
+      const results: any[] = pm?.results ?? [];
+      const match = results.find(m => m.payment_type_id === wantType) ?? results[0];
+      paymentMethodId = match?.id ?? null;
+    } catch (e) {
+      console.warn('[CardTokenizer] getPaymentMethods falhou, usando fallback no backend:', e);
+    }
+
+    return { token: result.id, paymentMethodId };
   })();
 
   const timeoutPromise = new Promise<null>((_, reject) =>

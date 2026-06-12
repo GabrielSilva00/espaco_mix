@@ -2638,7 +2638,7 @@ export function DashboardView() {
             ) : dashboardMode === 'dev-overview' && userRole === 'developer' ? (
               <DevOverviewPanel events={events} buyers={buyers} reservations={reservations} systemLogs={systemLogs} clearSystemLogs={clearSystemLogs} />
             ) : dashboardMode === 'reports' && isAtLeast('admin') ? (
-              <ReportsPanel events={events} reservations={reservations} />
+              <ReportsPanel events={events} reservations={reservations} gatewayFeePercent={siteConfig.gatewayFeePercent ?? 0} />
             ) : null}
             </>
           )}

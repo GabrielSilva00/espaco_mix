@@ -63,7 +63,7 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
   setQrFullscreen: (v: { id: string; name: string } | null) => void;
   setActionTicket: (v: any) => void;
 }) {
-  const { loggedInUserId } = useApp();
+  const { loggedInUserId, siteConfig } = useApp();
   const isRecipient = !!tkt.holderUserId && tkt.holderUserId === loggedInUserId;
   const needsData = !tkt.ownerName;
   const countdown = useCountdown(tkt.transferExpiresAt);
@@ -131,10 +131,12 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
               </button>
             )}
             <div className="flex gap-2 flex-1 md:flex-none w-full md:w-auto mt-2 md:mt-0">
-              <button
-                onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tkt.id, type: 'transfer' }); }}
-                className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white transition text-[9px] uppercase tracking-widest font-bold"
-              >Transferir</button>
+              {siteConfig.allowTransfer && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tkt.id, type: 'transfer' }); }}
+                  className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white transition text-[9px] uppercase tracking-widest font-bold"
+                >Transferir</button>
+              )}
               <button
                 onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tkt.id, type: 'cancel' }); }}
                 className="h-[34px] flex-1 md:flex-none px-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition text-[9px] uppercase tracking-widest font-bold"
@@ -164,6 +166,7 @@ export function ReservationsView() {
     qrFullscreen, setQrFullscreen,
     events,
     actionTicket, setActionTicket,
+    siteConfig,
   } = useApp();
 
   // "Histórico": evento passado, pagamento cancelado/reembolsado, ou todos os
@@ -438,10 +441,12 @@ export function ReservationsView() {
                                         </div>
                                         {!allCancelled && (
                                           <div className="flex gap-2">
-                                            <button
-                                              onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tableNumber, type: 'transfer_table', reservationId: res.id }); }}
-                                              className="px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-[9px] uppercase tracking-widest transition"
-                                            >Transferir Mesa</button>
+                                            {siteConfig.allowTransfer && (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tableNumber, type: 'transfer_table', reservationId: res.id }); }}
+                                                className="px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-[9px] uppercase tracking-widest transition"
+                                              >Transferir Mesa</button>
+                                            )}
                                             <button
                                               onClick={(e) => { e.stopPropagation(); setActionTicket({ id: tableNumber, type: 'cancel_table', reservationId: res.id }); }}
                                               className="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-[9px] uppercase tracking-widest transition"

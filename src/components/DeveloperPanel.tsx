@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Code2, ToggleLeft, ToggleRight, RotateCcw, Save, Check,
-  ChevronDown, ChevronUp, Server, ShieldCheck, LayoutGrid, Info,
+  ChevronDown, ChevronUp, Server, ShieldCheck, LayoutGrid, Info, Globe,
 } from 'lucide-react';
 import {
   loadDeveloperConfig,
@@ -10,6 +10,7 @@ import {
 } from '../services/developerConfig';
 import type { DeveloperConfig, FeatureFlags, AdminModules } from '../types/developer';
 import { useApp } from '../context/AppContext';
+import { getSystemConfigAdmin, updateSystemConfig } from '../lib/supabase';
 
 declare const __APP_VERSION__: string;
 
@@ -66,9 +67,34 @@ function ToggleRow({ label, description, value, onChange, danger }: ToggleRowPro
 }
 
 export function DeveloperPanel() {
-  const { setDeveloperConfig } = useApp();
+  const { setDeveloperConfig, setSiteConfig } = useApp();
   const [config, setConfig] = useState<DeveloperConfig>(loadDeveloperConfig);
   const [saved, setSaved] = useState(false);
+
+  // Funcionalidades globais persistidas no banco (system_config) — valem para
+  // TODOS os clientes, diferente das feature flags acima (localStorage local).
+  const [allowTransfer, setAllowTransfer] = useState<boolean | null>(null);
+  const [savingTransfer, setSavingTransfer] = useState(false);
+
+  useEffect(() => {
+    getSystemConfigAdmin()
+      .then(cfg => setAllowTransfer(cfg.allow_transfer ?? false))
+      .catch(() => setAllowTransfer(false));
+  }, []);
+
+  const handleToggleTransfer = async (value: boolean) => {
+    setAllowTransfer(value);
+    setSavingTransfer(true);
+    try {
+      await updateSystemConfig({ allow_transfer: value });
+      setSiteConfig(prev => ({ ...prev, allowTransfer: value }));
+    } catch {
+      setAllowTransfer(!value); // reverte em caso de falha
+      alert('Não foi possível salvar a configuração de transferência. Tente novamente.');
+    } finally {
+      setSavingTransfer(false);
+    }
+  };
 
   const update = <K extends keyof DeveloperConfig>(section: K, patch: Partial<DeveloperConfig[K]>) => {
     setConfig(prev => ({ ...prev, [section]: { ...prev[section], ...patch } } as DeveloperConfig));
@@ -173,6 +199,19 @@ export function DeveloperPanel() {
               danger={featureLabels[key].danger}
             />
           ))}
+        </Section>
+
+        {/* Funcionalidades globais (banco) */}
+        <Section title="Funcionalidades Globais" icon={<Globe className="w-4 h-4" />}>
+          <p className="text-[10px] text-white/30 normal-case tracking-normal font-normal mb-2">
+            Estes ajustes são salvos no banco e valem para TODOS os clientes imediatamente.
+          </p>
+          <ToggleRow
+            label="Transferência de Ingressos"
+            description="Exibe o botão 'Transferir' (ingresso e mesa) na página Meus Ingressos para os clientes."
+            value={allowTransfer ?? false}
+            onChange={v => { if (!savingTransfer && allowTransfer !== null) handleToggleTransfer(v); }}
+          />
         </Section>
 
         {/* Acesso a páginas do admin */}

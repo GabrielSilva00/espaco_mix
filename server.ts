@@ -1936,6 +1936,7 @@ export async function createExpressApp() {
     const {
       cardToken,
       cardBrand,
+      paymentMethodId,
       amount: clientAmount,
       description,
       paymentMethod,
@@ -1946,6 +1947,7 @@ export async function createExpressApp() {
     } = req.body as {
       cardToken?: string;
       cardBrand?: string;
+      paymentMethodId?: string;
       amount?: number;
       description?: string;
       paymentMethod?: string;
@@ -1992,10 +1994,15 @@ export async function createExpressApp() {
       // A Orders API exige o payment_method.id da variante de DÉBITO para cartões
       // de débito (debvisa/debmaster/debelo) — mandar 'elo' num Elo Débito faz o
       // MP rejeitar com "value must be 'debelo'".
+      // Preferimos o id resolvido pelo próprio MP no front (getPaymentMethods);
+      // o mapa abaixo é só fallback quando esse id não veio.
       const creditMap: Record<string, string> = { visa: 'visa', mastercard: 'master', amex: 'amex', elo: 'elo' };
       const debitMap: Record<string, string> = { visa: 'debvisa', mastercard: 'debmaster', elo: 'debelo' };
       const brandKey = (cardBrand || 'visa').toLowerCase();
-      const brandId = isDebit ? (debitMap[brandKey] ?? 'debvisa') : (creditMap[brandKey] ?? 'visa');
+      const fallbackBrandId = isDebit ? (debitMap[brandKey] ?? 'debvisa') : (creditMap[brandKey] ?? 'visa');
+      const brandId = (typeof paymentMethodId === 'string' && paymentMethodId.trim())
+        ? paymentMethodId.trim()
+        : fallbackBrandId;
       const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
 
       // Orders API (/v1/orders) — o /v1/payments legado foi descontinuado para

@@ -180,6 +180,7 @@ export interface SiteConfig {
   platformFeePercent?: number;
   platformFeeType?: 'percentage' | 'fixed';
   gatewayFeePercent?: number;
+  allowTransfer?: boolean;
   address?: string;
   contactPhone?: string;
   contactEmail?: string;
