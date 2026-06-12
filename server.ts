@@ -337,7 +337,7 @@ async function refundMpOrder(
       "X-Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify({
-      transactions: { payments: [{ id: innerPaymentId, amount }] },
+      transactions: [{ id: innerPaymentId, amount }],
     }),
   });
   const body = await res.json().catch(() => ({}));
