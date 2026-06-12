@@ -41,6 +41,7 @@ export interface TicketItem {
   pendingTransferEmail?: string;
   transferExpiresAt?: number;
   originalBuyerId?: string;
+  transferredFromName?: string;
   checkedIn?: boolean;
 }
 
@@ -56,6 +57,7 @@ export interface Reservation {
   buyerName?: string;
   paymentStatus?: 'pending' | 'approved' | 'cancelled' | 'refunded';
   paymentMethod?: 'pix' | 'credit_card' | 'debit_card';
+  paymentId?: string;
   platformFee?: number;
   netAmount?: number;
   createdAt?: string;
@@ -198,6 +200,7 @@ export type CurrentView =
   | 'home'
   | 'booking'
   | 'reservations'
+  | 'cart'
   | 'contact'
   | 'admin-login'
   | 'staff-portal'

@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, LogOut, Ticket, X, Menu, Home, Phone, CalendarDays } from 'lucide-react';
+import { User, LogOut, Ticket, X, Menu, Home, Phone, CalendarDays, ShoppingCart } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
 export function Navbar() {
@@ -12,7 +12,10 @@ export function Navbar() {
     isUserDropdownOpen, setIsUserDropdownOpen, userDropdownRef,
     handleLogout, showToast, pendingApprovalsCount,
     setAuthIntent, setAuthTab, isApprovedEventCreator,
+    reservations,
   } = useApp();
+
+  const cartCount = reservations.filter(r => r.paymentStatus === 'pending').length;
 
   return (
     <>
@@ -76,6 +79,17 @@ export function Navbar() {
                 className={`hover:text-[#d4af37] transition-colors ${currentView === 'reservations' ? 'text-[#d4af37] opacity-100 font-bold' : ''}`}
               >
                 Minhas Reservas
+              </button>
+            )}
+            {role && userRole === 'client' && (
+              <button
+                onClick={() => setCurrentView('cart')}
+                className={`relative flex items-center gap-1.5 hover:text-[#d4af37] transition-colors ${currentView === 'cart' ? 'text-[#d4af37] opacity-100 font-bold' : ''}`}
+              >
+                <ShoppingCart className="w-4 h-4" /> Carrinho
+                {cartCount > 0 && (
+                  <span className="absolute -top-2 -right-3 bg-[#d4af37] text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{cartCount}</span>
+                )}
               </button>
             )}
             {!isPreviewingEvent && !isStaff && (
@@ -271,6 +285,15 @@ export function Navbar() {
                     label="Minhas Reservas"
                     active={currentView === 'reservations'}
                     onClick={() => { setCurrentView('reservations'); setIsMobileMenuOpen(false); }}
+                  />
+                )}
+
+                {role && userRole === 'client' && (
+                  <SheetItem
+                    icon={<ShoppingCart className="w-4 h-4" />}
+                    label={cartCount > 0 ? `Carrinho (${cartCount})` : 'Carrinho'}
+                    active={currentView === 'cart'}
+                    onClick={() => { setCurrentView('cart'); setIsMobileMenuOpen(false); }}
                   />
                 )}
 

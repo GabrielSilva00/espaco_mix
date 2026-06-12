@@ -14,6 +14,7 @@ import { Home } from './components/Home';
 import { Footer } from './components/Footer';
 import { BookingView } from './modules/booking/BookingView';
 import { ReservationsView } from './modules/reservations/ReservationsView';
+import { CartView } from './modules/cart/CartView';
 import { ContactView } from './modules/contact/ContactView';
 import { AuthView } from './modules/auth/AuthView';
 import { ProfileView } from './modules/profile/ProfileView';
@@ -86,6 +87,8 @@ export function App() {
     isLogsModalOpen, setIsLogsModalOpen, userRole,
     showOnboarding, developerConfig,
     dataLoadError, retryDataLoad,
+    showExitConfirm, setShowExitConfirm, confirmExitApp,
+    reloadReservations,
   } = useApp();
 
   const [resendingEmail, setResendingEmail] = React.useState(false);
@@ -112,10 +115,16 @@ export function App() {
           ticketsObj: res.ticketsObj?.map(t => t.id === actionTicket.id ? { ...t, status: 'cancelled' as const } : t),
         })));
         const res = reservations.find(r => r.ticketsObj?.some(t => t.id === actionTicket.id));
-        if (res?.paymentMethod === 'pix') {
-          showToast('Ingresso cancelado. O estorno PIX é processado automaticamente pelo Mercado Pago (até 10 dias úteis).', 'info');
-        } else if (data.refundAmount) {
-          showToast(`Ingresso cancelado. Estorno de R$ ${data.refundAmount.toFixed(2)} em processamento.`, 'success');
+        if (data.refundStatus === 'failed') {
+          showToast('Ingresso cancelado, mas o estorno automático falhou. Nossa equipe fará o reembolso manualmente.', 'warning');
+        } else if (data.refundStatus === 'manual_required') {
+          showToast('Ingresso cancelado. O estorno será processado manualmente pela organização.', 'info');
+        } else if (data.refundStatus === 'processed') {
+          if (res?.paymentMethod === 'pix') {
+            showToast(`Ingresso cancelado. Estorno de R$ ${(data.refundAmount ?? 0).toFixed(2)} via PIX em processamento (até 10 dias úteis).`, 'success');
+          } else {
+            showToast(`Ingresso cancelado. Estorno de R$ ${(data.refundAmount ?? 0).toFixed(2)} em processamento.`, 'success');
+          }
         } else {
           showToast('Ingresso cancelado com sucesso.', 'success');
         }
@@ -140,6 +149,90 @@ export function App() {
       setActionError(err.message ?? 'Erro ao processar cancelamento');
     } finally {
       setCancellingTicket(false);
+    }
+  };
+
+  const [transferringTicket, setTransferringTicket] = React.useState(false);
+
+  // Aceitação de transferência recebida via link de e-mail (?transfer=<token>)
+  const [transferToken, setTransferToken] = React.useState<string | null>(null);
+  const [transferBusy, setTransferBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get('transfer');
+    if (t) {
+      setTransferToken(t);
+      params.delete('transfer');
+      const newUrl = window.location.pathname + (params.toString() ? `?${params}` : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
+
+  const handleAcceptTransfer = async (accept: boolean) => {
+    if (!transferToken || transferBusy) return;
+    setTransferBusy(true);
+    try {
+      const token = await getAccessTokenSafe();
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const resp = await fetch(`/api/transfer/${transferToken}/${accept ? 'accept' : 'reject'}`, { method: 'POST', headers });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error ?? 'Erro ao processar transferência');
+      if (accept) {
+        showToast(`Ingresso recebido${data.fromName ? ` de ${data.fromName}` : ''}! Confira em Minhas Reservas.`, 'success');
+        reloadReservations();
+        setCurrentView('reservations');
+      } else {
+        showToast('Transferência recusada.', 'info');
+      }
+      setTransferToken(null);
+    } catch (err: any) {
+      showToast(err.message ?? 'Erro ao processar transferência', 'error');
+    } finally {
+      setTransferBusy(false);
+    }
+  };
+
+  const handleTransferConfirm = async () => {
+    if (!actionTicket || transferringTicket) return;
+    const email = actionTicket.data?.email;
+    if (!email || !email.includes('@')) { setActionError('Insira um e-mail válido.'); return; }
+    setTransferringTicket(true);
+    setActionError('');
+    try {
+      const token = await getAccessTokenSafe();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      let ticketIds: string[] = [];
+      if (actionTicket.type === 'transfer') {
+        ticketIds = [actionTicket.id];
+      } else {
+        const reservation = reservations.find(r => r.id === actionTicket.reservationId);
+        ticketIds = reservation?.ticketsObj?.filter(t => t.tableNumber === actionTicket.id && t.status === 'active').map(t => t.id) ?? [];
+      }
+      if (ticketIds.length === 0) throw new Error('Nenhum ingresso elegível para transferência.');
+
+      for (const tid of ticketIds) {
+        const resp = await fetch(`/api/ticket/${tid}/transfer`, { method: 'POST', headers, body: JSON.stringify({ toEmail: email }) });
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          throw new Error(body.error ?? 'Erro ao transferir ingresso');
+        }
+      }
+      setReservations(reservations.map(res => ({
+        ...res,
+        ticketsObj: res.ticketsObj?.map(t => ticketIds.includes(t.id)
+          ? { ...t, status: 'pending_transfer' as const, pendingTransferEmail: email }
+          : t),
+      })));
+      showToast(`Convite de transferência enviado para ${email}.`, 'success');
+      setActionTicket(null);
+    } catch (err: any) {
+      setActionError(err.message ?? 'Erro ao transferir ingresso');
+    } finally {
+      setTransferringTicket(false);
     }
   };
 
@@ -250,6 +343,7 @@ export function App() {
 
           {currentView === 'booking' && <BookingView />}
           {currentView === 'reservations' && <ReservationsView />}
+          {currentView === 'cart' && <CartView />}
           {currentView === 'contact' && <ContactView />}
           {currentView === 'admin-login' && <AuthView />}
           {currentView === 'staff-portal' && <AuthView portal />}
@@ -491,23 +585,11 @@ export function App() {
                             Voltar
                           </button>
                           <button
-                            onClick={() => {
-                              const expiresAt = Date.now() + 3540000;
-                              showToast(`Convite enviado para ${actionTicket.data.email}. A transferência expira em 59 minutos.`, 'success');
-                              const updated = reservations.map(res => {
-                                if (actionTicket.type === 'transfer_table' && res.id === actionTicket.reservationId) {
-                                  return { ...res, ticketsObj: res.ticketsObj?.map(t => t.tableNumber === actionTicket.id ? { ...t, status: 'pending_transfer' as const, pendingTransferEmail: actionTicket.data?.email, transferExpiresAt: expiresAt } : t) };
-                                } else if (actionTicket.type === 'transfer') {
-                                  return { ...res, ticketsObj: res.ticketsObj?.map(t => t.id === actionTicket.id ? { ...t, status: 'pending_transfer' as const, pendingTransferEmail: actionTicket.data?.email, transferExpiresAt: expiresAt } : t) };
-                                }
-                                return res;
-                              });
-                              setReservations(updated);
-                              setActionTicket(null);
-                            }}
-                            className="flex-1 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-[#0a0a0a] bg-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.2)] rounded-xl hover:brightness-110 transition"
+                            onClick={handleTransferConfirm}
+                            disabled={transferringTicket}
+                            className="flex-1 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-[#0a0a0a] bg-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.2)] rounded-xl hover:brightness-110 transition disabled:opacity-50"
                           >
-                            Confirmar Envio
+                            {transferringTicket ? 'Enviando...' : 'Confirmar Envio'}
                           </button>
                         </div>
                       </>
@@ -834,6 +916,107 @@ export function App() {
       <Toast />
       <InstallPrompt />
       {showOnboarding && <AdminOnboarding />}
+
+      {/* Confirmação de saída do app (voltar na home) */}
+      <AnimatePresence>
+        {showExitConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4"
+            onClick={() => setShowExitConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="bg-[#0d0d0d] border border-white/15 rounded-2xl p-6 max-w-sm w-full text-center"
+              onClick={e => e.stopPropagation()}
+            >
+              <h3 className="text-base font-serif text-[#d4af37] mb-2">Sair do aplicativo?</h3>
+              <p className="text-sm text-white/60 mb-6">Você está na página inicial. Deseja realmente sair?</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowExitConfirm(false)}
+                  className="flex-1 py-3 text-[10px] uppercase font-bold tracking-widest bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition"
+                >
+                  Continuar no app
+                </button>
+                <button
+                  onClick={confirmExitApp}
+                  className="flex-1 py-3 text-[10px] uppercase font-bold tracking-widest bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 rounded-xl transition"
+                >
+                  Sair
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Aceitação de transferência de ingresso (via link de e-mail) */}
+      <AnimatePresence>
+        {transferToken && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="bg-[#0d0d0d] border border-white/15 rounded-2xl p-6 max-w-sm w-full text-center"
+            >
+              <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-[#d4af37]/15 flex items-center justify-center">
+                <Tag className="w-6 h-6 text-[#d4af37]" />
+              </div>
+              <h3 className="text-lg font-serif text-[#d4af37] mb-2">Transferência de ingresso</h3>
+              {userRole ? (
+                <>
+                  <p className="text-sm text-white/60 mb-6">Você recebeu um convite de transferência de ingresso. Deseja aceitar?</p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleAcceptTransfer(false)}
+                      disabled={transferBusy}
+                      className="flex-1 py-3 text-[10px] uppercase font-bold tracking-widest bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition disabled:opacity-50"
+                    >
+                      Recusar
+                    </button>
+                    <button
+                      onClick={() => handleAcceptTransfer(true)}
+                      disabled={transferBusy}
+                      className="flex-1 py-3 text-[10px] uppercase font-bold tracking-widest bg-[#d4af37] text-black rounded-xl hover:brightness-110 transition disabled:opacity-50"
+                    >
+                      {transferBusy ? 'Processando...' : 'Aceitar'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-white/60 mb-6">Para aceitar o ingresso, entre com a conta do e-mail que recebeu o convite.</p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setTransferToken(null)}
+                      className="flex-1 py-3 text-[10px] uppercase font-bold tracking-widest bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition"
+                    >
+                      Agora não
+                    </button>
+                    <button
+                      onClick={() => setCurrentView('admin-login')}
+                      className="flex-1 py-3 text-[10px] uppercase font-bold tracking-widest bg-[#d4af37] text-black rounded-xl hover:brightness-110 transition"
+                    >
+                      Entrar
+                    </button>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Banner de falha de carregamento de dados (P3) */}
       <AnimatePresence>

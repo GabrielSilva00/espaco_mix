@@ -272,6 +272,40 @@ export async function sendTestEmail(to: string): Promise<void> {
   );
 }
 
+/** Convite de transferência de ingresso enviado ao destinatário. */
+export async function sendTransferInvitation(params: {
+  toEmail: string;
+  fromName: string;
+  eventTitle: string;
+  ticketName: string;
+  acceptUrl: string;
+}): Promise<void> {
+  const cfg = await resolveEmailConfig();
+  const { toEmail, fromName, eventTitle, ticketName, acceptUrl } = params;
+  const html = `
+    <div style="font-family:Georgia,serif;max-width:560px;margin:0 auto;padding:32px;background:#0a0a0a;color:#fff;border-radius:16px">
+      <h1 style="color:#d4af37;font-size:22px;margin:0 0 8px">Você recebeu um ingresso!</h1>
+      <p style="color:#cfcfcf;font-size:14px;line-height:1.6;font-family:Arial,sans-serif">
+        <strong style="color:#fff">${fromName}</strong> deseja transferir um ingresso para você.
+      </p>
+      <div style="background:#111;border:1px solid #d4af3733;border-radius:12px;padding:20px;margin:20px 0">
+        <p style="margin:0 0 6px;color:#d4af37;font-size:16px">${eventTitle}</p>
+        <p style="margin:0;color:#aaa;font-size:13px;font-family:Arial,sans-serif">${ticketName}</p>
+      </div>
+      <p style="color:#cfcfcf;font-size:13px;line-height:1.6;font-family:Arial,sans-serif">
+        Para receber o ingresso na sua conta, clique no botão abaixo e confirme a transferência.
+        Você precisa estar logado com este e-mail (${toEmail}).
+      </p>
+      <a href="${acceptUrl}" style="display:inline-block;margin:16px 0;padding:14px 28px;background:#d4af37;color:#0a0a0a;text-decoration:none;font-weight:bold;border-radius:999px;font-family:Arial,sans-serif;font-size:13px;letter-spacing:1px;text-transform:uppercase">
+        Aceitar ingresso
+      </a>
+      <p style="color:#777;font-size:11px;margin-top:24px;font-family:Arial,sans-serif">
+        Se você não esperava este convite, basta ignorar este e-mail. O convite expira automaticamente.
+      </p>
+    </div>`;
+  await sendMail(cfg, toEmail, `${fromName} transferiu um ingresso para você — ${eventTitle}`, html);
+}
+
 // ─── Exports ─────────────────────────────────────────────────────────────────
 
 export interface ConfirmationData {

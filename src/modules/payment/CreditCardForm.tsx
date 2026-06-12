@@ -7,6 +7,7 @@ interface CreditCardFormProps {
   onCardDataChange: (cardData: CardData) => void;
   cardErrors: Record<string, string>;
   grandTotal: number;
+  isDebit?: boolean;
 }
 
 /**
@@ -22,6 +23,7 @@ export function CreditCardForm({
   onCardDataChange,
   cardErrors,
   grandTotal,
+  isDebit = false,
 }: CreditCardFormProps) {
   // Usar callbacks para evitar re-renders desnecessários
   const handleCardNumberChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,20 +137,26 @@ export function CreditCardForm({
         {cardErrors.expiryMonth && <p className="text-xs text-red-400">{cardErrors.expiryMonth}</p>}
         {cardErrors.cvv && <p className="text-xs text-red-400">{cardErrors.cvv}</p>}
 
-        {/* Parcelamento */}
-        <select
-          value={cardData.installments}
-          onChange={handleInstallmentsChange}
-          className="w-full select-field text-[11px] md:text-sm"
-        >
-          <option value="1">1x de R$ {grandTotal.toFixed(2)} sem juros</option>
-          <option value="2">2x de R$ {(grandTotal / 2).toFixed(2)} sem juros</option>
-          <option value="3">3x de R$ {(grandTotal / 3).toFixed(2)} sem juros</option>
-          <option value="4">4x de R$ {(grandTotal / 4).toFixed(2)} sem juros</option>
-          <option value="5">5x de R$ {(grandTotal / 5).toFixed(2)} sem juros</option>
-          <option value="6">6x de R$ {(grandTotal / 6).toFixed(2)} sem juros</option>
-          <option value="12">12x de R$ {(grandTotal / 12).toFixed(2)} com juros</option>
-        </select>
+        {/* Parcelamento — débito é sempre à vista (1x) */}
+        {isDebit ? (
+          <div className="w-full bg-[#111] border border-white/10 rounded-xl p-3 md:p-4 text-[11px] md:text-sm text-white/60">
+            Débito à vista — 1x de R$ {grandTotal.toFixed(2)}
+          </div>
+        ) : (
+          <select
+            value={cardData.installments}
+            onChange={handleInstallmentsChange}
+            className="w-full select-field text-[11px] md:text-sm"
+          >
+            <option value="1">1x de R$ {grandTotal.toFixed(2)} sem juros</option>
+            <option value="2">2x de R$ {(grandTotal / 2).toFixed(2)} sem juros</option>
+            <option value="3">3x de R$ {(grandTotal / 3).toFixed(2)} sem juros</option>
+            <option value="4">4x de R$ {(grandTotal / 4).toFixed(2)} sem juros</option>
+            <option value="5">5x de R$ {(grandTotal / 5).toFixed(2)} sem juros</option>
+            <option value="6">6x de R$ {(grandTotal / 6).toFixed(2)} sem juros</option>
+            <option value="12">12x de R$ {(grandTotal / 12).toFixed(2)} com juros</option>
+          </select>
+        )}
       </div>
     </div>
   );

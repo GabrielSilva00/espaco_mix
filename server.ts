@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
-import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, resolveEmailConfig } from "./emailService.js";
+import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, resolveEmailConfig, sendTransferInvitation } from "./emailService.js";
 
 dotenv.config();
 
@@ -1437,6 +1437,10 @@ export async function createExpressApp() {
       if (!allowed) { res.status(403).json({ result: "forbidden" }); return; }
 
       const name = ticket.owner_name || reservation?.buyer_name || "Convidado";
+      if (ticket.status === "cancelled") {
+        res.json({ result: "cancelled", name, ticketName: ticket.name });
+        return;
+      }
       if (!reservation || reservation.payment_status !== "approved") {
         res.json({ result: "unpaid", name, ticketName: ticket.name });
         return;
@@ -1543,6 +1547,8 @@ export async function createExpressApp() {
       const activeAfterCancel = remainingItems.filter((t: any) => t.id !== ticket.id && t.status === "active");
 
       let refundAmount: number | null = null;
+      let refundStatus: "processed" | "manual_required" | "failed" | "not_applicable" = "not_applicable";
+      let refundError: string | null = null;
 
       if (activeAfterCancel.length === 0 && reservation.payment_status === "approved") {
         // Todos cancelados: estornar via MP
@@ -1552,42 +1558,312 @@ export async function createExpressApp() {
           .eq("id", "main")
           .maybeSingle();
         const cfg = settings.data;
+        const total: number = (reservation as any).total ?? 0;
 
-        if (cfg?.allow_cancellation && cfg?.auto_refund) {
-          const total: number = (reservation as any).total ?? 0;
+        if (!cfg?.allow_cancellation || !cfg?.auto_refund) {
+          // Estorno automático desativado nas configurações — exige ação manual.
+          refundStatus = "manual_required";
+        } else {
           if (cfg.refund_type === "partial") {
-            refundAmount = total * (1 - (cfg.cancel_fee_percent ?? 0) / 100);
+            refundAmount = Math.round(total * (1 - (cfg.cancel_fee_percent ?? 0) / 100) * 100) / 100;
           } else if (cfg.refund_type === "no-fee") {
-            refundAmount = total - ((reservation as any).platform_fee ?? 0);
+            refundAmount = Math.round((total - ((reservation as any).platform_fee ?? 0)) * 100) / 100;
           } else {
             refundAmount = total; // total refund
           }
-          const paymentId = (reservation as any).payment_id;
-          if (paymentId) {
+          const orderId = (reservation as any).payment_id;
+          if (!orderId) {
+            refundStatus = "manual_required";
+            refundError = "Pagamento sem identificador — estorno manual necessário.";
+          } else {
             try {
               const mpToken = await getMpAccessToken();
-              const mpBody = refundAmount !== undefined && refundAmount < total ? { amount: Math.round(refundAmount * 100) / 100 } : {};
-              const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}/refunds`, {
+              // O refund da Orders API usa o PAYMENT id interno, não o order id
+              // salvo em payment_id. Resolve o id real antes de estornar.
+              const info = await resolveMpPayment(String(orderId), mpToken);
+              const realPaymentId = info?.resolvedPaymentId ?? String(orderId);
+              const mpBody = refundAmount !== null && refundAmount < total ? { amount: Math.round(refundAmount * 100) / 100 } : {};
+              const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${realPaymentId}/refunds`, {
                 method: "POST",
-                headers: { Authorization: `Bearer ${mpToken}`, "Content-Type": "application/json" },
+                headers: { Authorization: `Bearer ${mpToken}`, "Content-Type": "application/json", "X-Idempotency-Key": `refund-${reservation.id}` },
                 body: JSON.stringify(mpBody),
               });
-              if (!mpRes.ok) {
-                console.error("[TICKET/CANCEL] Falha no estorno MP:", await mpRes.text());
+              if (mpRes.ok) {
+                refundStatus = "processed";
+              } else {
+                refundStatus = "failed";
+                refundError = await mpRes.text();
+                console.error("[TICKET/CANCEL] Falha no estorno MP:", refundError);
+                try {
+                  await admin.from("audit_logs").insert({
+                    user_id: user.uid,
+                    action: "refund_failed",
+                    entity_type: "reservation",
+                    entity_id: reservation.id,
+                    changes: { paymentId: realPaymentId, refundAmount, error: refundError },
+                  });
+                } catch { /* auditoria é melhor-esforço */ }
               }
             } catch (mpErr: any) {
-              console.error("[TICKET/CANCEL] Erro ao chamar MP refund:", mpErr?.message);
+              refundStatus = "failed";
+              refundError = String(mpErr?.message ?? mpErr);
+              console.error("[TICKET/CANCEL] Erro ao chamar MP refund:", refundError);
+              try {
+                await admin.from("audit_logs").insert({
+                  user_id: user.uid,
+                  action: "refund_failed",
+                  entity_type: "reservation",
+                  entity_id: reservation.id,
+                  changes: { refundAmount, error: refundError },
+                });
+              } catch { /* auditoria é melhor-esforço */ }
             }
           }
         }
         await admin.from("reservations").update({ payment_status: "refunded" }).eq("id", reservation.id);
       }
 
-      console.log(`[TICKET/CANCEL] Ticket ${ticket.id} cancelado por ${user.uid}`);
-      res.json({ cancelled: true, refundAmount });
+      console.log(`[TICKET/CANCEL] Ticket ${ticket.id} cancelado por ${user.uid} (refund: ${refundStatus})`);
+      res.json({ cancelled: true, refundAmount, refundStatus, refundError });
     } catch (err: any) {
       console.error("[TICKET/CANCEL] Erro:", err?.message ?? err);
       res.status(500).json({ error: "Erro ao cancelar ingresso." });
+    }
+  });
+
+  // ── Iniciar transferência de ingresso ────────────────────────────────────
+  // Valida que o destinatário tem conta, marca o ingresso como pending_transfer
+  // e envia e-mail com link de aceite. A reatribuição só ocorre no aceite.
+  app.post("/api/ticket/:ticketId/transfer", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const { ticketId } = req.params;
+    const { toEmail } = req.body as { toEmail?: string };
+    if (!ticketId) { res.status(400).json({ error: "ticketId obrigatório." }); return; }
+    const email = String(toEmail ?? "").trim().toLowerCase();
+    if (!email || !email.includes("@")) { res.status(400).json({ error: "E-mail do destinatário inválido." }); return; }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const { data: ticket } = await admin
+        .from("ticket_items")
+        .select("id, reservation_id, event_id, status, checked_in_at, name, holder_user_id")
+        .eq("id", ticketId)
+        .maybeSingle();
+      if (!ticket) { res.status(404).json({ error: "Ingresso não encontrado." }); return; }
+      if (ticket.checked_in_at) { res.status(409).json({ error: "Ingresso já utilizado — não pode ser transferido." }); return; }
+      if (ticket.status !== "active") { res.status(400).json({ error: `Ingresso não pode ser transferido (status: ${ticket.status}).` }); return; }
+
+      const { data: reservation } = await admin
+        .from("reservations")
+        .select("id, user_id, event_id")
+        .eq("id", ticket.reservation_id)
+        .maybeSingle();
+
+      // Autorização: o detentor atual (holder ou, na ausência, dono da reserva) ou admin.
+      const currentHolder = (ticket as any).holder_user_id ?? (reservation as any)?.user_id;
+      const role = await getProfileRole(user.uid);
+      const isAdmin = role === "admin" || role === "developer";
+      if (!isAdmin && currentHolder !== user.uid) {
+        res.status(403).json({ error: "Sem permissão para transferir este ingresso." });
+        return;
+      }
+
+      // Limite de 2 transferências aceitas por ingresso.
+      const { count: acceptedCount } = await admin
+        .from("transfer_logs")
+        .select("id", { count: "exact", head: true })
+        .eq("ticket_id", ticket.id)
+        .eq("status", "accepted");
+      if ((acceptedCount ?? 0) >= 2) {
+        res.status(400).json({ error: "Este ingresso já atingiu o limite de transferências." });
+        return;
+      }
+
+      // O destinatário PRECISA ter conta no site.
+      const { data: recipient } = await admin
+        .from("profiles")
+        .select("id, email")
+        .ilike("email", email)
+        .maybeSingle();
+      if (!recipient) {
+        res.status(404).json({ error: "O destinatário não possui cadastro no site. Peça para ele criar uma conta primeiro." });
+        return;
+      }
+      if ((recipient as any).id === user.uid) {
+        res.status(400).json({ error: "Você não pode transferir um ingresso para si mesmo." });
+        return;
+      }
+
+      const { data: sender } = await admin.from("profiles").select("name").eq("id", user.uid).maybeSingle();
+      const senderName = (sender as any)?.name ?? "Um usuário";
+
+      const token = crypto.randomBytes(24).toString("hex");
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+
+      await admin.from("ticket_items").update({
+        status: "pending_transfer",
+        pending_transfer_email: email,
+        transfer_token: token,
+        transfer_expires_at: expiresAt,
+      }).eq("id", ticket.id);
+
+      await admin.from("transfer_logs").insert({
+        ticket_id: ticket.id,
+        from_user_id: user.uid,
+        to_email: email,
+        transfer_token: token,
+        status: "pending",
+        expires_at: expiresAt,
+      });
+
+      // Busca dados do evento para o e-mail.
+      const { data: ev } = await admin.from("events").select("title").eq("id", ticket.event_id).maybeSingle();
+      const acceptUrl = `${appUrl ?? ""}/?transfer=${token}`;
+      try {
+        await sendTransferInvitation({
+          toEmail: email,
+          fromName: senderName,
+          eventTitle: (ev as any)?.title ?? "Evento",
+          ticketName: (ticket as any).name ?? "Ingresso",
+          acceptUrl,
+        });
+      } catch (mailErr: any) {
+        console.error("[TRANSFER] Falha ao enviar e-mail de convite:", mailErr?.message);
+        // Mantém a transferência pendente mesmo se o e-mail falhar (auditável).
+      }
+
+      console.log(`[TRANSFER] Ticket ${ticket.id} → ${email} (pendente) por ${user.uid}`);
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[TRANSFER] Erro:", err?.message ?? err);
+      res.status(500).json({ error: "Erro ao iniciar transferência." });
+    }
+  });
+
+  // ── Aceitar transferência (destinatário) ─────────────────────────────────
+  app.post("/api/transfer/:token/accept", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const token = String(req.params.token ?? "").trim();
+    if (!token) { res.status(400).json({ error: "Token inválido." }); return; }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const { data: ticket } = await admin
+        .from("ticket_items")
+        .select("id, status, pending_transfer_email, transfer_expires_at")
+        .eq("transfer_token", token)
+        .maybeSingle();
+      if (!ticket || ticket.status !== "pending_transfer") {
+        res.status(404).json({ error: "Convite de transferência inválido ou já resolvido." });
+        return;
+      }
+      if (ticket.transfer_expires_at && new Date(ticket.transfer_expires_at).getTime() < Date.now()) {
+        res.status(410).json({ error: "Este convite de transferência expirou." });
+        return;
+      }
+      const { data: profile } = await admin.from("profiles").select("email").eq("id", user.uid).maybeSingle();
+      const myEmail = String((profile as any)?.email ?? "").toLowerCase();
+      if (myEmail !== String(ticket.pending_transfer_email ?? "").toLowerCase()) {
+        res.status(403).json({ error: "Este convite foi enviado para outro e-mail. Entre com a conta correta." });
+        return;
+      }
+
+      const { data: log } = await admin
+        .from("transfer_logs")
+        .select("id, from_user_id")
+        .eq("transfer_token", token)
+        .maybeSingle();
+      let fromName = "outro usuário";
+      if ((log as any)?.from_user_id) {
+        const { data: from } = await admin.from("profiles").select("name").eq("id", (log as any).from_user_id).maybeSingle();
+        fromName = (from as any)?.name ?? fromName;
+      }
+
+      await admin.from("ticket_items").update({
+        status: "transferred",
+        holder_user_id: user.uid,
+        transferred_from_name: fromName,
+        pending_transfer_email: null,
+        transfer_token: null,
+        transfer_expires_at: null,
+      }).eq("id", ticket.id);
+
+      if ((log as any)?.id) {
+        await admin.from("transfer_logs").update({ status: "accepted", to_user_id: user.uid, resolved_at: new Date().toISOString() }).eq("id", (log as any).id);
+      }
+
+      console.log(`[TRANSFER] Ticket ${ticket.id} aceito por ${user.uid}`);
+      res.json({ accepted: true, fromName });
+    } catch (err: any) {
+      console.error("[TRANSFER/ACCEPT] Erro:", err?.message ?? err);
+      res.status(500).json({ error: "Erro ao aceitar transferência." });
+    }
+  });
+
+  // ── Recusar transferência (destinatário) ─────────────────────────────────
+  app.post("/api/transfer/:token/reject", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const token = String(req.params.token ?? "").trim();
+    if (!token) { res.status(400).json({ error: "Token inválido." }); return; }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const { data: ticket } = await admin
+        .from("ticket_items")
+        .select("id, status, pending_transfer_email")
+        .eq("transfer_token", token)
+        .maybeSingle();
+      if (!ticket || ticket.status !== "pending_transfer") {
+        res.status(404).json({ error: "Convite de transferência inválido ou já resolvido." });
+        return;
+      }
+      const { data: profile } = await admin.from("profiles").select("email").eq("id", user.uid).maybeSingle();
+      const myEmail = String((profile as any)?.email ?? "").toLowerCase();
+      if (myEmail !== String(ticket.pending_transfer_email ?? "").toLowerCase()) {
+        res.status(403).json({ error: "Este convite foi enviado para outro e-mail." });
+        return;
+      }
+      // Reverte o ingresso para o detentor original.
+      await admin.from("ticket_items").update({
+        status: "active",
+        pending_transfer_email: null,
+        transfer_token: null,
+        transfer_expires_at: null,
+      }).eq("id", ticket.id);
+      await admin.from("transfer_logs").update({ status: "rejected", to_user_id: user.uid, resolved_at: new Date().toISOString() }).eq("transfer_token", token);
+      res.json({ rejected: true });
+    } catch (err: any) {
+      console.error("[TRANSFER/REJECT] Erro:", err?.message ?? err);
+      res.status(500).json({ error: "Erro ao recusar transferência." });
+    }
+  });
+
+  // ── Ingressos recebidos por transferência (detentor = eu) ────────────────
+  // A RLS impede o cliente de ler ticket_items de reservas alheias, então o
+  // servidor (service role) devolve reservas sintéticas só com os ingressos de
+  // que o usuário é detentor — usado por "Minhas Reservas".
+  app.get("/api/my-transfers", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const { data } = await admin
+        .from("ticket_items")
+        .select("*, reservations(*)")
+        .eq("holder_user_id", user.uid)
+        .eq("status", "transferred");
+      const synthetic: Record<string, any> = {};
+      for (const t of (data ?? []) as any[]) {
+        const r = t.reservations;
+        if (!r || r.user_id === user.uid) continue; // já aparece como reserva minha
+        if (!synthetic[r.id]) synthetic[r.id] = { ...r, ticket_items: [] };
+        const { reservations: _omit, ...item } = t;
+        synthetic[r.id].ticket_items.push(item);
+      }
+      res.json({ reservations: Object.values(synthetic) });
+    } catch (err: any) {
+      console.error("[MY-TRANSFERS] Erro:", err?.message ?? err);
+      res.status(500).json({ error: "Erro ao carregar transferências." });
     }
   });
 
@@ -1680,7 +1956,9 @@ export async function createExpressApp() {
                 id: brandId,
                 type: isDebit ? "debit_card" : "credit_card",
                 token: cardToken,
-                installments: parseInt(installments || "1", 10),
+                // Débito não suporta parcelamento na Orders API — força 1x,
+                // senão o MP rejeita o pagamento (unsupported/invalid installments).
+                installments: isDebit ? 1 : parseInt(installments || "1", 10),
               },
             },
           ],
@@ -1787,10 +2065,15 @@ export async function createExpressApp() {
       return;
     }
 
+    // Timeout defensivo: se o MP demorar demais para responder, devolvemos um
+    // erro amigável em vez de deixar o checkout girando indefinidamente.
+    const pixController = new AbortController();
+    const pixTimeout = setTimeout(() => pixController.abort(), 8000);
     try {
       const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
       const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
+        signal: pixController.signal,
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${accessToken}`,
@@ -1820,6 +2103,7 @@ export async function createExpressApp() {
         }),
       });
 
+      clearTimeout(pixTimeout);
       const data = await response.json();
 
       if (!response.ok) {
@@ -1858,10 +2142,117 @@ export async function createExpressApp() {
         qrCode,
         qrCodeUrl,
       });
-    } catch (error) {
+    } catch (error: any) {
+      clearTimeout(pixTimeout);
+      if (error?.name === "AbortError") {
+        console.error("[PIX] Timeout ao gerar PIX no Mercado Pago");
+        res.status(504).json({ error: "O Mercado Pago demorou para responder. Tente novamente em alguns instantes." });
+        return;
+      }
       console.error("[PIX] Erro interno:", error);
       res.status(500).json({ error: "Erro interno ao gerar PIX." });
     }
+  });
+
+  // ── Retomar pagamento PIX de uma reserva pendente (carrinho) ──────────────
+  // Regenera o QR para uma reserva já existente (pending), lendo os dados do
+  // banco (service role) — usado pela página de carrinho ("Pagar agora").
+  app.post("/api/payment/pix/resume", paymentLimiter, requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const { reservationId } = req.body as { reservationId?: string };
+    if (!reservationId) { res.status(400).json({ error: "reservationId obrigatório." }); return; }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    const accessToken = await getMpAccessToken();
+    if (!accessToken) { res.status(503).json({ error: "Mercado Pago não configurado." }); return; }
+
+    const { data: reservation } = await admin
+      .from("reservations")
+      .select("id, user_id, payment_status, total, buyer_name, buyer_email, buyer_cpf")
+      .eq("id", reservationId)
+      .maybeSingle();
+    if (!reservation) { res.status(404).json({ error: "Reserva não encontrada." }); return; }
+    if ((reservation as any).user_id !== user.uid) {
+      res.status(403).json({ error: "Sem permissão." }); return;
+    }
+    if ((reservation as any).payment_status !== "pending") {
+      res.status(400).json({ error: "Reserva não está pendente de pagamento." }); return;
+    }
+
+    const pixController = new AbortController();
+    const pixTimeout = setTimeout(() => pixController.abort(), 8000);
+    try {
+      const amountStr = (Math.round(Number((reservation as any).total) * 100) / 100).toFixed(2);
+      const response = await fetch("https://api.mercadopago.com/v1/orders", {
+        method: "POST",
+        signal: pixController.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+          "X-Idempotency-Key": `pix-resume-${reservationId}-${Date.now()}`,
+        },
+        body: JSON.stringify({
+          type: "online",
+          processing_mode: "automatic",
+          total_amount: amountStr,
+          external_reference: reservationId,
+          payer: {
+            email: payerEmailForEnv((reservation as any).buyer_email),
+            first_name: ((reservation as any).buyer_name || "").split(" ")[0] || "Comprador",
+            last_name: ((reservation as any).buyer_name || "").split(" ").slice(1).join(" ") || "Eventix",
+            identification: { type: "CPF", number: ((reservation as any).buyer_cpf || "").replace(/\D/g, "") || "00000000000" },
+          },
+          transactions: {
+            payments: [{ amount: amountStr, expiration_time: "PT30M", payment_method: { id: "pix", type: "bank_transfer" } }],
+          },
+        }),
+      });
+      clearTimeout(pixTimeout);
+      const data = await response.json();
+      if (!response.ok) {
+        console.error("[PIX/RESUME] Erro MP:", JSON.stringify(data));
+        res.status(response.status).json({ error: data.errors?.[0]?.message || data.message || "Erro ao gerar PIX" });
+        return;
+      }
+      const payment = data.transactions?.payments?.[0] ?? {};
+      const pm = payment.payment_method ?? {};
+      const qrCode = pm.qr_code ?? "";
+      const qrCodeBase64 = pm.qr_code_base64 ?? "";
+      const qrCodeUrl = qrCodeBase64
+        ? `data:image/png;base64,${qrCodeBase64}`
+        : (qrCode ? `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCode)}&size=250x250` : "");
+      await admin.from("reservations").update({ payment_id: String(data.id ?? payment.id), updated_at: new Date().toISOString() }).eq("id", reservationId);
+      res.json({ paymentId: payment.id ?? data.id, status: orderStatusToNormalized(payment.status || data.status), qrCode, qrCodeUrl });
+    } catch (error: any) {
+      clearTimeout(pixTimeout);
+      if (error?.name === "AbortError") {
+        res.status(504).json({ error: "O Mercado Pago demorou para responder. Tente novamente." });
+        return;
+      }
+      console.error("[PIX/RESUME] Erro interno:", error);
+      res.status(500).json({ error: "Erro interno ao retomar PIX." });
+    }
+  });
+
+  // ── Remover/cancelar uma reserva pendente do carrinho ─────────────────────
+  app.post("/api/reservation/:id/cancel-pending", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const id = String(req.params.id ?? "").trim();
+    if (!id) { res.status(400).json({ error: "id obrigatório." }); return; }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    const { data: reservation } = await admin
+      .from("reservations")
+      .select("id, user_id, payment_status")
+      .eq("id", id)
+      .maybeSingle();
+    if (!reservation) { res.status(404).json({ error: "Reserva não encontrada." }); return; }
+    if ((reservation as any).user_id !== user.uid) { res.status(403).json({ error: "Sem permissão." }); return; }
+    if ((reservation as any).payment_status !== "pending") {
+      res.status(400).json({ error: "Apenas reservas pendentes podem ser removidas do carrinho." }); return;
+    }
+    await admin.from("reservations").update({ payment_status: "cancelled" }).eq("id", id);
+    res.json({ removed: true });
   });
 
   // ── Status do pagamento de uma reserva (polling do checkout) ──────────────

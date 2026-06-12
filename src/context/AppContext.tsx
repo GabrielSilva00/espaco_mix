@@ -51,6 +51,7 @@ function mapDbReservationToApp(r: any): Reservation {
       status: (t.status ?? 'active') as TicketItem['status'],
       pendingTransferEmail: t.pending_transfer_email ?? undefined,
       originalBuyerId: t.original_buyer_id ?? undefined,
+      transferredFromName: t.transferred_from_name ?? undefined,
       checkedIn: !!t.checked_in_at,
     })),
     total: Number(r.total) || 0,
@@ -59,6 +60,7 @@ function mapDbReservationToApp(r: any): Reservation {
     buyerName: r.buyer_name,
     paymentStatus: r.payment_status,
     paymentMethod: r.payment_method,
+    paymentId: r.payment_id ?? undefined,
     platformFee: r.platform_fee,
     netAmount: r.net_amount,
     createdAt: r.created_at,
@@ -186,6 +188,10 @@ interface AppContextValue {
   setPaymentStatus: React.Dispatch<React.SetStateAction<PaymentFlowStatus>>;
   /** Verificação manual do pagamento pendente (botão "Já realizei o pagamento"). */
   verifyPaymentNow: () => Promise<boolean>;
+  /** "Pagar depois": mantém a reserva pendente e leva o usuário ao carrinho. */
+  payLater: () => void;
+  /** Recarrega as reservas do banco (após retomar/remover item do carrinho). */
+  reloadReservations: () => void;
   /** Falha ao carregar dados essenciais do banco (config/reservas) — exibe banner com retry. */
   dataLoadError: boolean;
   retryDataLoad: () => void;
@@ -244,6 +250,9 @@ interface AppContextValue {
   setIsMessageModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   isLogsModalOpen: boolean;
   setIsLogsModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  showExitConfirm: boolean;
+  setShowExitConfirm: React.Dispatch<React.SetStateAction<boolean>>;
+  confirmExitApp: () => void;
   pendingApprovalsCount: number;
   messageText: string;
   setMessageText: React.Dispatch<React.SetStateAction<string>>;
@@ -513,6 +522,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isTableLayoutEditorOpen, setIsTableLayoutEditorOpen] = useState(false);
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [isLogsModalOpen, setIsLogsModalOpen] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [messageText, setMessageText] = useState('');
   const [showDefaultCredentialsWarning, setShowDefaultCredentialsWarning] = useState(
@@ -755,13 +765,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ─── Browser back button ─────────────────────────────────────────────────
+  // ─── Browser/PWA back button ─────────────────────────────────────────────
+  // Mantém uma pilha lógica de navegação. O "voltar" (botão ou gesto no mobile)
+  // percorre essa pilha até a home, sem cair em telas de login. Na home, em vez
+  // de sair do app, exibe uma confirmação de saída.
   const _historyInitialized = useRef(false);
   const _isPopState = useRef(false);
+  const navStackRef = useRef<CurrentView[]>(['home']);
+  const exitingRef = useRef(false);
 
   useEffect(() => {
     if (!_historyInitialized.current) {
       _historyInitialized.current = true;
+      navStackRef.current = [currentView];
       window.history.replaceState({ view: currentView }, '');
       return;
     }
@@ -769,19 +785,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       _isPopState.current = false;
       return;
     }
+    // Navegação para frente (clique/ação). A home é a raiz: zera a pilha.
+    if (currentView === 'home') {
+      navStackRef.current = ['home'];
+    } else {
+      navStackRef.current.push(currentView);
+    }
     window.history.pushState({ view: currentView }, '');
   }, [currentView]);
 
   useEffect(() => {
-    const handlePop = (e: PopStateEvent) => {
-      const view = e.state?.view as CurrentView | undefined;
-      if (view) {
+    const handlePop = () => {
+      if (exitingRef.current) return; // saída em andamento — deixa o browser sair
+      const stack = navStackRef.current;
+      if (stack.length > 1) {
+        // Volta percorrendo a pilha interna até a home
+        stack.pop();
+        const prev = stack[stack.length - 1];
         _isPopState.current = true;
-        setCurrentView(view);
+        setCurrentView(prev);
+      } else {
+        // Estamos na home (raiz) e o usuário tentou voltar → confirmar saída.
+        // Re-arma o estado para não sair do app imediatamente.
+        window.history.pushState({ view: 'home' }, '');
+        setShowExitConfirm(true);
       }
     };
     window.addEventListener('popstate', handlePop);
     return () => window.removeEventListener('popstate', handlePop);
+  }, []);
+
+  // Confirma a saída do app (best-effort): em PWA standalone tenta fechar;
+  // no navegador comum apenas recua no histórico real para fora do SPA.
+  const confirmExitApp = useCallback(() => {
+    setShowExitConfirm(false);
+    exitingRef.current = true;
+    try { window.close(); } catch { /* ignore */ }
+    window.history.go(-2);
   }, []);
 
   useEffect(() => {
@@ -1081,7 +1121,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const isStaffRole = userRole === 'admin' || userRole === 'developer' || isApprovedEventCreator;
     const load = isStaffRole ? getAllReservations() : getMyReservations(loggedInUserId);
     load
-      .then(rows => apply(rows as any[]))
+      .then(async rows => {
+        let allRows = rows as any[];
+        // Cliente: mescla ingressos recebidos por transferência (detentor = eu),
+        // que vivem em reservas de outras pessoas (lidos via service role).
+        if (!isStaffRole) {
+          try {
+            const token = await getAccessTokenSafe();
+            const resp = await fetch('/api/my-transfers', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+            const data = await resp.json().catch(() => ({ reservations: [] }));
+            allRows = [...allRows, ...((data.reservations ?? []) as any[])];
+          } catch { /* sem transferências recebidas */ }
+        }
+        apply(allRows);
+      })
       .catch(e => {
         console.error('[Reservas] Falha ao carregar do banco:', (e as Error)?.message);
         if (!cancelled) setDataLoadError(true);
@@ -1823,6 +1876,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setCheckInResult({ type: 'warning', message: 'PAGAMENTO PENDENTE - NÃO AUTORIZADO', data });
           vibrate([200, 100, 200]);
           break;
+        case 'cancelled':
+          setCheckInResult({ type: 'error', message: 'INGRESSO CANCELADO', data });
+          vibrate([300, 100, 300]);
+          break;
         case 'forbidden':
           setCheckInResult({ type: 'error', message: 'SEM PERMISSÃO PARA CHECK-IN' });
           vibrate([100, 100, 100]);
@@ -2046,9 +2103,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tick++;
         const info = pendingPaymentRef.current;
         if (!info) { stopPaymentPolling(); return; }
-        // A cada 5ª checagem pede ?refresh=1 (re-consulta o MP no servidor) —
-        // rede de segurança caso o webhook não esteja chegando.
-        const status = await fetchPaymentStatus(info.reservationId, tick % 5 === 0);
+        // Reconhecimento rápido: nos primeiros ~2 min re-consulta o MP (?refresh=1)
+        // em TODA iteração; depois alterna para cada 3ª, para não sobrecarregar.
+        // O webhook é o caminho primário; este refresh é a rede de segurança.
+        const elapsed = Date.now() - startedAt;
+        const forceRefresh = elapsed < 2 * 60 * 1000 ? true : tick % 3 === 0;
+        const status = await fetchPaymentStatus(info.reservationId, forceRefresh);
         if (!pendingPaymentRef.current) return;
         if (status === 'approved') {
           stopPaymentPolling();
@@ -2072,7 +2132,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } finally {
         busy = false;
       }
-    }, 5000);
+    }, 3000);
   };
 
   // Botão "Já realizei o pagamento": força uma verificação real no MP agora.
@@ -2090,6 +2150,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => () => stopPaymentPolling(), []);
+
+  // Recarrega as reservas do banco sem refazer a página (carrinho/transferência).
+  const reloadReservations = useCallback(() => setReloadKey(k => k + 1), []);
+
+  // "Pagar depois": mantém a reserva pendente (já salva no banco), fecha o
+  // checkout e leva o usuário ao carrinho, onde poderá retomar o pagamento.
+  const payLater = useCallback(() => {
+    stopPaymentPolling();
+    pendingPaymentRef.current = null;
+    setIsProcessingPayment(false);
+    setPaymentStatus('idle');
+    setPixData(null);
+    setIsCheckoutOpen(false);
+    setCheckoutStep('selection');
+    setSingleTickets(0);
+    setMaleTickets(0);
+    setFemaleTickets(0);
+    setSelectedTables([]);
+    setReloadKey(k => k + 1);
+    setCurrentView('cart');
+    showToast('Pagamento salvo no carrinho. Você pode finalizar depois.', 'info');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleConfirmReservation = async (cardData?: CardData, selectedPaymentMethod?: PaymentMethod | null) => {
     if (isProcessingPayment) return;
@@ -2325,6 +2408,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     paymentMethod, setPaymentMethod,
     paymentStatus, setPaymentStatus,
     verifyPaymentNow,
+    payLater,
+    reloadReservations,
     dataLoadError, retryDataLoad,
     pixData, setPixData,
     isProcessingPayment,
@@ -2352,6 +2437,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isTableLayoutEditorOpen, setIsTableLayoutEditorOpen,
     isMessageModalOpen, setIsMessageModalOpen,
     isLogsModalOpen, setIsLogsModalOpen,
+    showExitConfirm, setShowExitConfirm, confirmExitApp,
     pendingApprovalsCount,
     messageText, setMessageText,
     showDefaultCredentialsWarning, setShowDefaultCredentialsWarning,

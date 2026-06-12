@@ -36,6 +36,7 @@ export function CheckoutModal() {
     checkoutStep, setCheckoutStep,
     paymentStatus, setPaymentStatus,
     verifyPaymentNow,
+    payLater,
     guestData, setGuestData,
     selectedTables, singleTickets, maleTickets, femaleTickets,
     grandTotal, ticketsTotal, tablesTotal,
@@ -342,9 +343,10 @@ export function CheckoutModal() {
                         >
                           <CreditCardForm
                             cardData={cardData}
-                            onCardDataChange={(cd) => { setCardData(cd); if (Object.keys(cardErrors).length) setCardErrors({}); }}
+                            onCardDataChange={(cd) => { setCardData({ ...cd, installments: '1' }); if (Object.keys(cardErrors).length) setCardErrors({}); }}
                             cardErrors={cardErrors}
                             grandTotal={grandTotal}
+                            isDebit
                           />
                         </motion.div>
                       )}
@@ -825,6 +827,13 @@ export function CheckoutModal() {
                            className="w-full py-4 border border-[#d4af37]/30 text-[#d4af37] text-[10px] font-bold uppercase tracking-widest rounded-full hover:bg-[#d4af37]/10 transition disabled:opacity-50 disabled:cursor-wait"
                         >
                           {verifyingPayment ? 'Verificando…' : 'Já realizei o pagamento'}
+                        </button>
+
+                        <button
+                          onClick={() => payLater()}
+                          className="w-full py-3 text-[10px] font-bold uppercase tracking-widest text-white/50 hover:text-white transition"
+                        >
+                          Pagar depois (salvar no carrinho)
                         </button>
                       </div>
                     </div>

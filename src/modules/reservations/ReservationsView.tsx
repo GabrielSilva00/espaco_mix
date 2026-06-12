@@ -20,6 +20,17 @@ import { useApp } from '../../context/AppContext';
 import { downloadTicketPDF } from '../../shared/utils/pdf';
 import type { TicketItem } from '../../types';
 
+// Formata a data/hora de compra (created_at ISO) de forma legível em pt-BR.
+function formatPurchaseDate(raw: string | undefined): string {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit', month: 'long', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
 function useCountdown(expiresAt: number | undefined): string {
   const [remaining, setRemaining] = useState('');
   useEffect(() => {
@@ -63,7 +74,7 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
               </span>
             ) : (
               <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full ${tkt.status === 'active' ? 'bg-green-500/10 text-green-400' : tkt.status === 'transferred' ? 'bg-blue-500/10 text-blue-400' : tkt.status === 'pending_transfer' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-500'}`}>
-                {tkt.status === 'active' ? 'Ativo' : tkt.status === 'transferred' ? 'Transferido' : tkt.status === 'pending_transfer' ? 'Ag. Transferência' : 'Cancelado'}
+                {tkt.status === 'active' ? 'Ativo' : tkt.status === 'transferred' ? (tkt.transferredFromName ? `Transferido de ${tkt.transferredFromName}` : 'Transferido') : tkt.status === 'pending_transfer' ? 'Ag. Transferência' : 'Cancelado'}
               </span>
             )}
             <span className="text-[10px] opacity-40 font-mono tracking-widest">{tkt.id}</span>
@@ -131,17 +142,30 @@ export function ReservationsView() {
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'cancelled'>('all');
 
+  // Uma reserva pertence ao "Histórico" quando: o evento já passou, OU todos os
+  // ingressos foram usados (check-in), OU todos foram cancelados. Caso contrário
+  // é um evento futuro/ativo (aba "Próximos Eventos").
+  const isPastReservation = React.useCallback((r: typeof reservations[number]) => {
+    const ev = events.find(e => e.id === r.eventId);
+    const tickets = r.ticketsObj ?? [];
+    const eventPassed = !!ev?.date && new Date(`${ev.date}T${ev.time ?? '23:59'}:00`).getTime() < Date.now();
+    const allUsed = tickets.length > 0 && tickets.every(t => t.checkedIn || t.status === 'cancelled');
+    return eventPassed || allUsed;
+  }, [events]);
+
   const filteredReservations = React.useMemo(() => {
-    if (statusFilter === 'all') return reservations;
-    if (statusFilter === 'cancelled') return reservations.filter(r =>
+    // 1) separa por aba (próximos vs histórico)
+    const byTab = reservations.filter(r =>
+      reservationsTab === 'past' ? isPastReservation(r) : !isPastReservation(r)
+    );
+    // 2) aplica o filtro de status dentro da aba
+    if (statusFilter === 'all') return byTab;
+    if (statusFilter === 'cancelled') return byTab.filter(r =>
       r.paymentStatus === 'cancelled' || r.paymentStatus === 'refunded' ||
-      (r.ticketsObj?.length ?? 0) > 0 && r.ticketsObj!.every(t => t.status === 'cancelled')
+      ((r.ticketsObj?.length ?? 0) > 0 && r.ticketsObj!.every(t => t.status === 'cancelled'))
     );
-    return reservations.filter(r =>
-      r.paymentStatus === 'approved' &&
-      (r.ticketsObj?.some(t => t.status === 'active') ?? false)
-    );
-  }, [reservations, statusFilter]);
+    return byTab.filter(r => r.ticketsObj?.some(t => t.status === 'active' && !t.checkedIn) ?? false);
+  }, [reservations, statusFilter, reservationsTab, isPastReservation]);
 
   return (
     <>
@@ -178,7 +202,7 @@ export function ReservationsView() {
            </button>
         </div>
 
-        {reservationsTab === 'upcoming' && reservations.length > 0 && (
+        {reservations.length > 0 && (
           <div className="flex gap-2 mb-6">
             {(['all', 'active', 'cancelled'] as const).map(f => (
               <button
@@ -192,7 +216,7 @@ export function ReservationsView() {
           </div>
         )}
 
-        {filteredReservations.length === 0 || reservationsTab === 'past' ? (
+        {filteredReservations.length === 0 ? (
           <div className="border border-white/10 bg-[#0d0d0d] rounded-2xl p-12 md:p-16 flex flex-col items-center justify-center text-center shadow-xl">
             <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6">
               <span className="text-4xl grayscale opacity-50">🎫</span>
@@ -230,7 +254,7 @@ export function ReservationsView() {
                     <div className="flex justify-between items-center relative z-10 gap-4">
                       <div className="flex items-center gap-4">
                         <div className="w-14 h-14 md:w-16 md:h-16 flex-shrink-0 bg-[#111] overflow-hidden rounded-xl border border-white/10 group-hover:border-[#d4af37]/30 transition">
-                          <img src="https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80" alt="Cover" className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                          <img src={events.find(ev => ev.id === res.eventId)?.img || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80"} alt="Cover" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                         </div>
                         <div>
                            <div className="flex items-center gap-2 mb-1">
@@ -239,7 +263,7 @@ export function ReservationsView() {
                             </span>
                           </div>
                           <h3 className="text-sm md:text-base font-serif text-[#d4af37]">{events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}</h3>
-                          <p className="text-[10px] md:text-xs opacity-50 uppercase tracking-widest">{res.date}</p>
+                          <p className="text-[10px] md:text-xs opacity-50 tracking-widest">Comprado em {formatPurchaseDate(res.createdAt ?? res.date)}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -262,7 +286,7 @@ export function ReservationsView() {
                       <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-6">
                         <div className="flex gap-4">
                            <div className="hidden md:block w-20 h-20 md:w-24 md:h-24 flex-shrink-0 bg-[#111] overflow-hidden rounded-xl border border-white/10">
-                             <img src="https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80" alt="Cover" className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                             <img src={events.find(ev => ev.id === res.eventId)?.img || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80"} alt="Cover" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                            </div>
                            <div>
                             <div className="flex flex-wrap items-center gap-3 mb-2">
@@ -286,7 +310,8 @@ export function ReservationsView() {
                               </div>
                             </div>
                             <h3 className="text-xl md:text-2xl font-serif text-[#d4af37] mb-1">{events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}</h3>
-                            <p className="text-[11px] opacity-60 flex items-center gap-2 mb-3"><MapPin className="w-3 h-3"/> {events.find(ev => ev.id === res.eventId)?.location ?? ''}{res.date ? ` • ${res.date}` : ''}</p>
+                            <p className="text-[11px] opacity-60 flex items-center gap-2 mb-1"><MapPin className="w-3 h-3"/> {events.find(ev => ev.id === res.eventId)?.location ?? ''}</p>
+                            <p className="text-[10px] opacity-40 flex items-center gap-2 mb-3"><Clock className="w-3 h-3"/> Comprado em {formatPurchaseDate(res.createdAt ?? res.date)}</p>
 
                             <div className="flex gap-2">
                                 <button onClick={(e) => {
