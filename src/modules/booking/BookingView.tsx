@@ -116,14 +116,15 @@ export function BookingView() {
                 </span>
               )}
             </div>
-            <motion.div
-              animate={{ x: [0, 4, 0] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-              className="flex items-center gap-2 text-[#d4af37]"
+            <button
+              onClick={handleCheckout}
+              disabled={grandTotal === 0}
+              className="flex items-center gap-2 bg-[#d4af37] text-[#0a0a0a] px-5 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 shadow-[0_4px_20px_rgba(212,175,55,0.25)]"
             >
-              <span className="text-[11px] font-bold uppercase tracking-widest">Scroll para revisar</span>
+              <span>Ir para Pagamento</span>
+              <span className="font-display normal-case tracking-normal">R$ {grandTotal.toFixed(2)}</span>
               <ChevronRight className="w-4 h-4" />
-            </motion.div>
+            </button>
           </div>
         </motion.div>
       )}

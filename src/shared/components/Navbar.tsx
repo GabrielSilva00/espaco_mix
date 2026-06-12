@@ -282,6 +282,15 @@ export function Navbar() {
 
                 {role && userRole === 'client' && (
                   <SheetItem
+                    icon={<Ticket className="w-4 h-4" />}
+                    label="Meus Ingressos"
+                    active={currentView === 'reservations'}
+                    onClick={() => { setCurrentView('reservations'); setIsMobileMenuOpen(false); }}
+                  />
+                )}
+
+                {role && userRole === 'client' && (
+                  <SheetItem
                     icon={<User className="w-4 h-4" />}
                     label="Meu Perfil"
                     active={currentView === 'profile'}

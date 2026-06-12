@@ -662,12 +662,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           // Seta o userId imediatamente a partir do token (previne flash de "deslogado"
           // durante o carregamento do perfil completo).
-          setLoggedInUserId(session.user.id);
+          const uid = session.user.id;
+          setLoggedInUserId(uid);
 
           // Carrega o perfil com retry — falha temporária não desloga o usuário.
           const loadProfile = async (attemptsLeft: number): Promise<void> => {
             try {
-              const profile = await getMyProfile();
+              const profile = await getMyProfile(uid);
               if (profile) {
                 const r = profile.role as UserRole;
                 setUserRole(r);
@@ -710,13 +711,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               // Mantém userId setado acima — usuário está autenticado mesmo sem perfil carregado.
             }
           };
-          loadProfile(2);
+          // Difere para fora do callback: o supabase-js ainda segura o lock de
+          // auth durante o INITIAL_SESSION; chamar queries aqui dentro causa
+          // deadlock (eventos não carregam, login trava — só "Clear site data"
+          // resolvia). O setTimeout(0) libera o lock antes de prosseguir.
+          setTimeout(() => { loadProfile(2); }, 0);
         }
       } else if (event === 'SIGNED_IN') {
-        // Login explícito pelo formulário — atualiza estado normalmente
+        // Login explícito pelo formulário — atualiza estado normalmente.
+        // Difere para fora do callback (setTimeout 0): evita o mesmo deadlock do
+        // lock de auth que o INITIAL_SESSION sofre ao chamar queries aqui dentro.
         if (session?.user) {
+          const uid = session.user.id;
+          setTimeout(async () => {
           try {
-            const profile = await getMyProfile();
+            const profile = await getMyProfile(uid);
             // Acesso de admin/dev SÓ é permitido pelo Acesso Master (portal). Se
             // este login fresco não veio de lá (ex.: Google ou Acesso Simples),
             // encerra a sessão. (Reload usa INITIAL_SESSION e não passa aqui.)
@@ -758,6 +767,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               await signOut();
             } catch {}
           }
+          }, 0);
         }
       } else if (event === 'SIGNED_OUT') {
         // Limpar token inválido do localStorage (previne loop de refresh_token 400)
@@ -840,7 +850,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setShowExitConfirm(false);
     exitingRef.current = true;
     try { window.close(); } catch { /* ignore */ }
-    window.history.go(-2);
+    // Um único passo para trás na história REAL: em PWA standalone o Android
+    // fecha o app; no navegador apenas recua para fora do SPA. O antigo
+    // go(-2) recaía numa entrada intermediária e o SW (NetworkFirst) recarregava
+    // o documento em vez de sair — era o "recarrega ao tentar sair".
+    window.history.back();
   }, []);
 
   useEffect(() => {

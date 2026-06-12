@@ -256,7 +256,13 @@ function payerEmailForEnv(email?: string): string {
 // ─── Consulta o status REAL de um pagamento no MP ────────────────────────────
 // O id da notificação pode ser de uma order (Orders API) ou de um payment
 // (legado); tenta /v1/orders primeiro e cai para /v1/payments.
-type MpPaymentInfo = { externalRef?: string; normalized: string; resolvedPaymentId: string };
+//
+// IMPORTANTE: `orderId` é o id consultável e ESTÁVEL que persistimos em
+// `reservations.payment_id` (re-consultável via /v1/orders/{orderId}). O
+// `pay.id` interno da Orders API (formato PAY01...) NÃO é consultável por
+// /v1/orders nem /v1/payments — gravá-lo quebrava o polling (400/404). Ele só
+// serve para refunds, exposto separadamente como `innerPaymentId`.
+type MpPaymentInfo = { externalRef?: string; normalized: string; orderId: string; innerPaymentId: string };
 
 async function resolveMpPayment(mpId: string, accessToken: string): Promise<MpPaymentInfo | null> {
   const headers = { Authorization: `Bearer ${accessToken}` };
@@ -267,7 +273,8 @@ async function resolveMpPayment(mpId: string, accessToken: string): Promise<MpPa
     return {
       externalRef: order?.external_reference ?? undefined,
       normalized: orderStatusToNormalized(pay?.status || order?.status),
-      resolvedPaymentId: String(pay?.id ?? mpId),
+      orderId: String(mpId),
+      innerPaymentId: String(pay?.id ?? mpId),
     };
   }
   const payRes = await fetch(`https://api.mercadopago.com/v1/payments/${mpId}`, { headers });
@@ -279,7 +286,8 @@ async function resolveMpPayment(mpId: string, accessToken: string): Promise<MpPa
   return {
     externalRef: payment?.external_reference ?? undefined,
     normalized: orderStatusToNormalized(payment?.status),
-    resolvedPaymentId: String(mpId),
+    orderId: String(mpId),
+    innerPaymentId: String(mpId),
   };
 }
 
@@ -294,10 +302,10 @@ async function applyPaymentUpdate(
   if (!newStatus) return null;
   let query = admin.from("reservations").update({
     payment_status: newStatus,
-    payment_id: info.resolvedPaymentId,
+    payment_id: info.orderId,
     updated_at: new Date().toISOString(),
   });
-  query = info.externalRef ? query.eq("id", info.externalRef) : query.eq("payment_id", info.resolvedPaymentId);
+  query = info.externalRef ? query.eq("id", info.externalRef) : query.eq("payment_id", info.orderId);
   const { data, error } = await query.select("id");
   if (error) throw new Error(`Falha ao atualizar reserva: ${error.message}`);
   const reservationId = (data as any[])?.[0]?.id;
@@ -1592,7 +1600,7 @@ export async function createExpressApp() {
             try {
               const mpToken = await getMpAccessToken();
               const info = await resolveMpPayment(String(orderId), mpToken);
-              const realPaymentId = info?.resolvedPaymentId ?? String(orderId);
+              const realPaymentId = info?.innerPaymentId ?? String(orderId);
               const mpBody = refundAmount !== null ? { amount: Math.round(refundAmount * 100) / 100 } : {};
               const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${realPaymentId}/refunds`, {
                 method: "POST",
@@ -2452,7 +2460,7 @@ export async function createExpressApp() {
         res.status(200).json({ received: true });
         return;
       }
-      console.log(`[WEBHOOK] ${info.resolvedPaymentId} → ${updated.newStatus} (reserva ${updated.reservationId})`);
+      console.log(`[WEBHOOK] ${info.orderId} → ${updated.newStatus} (reserva ${updated.reservationId})`);
 
       // 5. Pagamento aprovado → e-mail de confirmação (idempotente via claim).
       //    Falha de e-mail NÃO derruba o webhook: fica em audit_logs p/ reenvio.

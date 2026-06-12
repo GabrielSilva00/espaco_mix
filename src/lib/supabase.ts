@@ -439,15 +439,26 @@ export async function getAccessTokenSafe(timeoutMs = 4000): Promise<string | nul
   }
 }
 
-/** Pegar perfil do usuário logado */
-export async function getMyProfile(): Promise<Profile | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+/**
+ * Pegar perfil do usuário logado.
+ *
+ * Passe `userId` (vindo de `session.user.id`) quando chamar de dentro do
+ * callback `onAuthStateChange`: isso PULA o `supabase.auth.getUser()`, que
+ * tenta adquirir o mesmo lock de auth ainda segurado pelo cliente durante o
+ * INITIAL_SESSION — a causa do deadlock que travava eventos e login no reload.
+ */
+export async function getMyProfile(userId?: string): Promise<Profile | null> {
+  let uid = userId;
+  if (!uid) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    uid = user.id;
+  }
 
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
-    .eq('id', user.id)
+    .eq('id', uid)
     .maybeSingle();
 
   if (error) throw error;
