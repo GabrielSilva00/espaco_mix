@@ -9,15 +9,16 @@ type ResumeData = { reservationId: string; qrCode: string; copyPaste: string };
 export function CartView() {
   const {
     reservations, events, setCurrentView, showToast,
-    reloadReservations, setFormEvent,
+    reloadReservations, setFormEvent, cartOriginEventId,
   } = useApp();
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
   const [resume, setResume] = useState<ResumeData | null>(null);
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const pending = reservations.filter(r => r.paymentStatus === 'pending');
+  const pending = reservations.filter(r => r.paymentStatus === 'pending' && !removingIds.has(r.id));
 
   const eventOf = (eventId?: number) => events.find(e => e.id === eventId);
 
@@ -69,8 +70,8 @@ export function CartView() {
   };
 
   const handleRemove = async (reservationId: string) => {
-    if (busyId) return;
-    setBusyId(reservationId);
+    // Optimistic: remove imediatamente da lista; reverte em caso de erro.
+    setRemovingIds(prev => new Set(prev).add(reservationId));
     try {
       const token = await getAccessTokenSafe();
       const resp = await fetch(`/api/reservation/${reservationId}/cancel-pending`, {
@@ -84,9 +85,8 @@ export function CartView() {
       reloadReservations();
       showToast('Item removido do carrinho.', 'info');
     } catch (err: any) {
+      setRemovingIds(prev => { const s = new Set(prev); s.delete(reservationId); return s; });
       showToast(err.message ?? 'Não foi possível remover o item.', 'error');
-    } finally {
-      setBusyId(null);
     }
   };
 
@@ -105,12 +105,18 @@ export function CartView() {
           </h1>
           <p className="text-[10px] uppercase tracking-widest opacity-50 mt-1">Ingressos aguardando finalização ou pagamento</p>
         </div>
-        <button
-          onClick={() => setCurrentView('booking')}
-          className="flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] border border-white/10 rounded-lg md:rounded-full text-[10px] uppercase tracking-widest hover:bg-white/5 transition w-full md:w-auto"
-        >
-          <ArrowLeft className="w-3 h-3" /> Continuar Comprando
-        </button>
+        {cartOriginEventId && (
+          <button
+            onClick={() => {
+              const ev = events.find(e => e.id === cartOriginEventId);
+              if (ev) { setFormEvent({ ...ev }); }
+              setCurrentView('booking');
+            }}
+            className="flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] border border-white/10 rounded-lg md:rounded-full text-[10px] uppercase tracking-widest hover:bg-white/5 transition w-full md:w-auto"
+          >
+            <ArrowLeft className="w-3 h-3" /> Continuar Comprando
+          </button>
+        )}
       </div>
 
       {pending.length === 0 ? (
@@ -121,7 +127,7 @@ export function CartView() {
           <h3 className="text-xl font-serif text-white mb-2">Seu carrinho está vazio</h3>
           <p className="text-sm opacity-50 max-w-sm mb-8">Quando você selecionar ingressos e não finalizar a compra, eles aparecerão aqui.</p>
           <button
-            onClick={() => setCurrentView('booking')}
+            onClick={() => setCurrentView('home')}
             className="px-8 min-h-[48px] inline-flex items-center justify-center bg-[#d4af37] text-black text-[10px] uppercase font-bold tracking-widest rounded-xl hover:brightness-110 transition-all"
           >
             Ver Eventos

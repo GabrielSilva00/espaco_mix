@@ -51,7 +51,11 @@ function mapDbReservationToApp(r: any): Reservation {
       status: (t.status ?? 'active') as TicketItem['status'],
       pendingTransferEmail: t.pending_transfer_email ?? undefined,
       originalBuyerId: t.original_buyer_id ?? undefined,
+      holderUserId: t.holder_user_id ?? undefined,
       transferredFromName: t.transferred_from_name ?? undefined,
+      transferredToName: t.transferred_to_name ?? undefined,
+      transferredToEmail: t.transferred_to_email ?? undefined,
+      transferredAt: t.transferred_at ?? undefined,
       checkedIn: !!t.checked_in_at,
     })),
     total: Number(r.total) || 0,
@@ -190,6 +194,8 @@ interface AppContextValue {
   verifyPaymentNow: () => Promise<boolean>;
   /** "Pagar depois": mantém a reserva pendente e leva o usuário ao carrinho. */
   payLater: () => void;
+  /** ID do evento de origem quando o usuário clicou em "Pagar depois" — usado pelo carrinho para "Continuar comprando". */
+  cartOriginEventId: number | null;
   /** Recarrega as reservas do banco (após retomar/remover item do carrinho). */
   reloadReservations: () => void;
   /** Falha ao carregar dados essenciais do banco (config/reservas) — exibe banner com retry. */
@@ -523,6 +529,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [isLogsModalOpen, setIsLogsModalOpen] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [cartOriginEventId, setCartOriginEventId] = useState<number | null>(null);
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [messageText, setMessageText] = useState('');
   const [showDefaultCredentialsWarning, setShowDefaultCredentialsWarning] = useState(
@@ -653,45 +660,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') {
         if (session?.user) {
-          try {
-            const profile = await getMyProfile();
-            // Todos os papéis (cliente, admin e developer) têm a sessão restaurada
-            // ao recarregar a página — o usuário permanece logado.
-            if (profile) {
-              const r = profile.role as UserRole;
-              setUserRole(r);
-              setLoggedInUserId(profile.id);
-              setIsApprovedEventCreator(profile.is_approved_event_creator);
-              setSessionUser({
-                id: profile.id,
-                email: profile.email,
-                name: profile.name,
-                role: r,
-                isApprovedEventCreator: profile.is_approved_event_creator,
-                avatarUrl: profile.avatar_url,
-              });
-              // Rebusca eventos com sessão restaurada (subscribeToEvents pode ter rodado sem auth)
-              getEvents()
-                .then(data => setEvents(data.map(mapDbEventToApp)))
-                .catch(e => console.error('[Context] Erro ao buscar eventos (INITIAL_SESSION):', (e as Error)?.message))
-                .finally(() => setLoadingEvents(false));
-            }
-          } catch (err) {
-            const errMsg = String(err).toLowerCase();
-            console.error('[Context] Erro ao verificar sessão inicial:', err);
-            // Limpar sessão corrompida em todos os casos de erro
+          // Seta o userId imediatamente a partir do token (previne flash de "deslogado"
+          // durante o carregamento do perfil completo).
+          setLoggedInUserId(session.user.id);
+
+          // Carrega o perfil com retry — falha temporária não desloga o usuário.
+          const loadProfile = async (attemptsLeft: number): Promise<void> => {
             try {
-              ['eventix-auth-v2', 'eventix-auth'].forEach(k => localStorage.removeItem(k));
-              Object.keys(localStorage)
-                .filter(k => k.startsWith('sb-') || k.includes('supabase'))
-                .forEach(k => localStorage.removeItem(k));
-              sessionStorage.clear();
-            } catch {}
-            if (errMsg.includes('infinite recursion') || errMsg.includes('policies')) {
-              console.error('[Context] Erro de RLS ao restaurar a sessão:', err);
-              showToast('Não foi possível restaurar sua sessão (erro de permissão no banco). Faça login novamente.', 'error');
+              const profile = await getMyProfile();
+              if (profile) {
+                const r = profile.role as UserRole;
+                setUserRole(r);
+                setLoggedInUserId(profile.id);
+                setIsApprovedEventCreator(profile.is_approved_event_creator);
+                setSessionUser({
+                  id: profile.id,
+                  email: profile.email,
+                  name: profile.name,
+                  role: r,
+                  isApprovedEventCreator: profile.is_approved_event_creator,
+                  avatarUrl: profile.avatar_url,
+                });
+                // Rebusca eventos com sessão restaurada (subscribeToEvents pode ter rodado sem auth)
+                getEvents()
+                  .then(data => setEvents(data.map(mapDbEventToApp)))
+                  .catch(e => console.error('[Context] Erro ao buscar eventos (INITIAL_SESSION):', (e as Error)?.message))
+                  .finally(() => setLoadingEvents(false));
+              }
+            } catch (err) {
+              const errMsg = String(err).toLowerCase();
+              if (attemptsLeft > 0 && !errMsg.includes('infinite recursion') && !errMsg.includes('policies')) {
+                // Retry após 300ms para erros transitórios de rede/banco.
+                await new Promise(r => setTimeout(r, 300));
+                return loadProfile(attemptsLeft - 1);
+              }
+              console.error('[Context] Erro ao verificar sessão inicial:', err);
+              if (errMsg.includes('infinite recursion') || errMsg.includes('policies')) {
+                console.error('[Context] Erro de RLS ao restaurar a sessão:', err);
+                showToast('Não foi possível restaurar sua sessão (erro de permissão no banco). Faça login novamente.', 'error');
+                // Limpar sessão corrompida somente em caso de erro de RLS confirmado.
+                try {
+                  ['eventix-auth-v2', 'eventix-auth'].forEach(k => localStorage.removeItem(k));
+                  Object.keys(localStorage)
+                    .filter(k => k.startsWith('sb-') || k.includes('supabase'))
+                    .forEach(k => localStorage.removeItem(k));
+                  sessionStorage.clear();
+                } catch {}
+              }
+              // Mantém userId setado acima — usuário está autenticado mesmo sem perfil carregado.
             }
-          }
+          };
+          loadProfile(2);
         }
       } else if (event === 'SIGNED_IN') {
         // Login explícito pelo formulário — atualiza estado normalmente
@@ -2157,6 +2176,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // "Pagar depois": mantém a reserva pendente (já salva no banco), fecha o
   // checkout e leva o usuário ao carrinho, onde poderá retomar o pagamento.
   const payLater = useCallback(() => {
+    setCartOriginEventId(formEvent?.id ?? null);
     stopPaymentPolling();
     pendingPaymentRef.current = null;
     setIsProcessingPayment(false);
@@ -2172,7 +2192,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCurrentView('cart');
     showToast('Pagamento salvo no carrinho. Você pode finalizar depois.', 'info');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [formEvent?.id]);
 
   const handleConfirmReservation = async (cardData?: CardData, selectedPaymentMethod?: PaymentMethod | null) => {
     if (isProcessingPayment) return;
@@ -2409,6 +2429,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     paymentStatus, setPaymentStatus,
     verifyPaymentNow,
     payLater,
+    cartOriginEventId,
     reloadReservations,
     dataLoadError, retryDataLoad,
     pixData, setPixData,

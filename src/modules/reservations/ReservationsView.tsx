@@ -54,6 +54,8 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
   setQrFullscreen: (v: { id: string; name: string } | null) => void;
   setActionTicket: (v: any) => void;
 }) {
+  const { loggedInUserId } = useApp();
+  const isRecipient = !!tkt.holderUserId && tkt.holderUserId === loggedInUserId;
   const needsData = !tkt.ownerName;
   const countdown = useCountdown(tkt.transferExpiresAt);
   return (
@@ -70,15 +72,25 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
           <div className="flex items-center gap-2 mt-1 mb-2">
             {tkt.checkedIn ? (
               <span className="text-[8px] uppercase font-bold px-2 py-0.5 rounded-full bg-green-400/10 text-green-300 flex items-center gap-1">
-                <Check className="w-2 h-2" /> Usado
+                <Check className="w-2 h-2" /> Entrada confirmada
               </span>
             ) : (
               <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full ${tkt.status === 'active' ? 'bg-green-500/10 text-green-400' : tkt.status === 'transferred' ? 'bg-blue-500/10 text-blue-400' : tkt.status === 'pending_transfer' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-500'}`}>
-                {tkt.status === 'active' ? 'Ativo' : tkt.status === 'transferred' ? (tkt.transferredFromName ? `Transferido de ${tkt.transferredFromName}` : 'Transferido') : tkt.status === 'pending_transfer' ? 'Ag. Transferência' : 'Cancelado'}
+                {tkt.status === 'active' ? 'Ativo'
+                  : tkt.status === 'transferred'
+                    ? (isRecipient && tkt.transferredFromName ? `Transferido de ${tkt.transferredFromName}` : 'Transferido')
+                    : tkt.status === 'pending_transfer' ? 'Ag. Transferência'
+                    : 'Cancelado'}
               </span>
             )}
             <span className="text-[10px] opacity-40 font-mono tracking-widest">{tkt.id}</span>
           </div>
+          {tkt.status === 'transferred' && !isRecipient && (tkt.transferredToName || tkt.transferredToEmail) && (
+            <div className="mt-1 text-[9px] text-blue-300 flex flex-col gap-0.5">
+              <span className="flex items-center gap-1"><User className="w-2.5 h-2.5" /> Para: {tkt.transferredToName ?? tkt.transferredToEmail}</span>
+              {tkt.transferredAt && <span className="opacity-60">{new Date(tkt.transferredAt).toLocaleString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
+            </div>
+          )}
           {tkt.status === 'pending_transfer' && (
             <p className="text-[9px] text-yellow-400 mt-1 uppercase flex items-center gap-1">
               <Clock className="w-3 h-3" /> {countdown} — Aguardando {tkt.pendingTransferEmail}
@@ -140,32 +152,25 @@ export function ReservationsView() {
     actionTicket, setActionTicket,
   } = useApp();
 
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'cancelled'>('all');
-
-  // Uma reserva pertence ao "Histórico" quando: o evento já passou, OU todos os
-  // ingressos foram usados (check-in), OU todos foram cancelados. Caso contrário
-  // é um evento futuro/ativo (aba "Próximos Eventos").
+  // "Histórico": evento passado, pagamento cancelado/reembolsado, ou todos os
+  // ingressos encerrados (usados, cancelados ou transferidos).
   const isPastReservation = React.useCallback((r: typeof reservations[number]) => {
     const ev = events.find(e => e.id === r.eventId);
     const tickets = r.ticketsObj ?? [];
     const eventPassed = !!ev?.date && new Date(`${ev.date}T${ev.time ?? '23:59'}:00`).getTime() < Date.now();
-    const allUsed = tickets.length > 0 && tickets.every(t => t.checkedIn || t.status === 'cancelled');
-    return eventPassed || allUsed;
+    const allDone = tickets.length > 0 && tickets.every(t => t.checkedIn || t.status === 'cancelled' || t.status === 'transferred');
+    const isCancelled = r.paymentStatus === 'cancelled' || r.paymentStatus === 'refunded';
+    return eventPassed || allDone || isCancelled;
   }, [events]);
 
+  // "Próximos Eventos" = confirmados (aprovados) com evento futuro e ≥1 ingresso ativo.
   const filteredReservations = React.useMemo(() => {
-    // 1) separa por aba (próximos vs histórico)
-    const byTab = reservations.filter(r =>
-      reservationsTab === 'past' ? isPastReservation(r) : !isPastReservation(r)
+    return reservations.filter(r =>
+      reservationsTab === 'past' ? isPastReservation(r) : (
+        !isPastReservation(r) && r.paymentStatus === 'approved'
+      )
     );
-    // 2) aplica o filtro de status dentro da aba
-    if (statusFilter === 'all') return byTab;
-    if (statusFilter === 'cancelled') return byTab.filter(r =>
-      r.paymentStatus === 'cancelled' || r.paymentStatus === 'refunded' ||
-      ((r.ticketsObj?.length ?? 0) > 0 && r.ticketsObj!.every(t => t.status === 'cancelled'))
-    );
-    return byTab.filter(r => r.ticketsObj?.some(t => t.status === 'active' && !t.checkedIn) ?? false);
-  }, [reservations, statusFilter, reservationsTab, isPastReservation]);
+  }, [reservations, reservationsTab, isPastReservation]);
 
   return (
     <>
@@ -201,20 +206,6 @@ export function ReservationsView() {
              {reservationsTab === 'past' && <motion.div layoutId="tabMarker" className="absolute bottom-0 left-0 w-full h-0.5 bg-[#d4af37] shadow-[0_0_10px_rgba(212,175,55,0.5)]"></motion.div>}
            </button>
         </div>
-
-        {reservations.length > 0 && (
-          <div className="flex gap-2 mb-6">
-            {(['all', 'active', 'cancelled'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setStatusFilter(f)}
-                className={`px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest font-bold transition ${statusFilter === f ? 'bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/30' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'}`}
-              >
-                {f === 'all' ? 'Todos' : f === 'active' ? 'Ativos' : 'Cancelados'}
-              </button>
-            ))}
-          </div>
-        )}
 
         {filteredReservations.length === 0 ? (
           <div className="border border-white/10 bg-[#0d0d0d] rounded-2xl p-12 md:p-16 flex flex-col items-center justify-center text-center shadow-xl">
@@ -258,9 +249,19 @@ export function ReservationsView() {
                         </div>
                         <div>
                            <div className="flex items-center gap-2 mb-1">
-                            <span className="px-2 py-0.5 bg-green-500/10 text-green-400 border border-green-500/20 text-[8px] uppercase tracking-widest rounded-full flex items-center gap-1">
-                              <Check className="w-2 h-2" /> Confirmado
-                            </span>
+                            {(() => {
+                              const tickets = res.ticketsObj ?? [];
+                              const allCheckedIn = tickets.length > 0 && tickets.every(t => t.checkedIn);
+                              const allCancelled = tickets.length > 0 && tickets.every(t => t.status === 'cancelled');
+                              const allTransferred = tickets.length > 0 && tickets.every(t => t.status === 'transferred');
+                              const ev = events.find(e => e.id === res.eventId);
+                              const eventPassed = !!ev?.date && new Date(`${ev.date}T${ev.time ?? '23:59'}:00`).getTime() < Date.now();
+                              if (allCheckedIn) return <span className="px-2 py-0.5 bg-green-500/10 text-green-400 border border-green-500/20 text-[8px] uppercase tracking-widest rounded-full flex items-center gap-1"><Check className="w-2 h-2" /> Utilizado</span>;
+                              if (allCancelled || res.paymentStatus === 'cancelled' || res.paymentStatus === 'refunded') return <span className="px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20 text-[8px] uppercase tracking-widest rounded-full flex items-center gap-1"><X className="w-2 h-2" /> Cancelado</span>;
+                              if (allTransferred) return <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[8px] uppercase tracking-widest rounded-full flex items-center gap-1">Transferido</span>;
+                              if (eventPassed) return <span className="px-2 py-0.5 bg-white/10 text-white/40 border border-white/10 text-[8px] uppercase tracking-widest rounded-full">Encerrado</span>;
+                              return <span className="px-2 py-0.5 bg-green-500/10 text-green-400 border border-green-500/20 text-[8px] uppercase tracking-widest rounded-full flex items-center gap-1"><Check className="w-2 h-2" /> Confirmado</span>;
+                            })()}
                           </div>
                           <h3 className="text-sm md:text-base font-serif text-[#d4af37]">{events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}</h3>
                           <p className="text-[10px] md:text-xs opacity-50 tracking-widest">Comprado em {formatPurchaseDate(res.createdAt ?? res.date)}</p>
@@ -290,9 +291,19 @@ export function ReservationsView() {
                            </div>
                            <div>
                             <div className="flex flex-wrap items-center gap-3 mb-2">
-                              <span className="px-3 py-1 bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] uppercase tracking-widest rounded-full flex items-center gap-1.5">
-                                <Check className="w-3 h-3" /> Confirmado
-                              </span>
+                              {(() => {
+                                const tickets = res.ticketsObj ?? [];
+                                const allCheckedIn = tickets.length > 0 && tickets.every(t => t.checkedIn);
+                                const allCancelled = tickets.length > 0 && tickets.every(t => t.status === 'cancelled');
+                                const allTransferred = tickets.length > 0 && tickets.every(t => t.status === 'transferred');
+                                const ev2 = events.find(e => e.id === res.eventId);
+                                const eventPassed2 = !!ev2?.date && new Date(`${ev2.date}T${ev2.time ?? '23:59'}:00`).getTime() < Date.now();
+                                if (allCheckedIn) return <span className="px-3 py-1 bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] uppercase tracking-widest rounded-full flex items-center gap-1.5"><Check className="w-3 h-3" /> Utilizado</span>;
+                                if (allCancelled || res.paymentStatus === 'cancelled' || res.paymentStatus === 'refunded') return <span className="px-3 py-1 bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] uppercase tracking-widest rounded-full flex items-center gap-1.5"><X className="w-3 h-3" /> Cancelado</span>;
+                                if (allTransferred) return <span className="px-3 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[9px] uppercase tracking-widest rounded-full">Transferido</span>;
+                                if (eventPassed2) return <span className="px-3 py-1 bg-white/10 text-white/40 border border-white/10 text-[9px] uppercase tracking-widest rounded-full">Encerrado</span>;
+                                return <span className="px-3 py-1 bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] uppercase tracking-widest rounded-full flex items-center gap-1.5"><Check className="w-3 h-3" /> Confirmado</span>;
+                              })()}
                               <div className="flex items-center gap-2">
                                  <span className="text-[10px] opacity-70 uppercase tracking-widest bg-white/5 py-1 px-3 rounded-md font-mono border border-white/10">Cod: {res.id}</span>
                                  <button

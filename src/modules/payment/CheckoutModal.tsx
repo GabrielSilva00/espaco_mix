@@ -843,10 +843,15 @@ export function CheckoutModal() {
                         <div className="absolute inset-0 rounded-full border-t-2 border-[#d4af37] border-r-2 border-transparent border-b-2 border-transparent border-l-2 border-[#d4af37]/30 animate-spin"></div>
                         <div className="absolute inset-2 rounded-full border-t-2 border-transparent border-r-2 border-[#d4af37]/50 border-b-2 border-transparent border-l-2 border-[#d4af37] animate-[spin_1.5s_linear_infinite_reverse]"></div>
                         <div className="absolute inset-0 flex items-center justify-center">
-                          <CreditCard className="w-6 h-6 text-[#d4af37] animate-pulse" />
+                          {localPaymentMethod === 'pix'
+                            ? <QrCode className="w-6 h-6 text-[#d4af37] animate-pulse" />
+                            : <CreditCard className="w-6 h-6 text-[#d4af37] animate-pulse" />
+                          }
                         </div>
                       </div>
-                      <h3 className="text-xl font-serif text-[#d4af37] mb-2">Processando {localPaymentMethod?.replace('_', ' ')}</h3>
+                      <h3 className="text-xl font-serif text-[#d4af37] mb-2">
+                        {localPaymentMethod === 'pix' ? 'Gerando QR Code PIX…' : `Processando ${localPaymentMethod?.replace('_', ' ')}`}
+                      </h3>
                       <p className="text-[10px] uppercase tracking-widest opacity-50">Por favor aguarde...</p>
                     </div>
                   )}

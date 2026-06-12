@@ -73,14 +73,6 @@ export function Navbar() {
                 )}
               </>
             )}
-            {role && (
-              <button
-                onClick={() => setCurrentView('reservations')}
-                className={`hover:text-[#d4af37] transition-colors ${currentView === 'reservations' ? 'text-[#d4af37] opacity-100 font-bold' : ''}`}
-              >
-                Minhas Reservas
-              </button>
-            )}
             {role && userRole === 'client' && (
               <button
                 onClick={() => setCurrentView('cart')}
@@ -276,15 +268,6 @@ export function Navbar() {
                     label="Início"
                     active={currentView === 'home'}
                     onClick={() => { setCurrentView('home'); setIsMobileMenuOpen(false); }}
-                  />
-                )}
-
-                {role && (
-                  <SheetItem
-                    icon={<Ticket className="w-4 h-4" />}
-                    label="Minhas Reservas"
-                    active={currentView === 'reservations'}
-                    onClick={() => { setCurrentView('reservations'); setIsMobileMenuOpen(false); }}
                   />
                 )}
 

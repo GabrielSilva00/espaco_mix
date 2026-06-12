@@ -1539,38 +1539,51 @@ export async function createExpressApp() {
         return;
       }
 
-      // Cancelar o ticket_item
-      await admin.from("ticket_items").update({ status: "cancelled" }).eq("id", ticket.id);
-
-      // Verificar se todos os itens da reserva agora estão cancelados
-      const remainingItems: any[] = (reservation as any).ticket_items ?? [];
-      const activeAfterCancel = remainingItems.filter((t: any) => t.id !== ticket.id && t.status === "active");
+      const allItems: any[] = (reservation as any).ticket_items ?? [];
+      const totalTickets = allItems.length || 1;
+      const total: number = (reservation as any).total ?? 0;
 
       let refundAmount: number | null = null;
       let refundStatus: "processed" | "manual_required" | "failed" | "not_applicable" = "not_applicable";
       let refundError: string | null = null;
 
-      if (activeAfterCancel.length === 0 && reservation.payment_status === "approved") {
-        // Todos cancelados: estornar via MP
+      // Tenta estorno ANTES de cancelar o ticket (para não cancelar sem reembolsar).
+      if (reservation.payment_status === "approved") {
         const settings = await admin
           .from("system_config")
           .select("allow_cancellation,refund_type,cancel_fee_percent,auto_refund")
           .eq("id", "main")
           .maybeSingle();
         const cfg = settings.data;
-        const total: number = (reservation as any).total ?? 0;
 
-        if (!cfg?.allow_cancellation || !cfg?.auto_refund) {
-          // Estorno automático desativado nas configurações — exige ação manual.
+        if (!cfg?.allow_cancellation) {
+          res.status(400).json({ error: "Cancelamento de ingressos não está habilitado no momento." });
+          return;
+        }
+
+        if (!cfg?.auto_refund) {
           refundStatus = "manual_required";
         } else {
-          if (cfg.refund_type === "partial") {
-            refundAmount = Math.round(total * (1 - (cfg.cancel_fee_percent ?? 0) / 100) * 100) / 100;
-          } else if (cfg.refund_type === "no-fee") {
-            refundAmount = Math.round((total - ((reservation as any).platform_fee ?? 0)) * 100) / 100;
+          // Calcula o valor a estornar para este ingresso (proporcional ao total).
+          const activeItems = allItems.filter((t: any) => t.status === "active");
+          const isLastTicket = activeItems.length === 1;
+
+          if (isLastTicket) {
+            // Último ingresso ativo: estorno do restante conforme política.
+            if (cfg.refund_type === "partial") {
+              refundAmount = Math.round(total * (1 - (cfg.cancel_fee_percent ?? 0) / 100) * 100) / 100;
+            } else if (cfg.refund_type === "no-fee") {
+              refundAmount = Math.round((total - ((reservation as any).platform_fee ?? 0)) * 100) / 100;
+            } else {
+              refundAmount = null; // sem amount = MP estorna o saldo restante
+            }
           } else {
-            refundAmount = total; // total refund
+            // Cancelamento parcial: proporcional pelos tickets ativos restantes.
+            const activeCount = Math.max(activeItems.length, 1);
+            const unitValue = Math.round((total / activeCount) * 100) / 100;
+            refundAmount = unitValue;
           }
+
           const orderId = (reservation as any).payment_id;
           if (!orderId) {
             refundStatus = "manual_required";
@@ -1578,31 +1591,39 @@ export async function createExpressApp() {
           } else {
             try {
               const mpToken = await getMpAccessToken();
-              // O refund da Orders API usa o PAYMENT id interno, não o order id
-              // salvo em payment_id. Resolve o id real antes de estornar.
               const info = await resolveMpPayment(String(orderId), mpToken);
               const realPaymentId = info?.resolvedPaymentId ?? String(orderId);
-              const mpBody = refundAmount !== null && refundAmount < total ? { amount: Math.round(refundAmount * 100) / 100 } : {};
+              const mpBody = refundAmount !== null ? { amount: Math.round(refundAmount * 100) / 100 } : {};
               const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${realPaymentId}/refunds`, {
                 method: "POST",
-                headers: { Authorization: `Bearer ${mpToken}`, "Content-Type": "application/json", "X-Idempotency-Key": `refund-${reservation.id}` },
+                headers: {
+                  Authorization: `Bearer ${mpToken}`,
+                  "Content-Type": "application/json",
+                  "X-Idempotency-Key": `refund-${reservation.id}-${ticket.id}`,
+                },
                 body: JSON.stringify(mpBody),
               });
               if (mpRes.ok) {
+                const mpData = await mpRes.json().catch(() => ({}));
+                refundAmount = refundAmount ?? (mpData.amount ?? total);
                 refundStatus = "processed";
               } else {
+                const errText = await mpRes.text();
                 refundStatus = "failed";
-                refundError = await mpRes.text();
-                console.error("[TICKET/CANCEL] Falha no estorno MP:", refundError);
+                refundError = errText;
+                console.error("[TICKET/CANCEL] Falha no estorno MP:", errText);
                 try {
                   await admin.from("audit_logs").insert({
                     user_id: user.uid,
                     action: "refund_failed",
                     entity_type: "reservation",
                     entity_id: reservation.id,
-                    changes: { paymentId: realPaymentId, refundAmount, error: refundError },
+                    changes: { paymentId: realPaymentId, refundAmount, error: errText },
                   });
                 } catch { /* auditoria é melhor-esforço */ }
+                // Estorno falhou — não cancelar o ingresso.
+                res.status(422).json({ error: `Não foi possível processar o estorno. ${errText}`, refundStatus, refundError });
+                return;
               }
             } catch (mpErr: any) {
               refundStatus = "failed";
@@ -1617,9 +1638,20 @@ export async function createExpressApp() {
                   changes: { refundAmount, error: refundError },
                 });
               } catch { /* auditoria é melhor-esforço */ }
+              // Estorno falhou — não cancelar o ingresso.
+              res.status(422).json({ error: `Erro ao processar estorno: ${refundError}`, refundStatus, refundError });
+              return;
             }
           }
         }
+      }
+
+      // Estorno processado (ou não aplicável) — agora cancela o ticket.
+      await admin.from("ticket_items").update({ status: "cancelled" }).eq("id", ticket.id);
+
+      // Verificar se todos os itens da reserva agora estão cancelados.
+      const activeAfterCancel = allItems.filter((t: any) => t.id !== ticket.id && t.status === "active");
+      if (activeAfterCancel.length === 0 && reservation.payment_status === "approved") {
         await admin.from("reservations").update({ payment_status: "refunded" }).eq("id", reservation.id);
       }
 
@@ -1779,10 +1811,21 @@ export async function createExpressApp() {
         fromName = (from as any)?.name ?? fromName;
       }
 
+      // Busca o nome/email do destinatário para gravar no ticket do remetente.
+      const { data: recipientProfile } = await admin.from("profiles").select("name, email").eq("id", user.uid).maybeSingle();
+      const recipientName = (recipientProfile as any)?.name ?? null;
+      const recipientEmail = (recipientProfile as any)?.email ?? (ticket as any).pending_transfer_email ?? null;
+
+      // Atualiza o ticket: transfere a posse (holder_user_id), registra remetente
+      // (transferred_from_name) e, no mesmo registro, guarda destinatário para
+      // que o remetente consiga ver para quem transferiu.
       await admin.from("ticket_items").update({
         status: "transferred",
         holder_user_id: user.uid,
         transferred_from_name: fromName,
+        transferred_to_name: recipientName,
+        transferred_to_email: recipientEmail,
+        transferred_at: new Date().toISOString(),
         pending_transfer_email: null,
         transfer_token: null,
         transfer_expires_at: null,

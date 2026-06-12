@@ -41,7 +41,11 @@ export interface TicketItem {
   pendingTransferEmail?: string;
   transferExpiresAt?: number;
   originalBuyerId?: string;
+  holderUserId?: string;
   transferredFromName?: string;
+  transferredToName?: string;
+  transferredToEmail?: string;
+  transferredAt?: string;
   checkedIn?: boolean;
 }
 
