@@ -187,7 +187,13 @@ export async function tokenizeCard(
       const wantType = opts.isDebit ? 'debit_card' : 'credit_card';
       const pm = await mp.getPaymentMethods({ bin: cleanNumber.slice(0, 8) });
       const results: any[] = pm?.results ?? [];
-      const match = results.find(m => m.payment_type_id === wantType) ?? results[0];
+      // Aceita apenas o método do tipo desejado. Para débito NÃO caímos em
+      // results[0] (que pode ser a variante de crédito, ex.: 'elo'): isso faria
+      // o backend enviar 'elo' com type debit_card e o MP rejeitar
+      // ("value must be 'debelo'"). Sem match, deixa null → backend usa o mapa
+      // de débito (debvisa/debmaster/debelo).
+      const match = results.find(m => m.payment_type_id === wantType)
+        ?? (opts.isDebit ? null : results[0]);
       paymentMethodId = match?.id ?? null;
     } catch (e) {
       console.warn('[CardTokenizer] getPaymentMethods falhou, usando fallback no backend:', e);

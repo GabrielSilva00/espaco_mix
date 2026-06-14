@@ -572,20 +572,47 @@ async function computeOrderTotal(sel: OrderSelection): Promise<number> {
   return Math.round(subTotal * 100) / 100;
 }
 
+// ─── Expiração de reservas pendentes (carrinho) ──────────────────────────────
+// Reserva pendente sem payment_id = carrinho abandonado antes de pagar → expira
+// em 10 min. Com payment_id = PIX/cartão já iniciado → mantém a mesa pela janela
+// do PIX (30 min, coincide com o polling do front que encerra em ~30 min).
+const PENDING_CART_EXPIRY_MS = 10 * 60 * 1000;
+const PENDING_PAYMENT_EXPIRY_MS = 30 * 60 * 1000;
+function isPendingExpired(r: { created_at?: string | null; payment_id?: string | null }): boolean {
+  if (!r?.created_at) return false;
+  const created = new Date(r.created_at).getTime();
+  if (!Number.isFinite(created)) return false;
+  const window = r.payment_id ? PENDING_PAYMENT_EXPIRY_MS : PENDING_CART_EXPIRY_MS;
+  return Date.now() - created > window;
+}
+
 // ─── Mesas ocupadas de um evento (reservas pagas OU pendentes) ───────────────
 // Retorna apenas NÚMEROS de mesa (sem dados pessoais) — usado para bloquear
 // dupla reserva no checkout e marcar mesas como indisponíveis no mapa.
+// Reservas pendentes expiradas (carrinho abandonado) são ignoradas e marcadas
+// como 'cancelled' (cleanup lazy — o plano Vercel é Hobby, sem cron), liberando
+// a mesa para outros compradores.
 async function getOccupiedTables(admin: any, eventId: number | string): Promise<number[]> {
   const { data, error } = await admin
     .from("reservations")
-    .select("tables, payment_status")
+    .select("id, tables, payment_status, payment_id, created_at")
     .eq("event_id", eventId)
     .in("payment_status", ["approved", "pending"]);
   if (error) throw error;
   const set = new Set<number>();
+  const expiredIds: string[] = [];
   (data ?? []).forEach((r: any) => {
+    if (r.payment_status === "pending" && isPendingExpired(r)) {
+      expiredIds.push(r.id);
+      return; // mesa não conta como ocupada
+    }
     (Array.isArray(r.tables) ? r.tables : []).forEach((t: any) => set.add(Number(t)));
   });
+  if (expiredIds.length > 0) {
+    admin.from("reservations").update({ payment_status: "cancelled" }).in("id", expiredIds)
+      .then(() => { /* lazy cleanup */ })
+      .catch((e: any) => console.error("[CART-EXPIRY] Falha ao cancelar pendentes:", e?.message ?? e));
+  }
   return [...set];
 }
 
@@ -2000,9 +2027,17 @@ export async function createExpressApp() {
       const debitMap: Record<string, string> = { visa: 'debvisa', mastercard: 'debmaster', elo: 'debelo' };
       const brandKey = (cardBrand || 'visa').toLowerCase();
       const fallbackBrandId = isDebit ? (debitMap[brandKey] ?? 'debvisa') : (creditMap[brandKey] ?? 'visa');
-      const brandId = (typeof paymentMethodId === 'string' && paymentMethodId.trim())
+      // Só aceita o id vindo do front se o TIPO bater: id de débito começa com
+      // 'deb' (debvisa/debmaster/debelo). Se o front mandar 'elo' (crédito) num
+      // pagamento de débito, ignoramos e usamos o fallback — senão o MP rejeita
+      // com "value must be 'debelo'".
+      const frontId = (typeof paymentMethodId === 'string' && paymentMethodId.trim())
         ? paymentMethodId.trim()
-        : fallbackBrandId;
+        : '';
+      const frontIdMatchesType = frontId
+        ? (isDebit ? frontId.startsWith('deb') : !frontId.startsWith('deb'))
+        : false;
+      const brandId = frontIdMatchesType ? frontId : fallbackBrandId;
       const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
 
       // Orders API (/v1/orders) — o /v1/payments legado foi descontinuado para

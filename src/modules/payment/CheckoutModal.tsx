@@ -108,6 +108,7 @@ export function CheckoutModal() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
+              data-lenis-prevent
               className="bg-[#0f0f0f] border border-white/10 w-full max-w-md rounded-2xl md:rounded-3xl p-5 md:p-6 shadow-[0_0_50px_rgba(212,175,55,0.05)] relative mx-auto my-auto overflow-y-auto max-h-[95vh]"
             >
               <button 
@@ -1079,7 +1080,7 @@ export function CheckoutModal() {
                 </div>
               </div>
 
-              <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              <div data-lenis-prevent className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
                 {/* Personal Information */}
                 <div>
                    <h3 className="text-[10px] uppercase tracking-[0.3em] font-black text-[#d4af37] mb-5 flex items-center gap-2">

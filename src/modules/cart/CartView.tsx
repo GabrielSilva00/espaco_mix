@@ -6,6 +6,11 @@ import { getAccessTokenSafe } from '../../lib/supabase';
 
 type ResumeData = { reservationId: string; qrCode: string; copyPaste: string };
 
+// Janela que um item pendente fica no carrinho (espelha o backend):
+// sem pagamento iniciado = 10 min; com PIX/cartão iniciado = 30 min.
+const PENDING_CART_EXPIRY_MS = 10 * 60 * 1000;
+const PENDING_PAYMENT_EXPIRY_MS = 30 * 60 * 1000;
+
 export function CartView() {
   const {
     reservations, events, setCurrentView, showToast,
@@ -17,6 +22,20 @@ export function CartView() {
   const [resume, setResume] = useState<ResumeData | null>(null);
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Tick de 1s para a contagem regressiva de expiração dos itens.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const expiresAtOf = (r: { createdAt?: string; paymentId?: string }) => {
+    if (!r.createdAt) return null;
+    const created = new Date(r.createdAt).getTime();
+    if (!Number.isFinite(created)) return null;
+    return created + (r.paymentId ? PENDING_PAYMENT_EXPIRY_MS : PENDING_CART_EXPIRY_MS);
+  };
 
   const pending = reservations.filter(r => r.paymentStatus === 'pending' && !removingIds.has(r.id));
 
@@ -90,6 +109,18 @@ export function CartView() {
     }
   };
 
+  // Remove automaticamente os itens cuja janela de carrinho expirou (libera a
+  // mesa no backend via cancel-pending). Roda a cada tick de `now`.
+  useEffect(() => {
+    pending.forEach(res => {
+      const expiresAt = expiresAtOf(res);
+      if (expiresAt !== null && now >= expiresAt && !removingIds.has(res.id)) {
+        handleRemove(res.id);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [now]);
+
   const handleContinue = (eventId?: number) => {
     const ev = eventOf(eventId);
     if (ev) { setFormEvent({ ...ev }); setCurrentView('booking'); }
@@ -139,16 +170,27 @@ export function CartView() {
             const ev = eventOf(res.eventId);
             const awaitingPayment = !!res.paymentId;
             const count = res.ticketsObj?.length ?? 0;
+            const expiresAt = expiresAtOf(res);
+            const msLeft = expiresAt !== null ? Math.max(0, expiresAt - now) : null;
+            const countdown = msLeft !== null
+              ? `${Math.floor(msLeft / 60000).toString().padStart(2, '0')}:${Math.floor((msLeft % 60000) / 1000).toString().padStart(2, '0')}`
+              : null;
+            const urgent = msLeft !== null && msLeft < 120000;
             return (
               <div key={res.id} className="border border-[#d4af37]/20 bg-[#0d0d0d] rounded-2xl p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-4">
                 <div className="w-14 h-14 flex-shrink-0 bg-[#111] overflow-hidden rounded-xl border border-white/10">
                   <img src={ev?.img || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80'} alt="Cover" className="w-full h-full object-cover" loading="lazy" />
                 </div>
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${awaitingPayment ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
                       <Clock className="w-2 h-2" /> {awaitingPayment ? 'Aguardando pagamento' : 'Aguardando finalizar'}
                     </span>
+                    {countdown && (
+                      <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${urgent ? 'bg-red-500/10 text-red-400' : 'bg-white/5 text-white/60'}`}>
+                        <Clock className="w-2 h-2" /> Expira em {countdown}
+                      </span>
+                    )}
                   </div>
                   <h3 className="text-sm md:text-base font-serif text-[#d4af37]">{ev?.title ?? 'Evento'}</h3>
                   <p className="text-[10px] opacity-50 tracking-widest">{count} ingresso(s) • R$ {res.total.toFixed(2)}</p>
