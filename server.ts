@@ -586,6 +586,33 @@ function isPendingExpired(r: { created_at?: string | null; payment_id?: string |
   return Date.now() - created > window;
 }
 
+// ─── Métodos de pagamento ATIVOS da conta MP (cacheado) ──────────────────────
+// Fonte da verdade para o payment_method.id: a conta pode suportar só certos
+// métodos (ex.: débito apenas 'debelo'). Resolver pela conta evita o erro
+// "value must be 'debelo'" causado por mapas de bandeira (debvisa/debmaster) que
+// não existem nesta conta. Cache de 10 min (em instância warm da serverless).
+let _pmCache: { at: number; debit: string[]; credit: string[] } | null = null;
+async function getAccountPaymentMethods(accessToken: string): Promise<{ debit: string[]; credit: string[] }> {
+  if (_pmCache && Date.now() - _pmCache.at < 10 * 60 * 1000) {
+    return { debit: _pmCache.debit, credit: _pmCache.credit };
+  }
+  try {
+    const resp = await fetch("https://api.mercadopago.com/v1/payment_methods", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const list = await resp.json();
+    const active = Array.isArray(list) ? list.filter((m: any) => m?.status === "active") : [];
+    const debit = active.filter((m: any) => m.payment_type_id === "debit_card").map((m: any) => String(m.id));
+    const credit = active.filter((m: any) => m.payment_type_id === "credit_card").map((m: any) => String(m.id));
+    _pmCache = { at: Date.now(), debit, credit };
+    return { debit, credit };
+  } catch (e: any) {
+    console.error("[MERCADOPAGO] Falha ao listar payment_methods da conta:", e?.message ?? e);
+    return { debit: [], credit: [] };
+  }
+}
+
 // ─── Mesas ocupadas de um evento (reservas pagas OU pendentes) ───────────────
 // Retorna apenas NÚMEROS de mesa (sem dados pessoais) — usado para bloquear
 // dupla reserva no checkout e marcar mesas como indisponíveis no mapa.
@@ -2018,26 +2045,40 @@ export async function createExpressApp() {
 
     try {
       const isDebit = paymentMethod === 'debit_card';
-      // A Orders API exige o payment_method.id da variante de DÉBITO para cartões
-      // de débito (debvisa/debmaster/debelo) — mandar 'elo' num Elo Débito faz o
-      // MP rejeitar com "value must be 'debelo'".
-      // Preferimos o id resolvido pelo próprio MP no front (getPaymentMethods);
-      // o mapa abaixo é só fallback quando esse id não veio.
+      // A Orders API exige o payment_method.id EXATO que a conta MP suporta.
+      // Para débito isso é crítico: a conta pode ter só 'debelo' (sem debvisa/
+      // debmaster), então mandar 'debmaster' faz o MP rejeitar com
+      // "value must be 'debelo'". A fonte da verdade são os payment_methods da
+      // própria conta (getAccountPaymentMethods) — não a regex de bandeira nem
+      // o getPaymentMethods do front (que pode falhar/vir vazio).
       const creditMap: Record<string, string> = { visa: 'visa', mastercard: 'master', amex: 'amex', elo: 'elo' };
       const debitMap: Record<string, string> = { visa: 'debvisa', mastercard: 'debmaster', elo: 'debelo' };
       const brandKey = (cardBrand || 'visa').toLowerCase();
-      const fallbackBrandId = isDebit ? (debitMap[brandKey] ?? 'debvisa') : (creditMap[brandKey] ?? 'visa');
-      // Só aceita o id vindo do front se o TIPO bater: id de débito começa com
-      // 'deb' (debvisa/debmaster/debelo). Se o front mandar 'elo' (crédito) num
-      // pagamento de débito, ignoramos e usamos o fallback — senão o MP rejeita
-      // com "value must be 'debelo'".
+      const fallbackBrandId = isDebit ? (debitMap[brandKey] ?? 'debelo') : (creditMap[brandKey] ?? 'visa');
+      // Só aceita o id vindo do front se o TIPO bater (débito começa com 'deb').
       const frontId = (typeof paymentMethodId === 'string' && paymentMethodId.trim())
         ? paymentMethodId.trim()
         : '';
       const frontIdMatchesType = frontId
         ? (isDebit ? frontId.startsWith('deb') : !frontId.startsWith('deb'))
         : false;
-      const brandId = frontIdMatchesType ? frontId : fallbackBrandId;
+
+      const account = await getAccountPaymentMethods(accessToken);
+      let brandId: string;
+      if (isDebit) {
+        // Preferência: front (se válido) → mapa de bandeira; mas só vale se a
+        // conta suportar esse id. Se não, e a conta tiver um único método de
+        // débito, usa ele. Último recurso: o mapa de fallback.
+        const preferred = frontIdMatchesType ? frontId : fallbackBrandId;
+        brandId = account.debit.includes(preferred)
+          ? preferred
+          : (account.debit.length === 1 ? account.debit[0] : fallbackBrandId);
+      } else {
+        const preferred = frontIdMatchesType ? frontId : fallbackBrandId;
+        brandId = (account.credit.length === 0 || account.credit.includes(preferred))
+          ? preferred
+          : fallbackBrandId;
+      }
       const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
 
       // Orders API (/v1/orders) — o /v1/payments legado foi descontinuado para
@@ -2076,7 +2117,7 @@ export async function createExpressApp() {
         },
       };
 
-      console.log(`[MERCADOPAGO] Processando pagamento (orders): R$ ${amount} | Método: ${paymentMethod} | payment_method.id: ${brandId} (recebido do front: ${paymentMethodId ?? '—'}, fallback: ${fallbackBrandId}) | payer.email: ${payload.payer.email}`);
+      console.log(`[MERCADOPAGO] Processando pagamento (orders): R$ ${amount} | Método: ${paymentMethod} | payment_method.id: ${brandId} (front: ${paymentMethodId ?? '—'}, fallback: ${fallbackBrandId}, conta débito: [${account.debit.join(',')}]) | payer.email: ${payload.payer.email}`);
 
       const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
