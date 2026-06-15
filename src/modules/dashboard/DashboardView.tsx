@@ -24,6 +24,8 @@ import { TableLayoutEditor } from '../../components/TableLayoutEditor';
 import { downloadPDFList } from '../../shared/utils/pdf';
 import { generateDefaultLayout, getLayoutViewBox } from '../../shared/utils/defaultLayout';
 import { ReportsPanel } from './ReportsPanel';
+import ImageCropModal from './ImageCropModal';
+import { uploadEventImage } from '../../lib/supabase';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { isEventPast } from '../../shared/utils/eventMapper';
 import type { Event, Buyer, Reservation } from '../../types';
@@ -453,6 +455,22 @@ export function DashboardView() {
   } = useApp();
 
   const [eventFilter, setEventFilter] = React.useState<'upcoming' | 'past'>('upcoming');
+  const [cropModalOpen, setCropModalOpen] = React.useState(false);
+
+  // Recorte 16:9: gera o blob, sobe pro Storage e atualiza a imagem do evento em edição.
+  const handleCropConfirm = async (blob: Blob) => {
+    if (!formEvent) return;
+    try {
+      showToast('Aplicando corte...', 'info');
+      const file = new File([blob], `crop-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const url = await uploadEventImage(file, formEvent.id);
+      setFormEvent(prev => (prev ? { ...prev, img: url } : prev));
+      setCropModalOpen(false);
+      showToast('Imagem recortada com sucesso!', 'success');
+    } catch (err: any) {
+      showToast(`Erro ao recortar: ${err?.message || String(err)}`, 'error');
+    }
+  };
 
   type CheckInRow = { ticketId: string; name: string; cpf: string; type: string; status: string; checkedIn: boolean };
   const [pendingCheckin, setPendingCheckin] = React.useState<CheckInRow | null>(null);
@@ -2101,22 +2119,42 @@ export function DashboardView() {
                           className="hidden"
                           onChange={handleImageFileChange}
                         />
+                        {cropModalOpen && formEvent.img && (
+                          <ImageCropModal
+                            imageSrc={formEvent.img}
+                            onCancel={() => setCropModalOpen(false)}
+                            onConfirm={handleCropConfirm}
+                          />
+                        )}
                         <div
-                          onClick={() => imageFileInputRef.current?.click()}
-                          className={`aspect-[4/5] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group cursor-pointer transition-colors ${releaseValidationFields.includes('Imagem de Capa') ? 'border-red-500/60 bg-red-500/5 hover:border-red-500/80' : 'border-white/20 bg-white/2 hover:border-[#d4af37]/50 hover:bg-[#d4af37]/5'}`}
+                          onClick={() => { if (!formEvent.img) imageFileInputRef.current?.click(); }}
+                          className={`aspect-[16/9] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group transition-colors ${formEvent.img ? '' : 'cursor-pointer'} ${releaseValidationFields.includes('Imagem de Capa') ? 'border-red-500/60 bg-red-500/5 hover:border-red-500/80' : 'border-white/20 bg-white/2 hover:border-[#d4af37]/50 hover:bg-[#d4af37]/5'}`}
                         >
                             {formEvent.img ? (
                               <>
-                                <img src={formEvent.img} alt="Preview" className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-40 transition" loading="lazy" decoding="async" />
-                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
-                                  <div className="bg-black/80 px-4 py-2 border border-white/20 rounded-lg text-xs font-bold uppercase tracking-widest text-white backdrop-blur-md">Alterar Imagem</div>
+                                <img src={formEvent.img} alt="Preview" className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-30 transition" loading="lazy" decoding="async" />
+                                <div className="absolute inset-0 flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100 transition">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); imageFileInputRef.current?.click(); }}
+                                    className="bg-black/80 px-4 py-2 border border-white/20 rounded-lg text-[10px] font-bold uppercase tracking-widest text-white backdrop-blur-md hover:border-[#d4af37]/60 hover:text-[#d4af37] transition"
+                                  >
+                                    Alterar Imagem
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setCropModalOpen(true); }}
+                                    className="bg-[#d4af37] px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest text-black backdrop-blur-md hover:bg-[#e5c456] transition"
+                                  >
+                                    Cortar Imagem
+                                  </button>
                                 </div>
                               </>
                             ) : (
                               <div className="text-center p-6">
                                 <UploadCloud className={`w-8 h-8 mx-auto mb-3 transition-colors ${releaseValidationFields.includes('Imagem de Capa') ? 'text-red-400/60 group-hover:text-red-400' : 'text-white/30 group-hover:text-[#d4af37]'}`} />
                                 <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest leading-relaxed">Clique para escolher a imagem</p>
-                                <p className="text-[8px] text-[#d4af37]/80 mt-2 uppercase tracking-widest border border-[#d4af37]/30 px-2 py-0.5 rounded-full inline-block">1080x1350px recomendado</p>
+                                <p className="text-[8px] text-[#d4af37]/80 mt-2 uppercase tracking-widest border border-[#d4af37]/30 px-2 py-0.5 rounded-full inline-block">1920x1080px (16:9) recomendado</p>
                               </div>
                             )}
                         </div>
