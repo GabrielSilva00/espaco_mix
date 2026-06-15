@@ -44,10 +44,10 @@ export function AdminSidebar() {
         {/* Header */}
         <div className={`h-20 flex items-center shrink-0 ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-5'} border-b border-[#ffffff0a]`}>
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0 overflow-hidden">
+            <div className="w-8 h-8 bg-[#d4af37] rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
               {siteConfig.platformLogo
-                ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-contain -rotate-45 scale-[1.4]" />
-                : <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-base">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
+                ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-cover" />
+                : <span className="text-[#0a0a0a] font-bold leading-none text-base">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
               }
             </div>
             {!isAdminSidebarCollapsed && (
@@ -242,10 +242,10 @@ export function AdminSidebar() {
       {/* ═══ MOBILE TOP HEADER ═══ */}
       <div className="md:hidden fixed top-0 w-full h-14 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-[#ffffff0a] z-30 flex items-center justify-between px-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 bg-[#d4af37] rotate-45 flex items-center justify-center shrink-0 overflow-hidden">
+          <div className="w-6 h-6 bg-[#d4af37] rounded-md flex items-center justify-center shrink-0 overflow-hidden">
             {siteConfig.platformLogo
-              ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-contain -rotate-45 scale-[1.4]" />
-              : <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none text-xs">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
+              ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-cover" />
+              : <span className="text-[#0a0a0a] font-bold leading-none text-xs">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
             }
           </div>
           <span className="text-sm font-serif tracking-widest text-[#d4af37] uppercase">{siteConfig.platformName}</span>

@@ -27,10 +27,10 @@ export function Navbar() {
             onClick={() => setCurrentView('home')}
             className="flex items-center gap-3 hover:opacity-80 transition-opacity"
           >
-            <div className="w-6 h-6 md:w-8 md:h-8 bg-[#d4af37] rotate-45 flex items-center justify-center overflow-hidden shrink-0">
+            <div className="w-7 h-7 md:w-9 md:h-9 bg-[#d4af37] rounded-lg flex items-center justify-center overflow-hidden shrink-0">
               {siteConfig.platformLogo
-                ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-contain -rotate-45 scale-[1.4]" />
-                : <span className="text-[#0a0a0a] font-bold -rotate-45 leading-none mt-1 text-xs md:text-base">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
+                ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-cover" />
+                : <span className="text-[#0a0a0a] font-bold leading-none text-xs md:text-base">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
               }
             </div>
             <span className="text-base md:text-lg font-serif tracking-widest text-[#d4af37] uppercase">{siteConfig.platformName}</span>

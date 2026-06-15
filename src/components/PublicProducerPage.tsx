@@ -43,8 +43,8 @@ export const PublicProducerPage = ({ profile }: { profile: ProducerProfile }) =>
       <nav className="fixed top-0 w-full z-50 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-             <div className="w-6 h-6 bg-[#d4af37] rotate-45 flex items-center justify-center">
-              <span className="text-black font-bold -rotate-45 text-xs">E</span>
+             <div className="w-6 h-6 bg-[#d4af37] rounded-md flex items-center justify-center">
+              <span className="text-black font-bold text-xs">E</span>
             </div>
             <span className="font-serif text-[#d4af37] tracking-widest text-sm">ESPAÇO MIX</span>
           </div>

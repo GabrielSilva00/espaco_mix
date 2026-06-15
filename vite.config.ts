@@ -23,8 +23,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon-180x180.png'],
       manifest: {
-        name: 'Eventix — Ingressos e Reservas',
-        short_name: 'Eventix',
+        name: 'Espaço Mix — Ingressos e Reservas',
+        short_name: 'Espaço Mix',
         description: 'Plataforma premium de compra de ingressos e reserva de mesas para eventos exclusivos.',
         theme_color: '#0a0a0a',
         background_color: '#0a0a0a',

@@ -11,7 +11,7 @@ export const defaultDeveloperConfig: DeveloperConfig = {
     maintenanceMode: false,
   },
   siteSettings: {
-    platformName: 'Eventix',
+    platformName: 'Espaço Mix',
     supportEmail: 'suporte@eventix.com',
     whatsappNumber: '5511999999999',
   },
