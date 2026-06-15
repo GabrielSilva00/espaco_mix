@@ -2240,7 +2240,7 @@ export async function createExpressApp() {
           payer: {
             email: payerEmailForEnv(guestData?.email),
             first_name: (guestData?.name || "").split(" ")[0] || "Comprador",
-            last_name: (guestData?.name || "").split(" ").slice(1).join(" ") || "Eventix",
+            last_name: (guestData?.name || "").split(" ").slice(1).join(" ") || "Espaço Mix",
             identification: {
               // PIX exige CPF não-vazio (MP: "length must be >= 1"). Mesmo
               // fallback do cartão quando o comprador não informou o CPF.
@@ -2352,7 +2352,7 @@ export async function createExpressApp() {
           payer: {
             email: payerEmailForEnv((reservation as any).buyer_email),
             first_name: ((reservation as any).buyer_name || "").split(" ")[0] || "Comprador",
-            last_name: ((reservation as any).buyer_name || "").split(" ").slice(1).join(" ") || "Eventix",
+            last_name: ((reservation as any).buyer_name || "").split(" ").slice(1).join(" ") || "Espaço Mix",
             identification: { type: "CPF", number: ((reservation as any).buyer_cpf || "").replace(/\D/g, "") || "00000000000" },
           },
           transactions: {

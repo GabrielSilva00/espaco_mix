@@ -276,7 +276,7 @@ export const KYCForm = ({
 
          {!kycType ? (
            <div className="space-y-6">
-             <p className="text-sm font-bold opacity-80 text-center mb-6">Como você irá atuar na Eventix?</p>
+             <p className="text-sm font-bold opacity-80 text-center mb-6">Como você irá atuar no Espaço Mix?</p>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <button
                  type="button"

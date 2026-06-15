@@ -264,7 +264,7 @@ export async function sendTestEmail(to: string): Promise<void> {
   await sendMail(
     cfg,
     to,
-    'Teste de envio — Eventix',
+    'Teste de envio — Espaço Mix',
     `<div style="font-family:Arial,sans-serif;padding:24px;background:#0a0a0a;color:#fff">
        <h2 style="color:#d4af37">✅ E-mail de teste enviado com sucesso</h2>
        <p>Se você recebeu esta mensagem, a configuração de e-mail (${cfg.provider.toUpperCase()}) está funcionando.</p>

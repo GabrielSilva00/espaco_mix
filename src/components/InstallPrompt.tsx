@@ -88,7 +88,7 @@ export function InstallPrompt() {
             {/* Texto */}
             <div className="flex-1 min-w-0">
               <p className="text-white font-bold text-xs tracking-wide">
-                Instalar Eventix
+                Instalar Espaço Mix
               </p>
 
               {isApple ? (
