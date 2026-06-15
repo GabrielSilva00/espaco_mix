@@ -726,17 +726,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setTimeout(async () => {
           try {
             const profile = await getMyProfile(uid);
-            // Acesso de admin/dev SÓ é permitido pelo Acesso Master (portal). Se
-            // este login fresco não veio de lá (ex.: Google ou Acesso Simples),
-            // encerra a sessão. (Reload usa INITIAL_SESSION e não passa aqui.)
-            const fromMaster = (() => { try { return sessionStorage.getItem('eventix-master-login') === '1'; } catch { return false; } })();
-            if (profile && (profile.role === 'admin' || profile.role === 'developer') && !fromMaster) {
-              try { sessionStorage.removeItem('eventix-master-login'); } catch { /* ignore */ }
+            // Acesso de admin/dev SÓ é permitido pelo Acesso Master (portal). O
+            // login pelo formulário público já é barrado em handleAdminLogin; o
+            // único caminho fresco que escapa é o Google OAuth, sinalizado pelo
+            // marcador persistente 'eventix-oauth-login' (setado antes do
+            // redirect). Restauração de sessão (reabrir navegador) NÃO tem esse
+            // marcador, então não desloga o admin.
+            const fromOAuth = (() => { try { return localStorage.getItem('eventix-oauth-login') === '1'; } catch { return false; } })();
+            try { localStorage.removeItem('eventix-oauth-login'); } catch { /* ignore */ }
+            if (profile && (profile.role === 'admin' || profile.role === 'developer') && fromOAuth) {
               await signOut().catch(() => {});
               showToast('Contas administrativas entram pelo Acesso Master (link no rodapé do site).', 'error');
               return;
             }
-            try { sessionStorage.removeItem('eventix-master-login'); } catch { /* ignore */ }
             if (profile) {
               const r = profile.role as UserRole;
               setUserRole(r);
@@ -1046,6 +1048,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           platformFeeType: (cfg as any).platform_fee_type === 'fixed' ? 'fixed' : 'percentage',
           gatewayFeePercent: cfg.gateway_fee_percent ?? 0,
           allowTransfer: cfg.allow_transfer ?? false,
+          address: cfg.address ?? prev.address,
         }));
       })
       .catch(() => {
@@ -1338,12 +1341,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     e.preventDefault();
     setAdminError('');
     const input = adminForm.username.trim();
-    // Marca se este login veio do Acesso Master (portal). O handler SIGNED_IN usa
-    // isso para barrar admin/dev que tentem entrar por fora (Google/Acesso Simples).
-    try {
-      if (currentView === 'staff-portal') sessionStorage.setItem('eventix-master-login', '1');
-      else sessionStorage.removeItem('eventix-master-login');
-    } catch { /* ignore */ }
     try {
       // Aceita e-mail direto ou nome de usuário (resolvido para e-mail no servidor)
       let email = input;
@@ -1643,7 +1640,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const newEvt: Event = {
       id: Math.max(0, ...events.map(e => e.id)) + 1,
       title: '', description: '', date: new Date().toISOString().split('T')[0], time: '20:00',
-      location: '', status: 'Rascunho', img: '', assignedStaffIds: [], priceType: 'unique',
+      location: siteConfig.address || '', status: 'Rascunho', img: '', assignedStaffIds: [], priceType: 'unique',
       batches: [], hasTables: false, capacity: siteConfig.venueMaxCapacity ?? 0,
     };
     setFormEvent(newEvt);
@@ -1715,12 +1712,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const handleUpdateEventStatus = async (eventId: number, newStatus: Event['status']) => {
     const evt = events.find(e => e.id === eventId);
     if (!evt) return;
+    // Herda o endereço das Configurações Gerais quando o evento não tem local próprio.
+    const resolvedLocation = evt.location?.trim() || siteConfig.address?.trim() || '';
     if (newStatus === 'Vendas liberadas') {
       const missing: string[] = [];
       if (!evt.title?.trim()) missing.push('Nome do Evento');
       if (!evt.date) missing.push('Data');
       if (!evt.time) missing.push('Horário');
-      if (!evt.location?.trim()) missing.push('Local');
+      if (!resolvedLocation) missing.push('Local');
       if (!evt.img) missing.push('Imagem de Capa');
       if (!evt.hasTables && (!evt.batches || evt.batches.length === 0)) missing.push('Pelo menos 1 Lote de Ingressos ou Apoio & Mesas ativo');
       if (missing.length > 0) {
@@ -1732,7 +1731,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     setReleaseValidationFields([]);
     try {
-      const eventToSave = { ...mapAppEventToDb({ ...evt, status: newStatus }), created_by: loggedInUserId || undefined };
+      const eventToSave = { ...mapAppEventToDb({ ...evt, status: newStatus, location: resolvedLocation }), created_by: loggedInUserId || undefined };
       const saved = await saveEventToDb(eventToSave as any);
       const mappedSaved = mapDbEventToApp(saved);
       setEvents(prev => prev.map(e => e.id === eventId ? mappedSaved : e));

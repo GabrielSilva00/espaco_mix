@@ -903,6 +903,106 @@ export async function createExpressApp() {
     }
   });
 
+  // ── Salvar evento + lotes + setores (service role, bypassa RLS) ────────────
+  // Somente admin/developer (requireAdmin). created_by vem do token, nunca do
+  // cliente. Reúne evento, batches e sectors em uma única operação.
+  app.post("/api/events", requireAuth, requireAdmin, async (req, res) => {
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+
+    const { event, batches } = (req.body ?? {}) as { event?: any; batches?: any[] };
+    if (!event || typeof event !== "object") {
+      res.status(400).json({ error: "Dados do evento ausentes." });
+      return;
+    }
+
+    const uid = (req as any).user?.uid;
+
+    try {
+      // 1. Upsert do evento principal — created_by sempre do token autenticado
+      const { batches: _ignored, ...eventData } = event;
+      const { data: savedEvent, error: evErr } = await admin
+        .from("events")
+        .upsert({ ...eventData, created_by: uid, updated_at: new Date().toISOString() })
+        .select()
+        .single();
+      if (evErr) throw evErr;
+
+      const currentBatchIds: string[] = [];
+      const currentSectorIds: string[] = [];
+      const savedBatches: any[] = [];
+
+      if (Array.isArray(batches) && batches.length > 0) {
+        for (const batch of batches) {
+          const { sectors, id, name, startDate, endDate, sort_order } = batch as any;
+
+          // 2. Upsert do lote (camelCase → snake_case)
+          const { data: savedBatch, error: bErr } = await admin
+            .from("batches")
+            .upsert({
+              id,
+              name,
+              start_date: startDate ?? batch.start_date,
+              end_date: endDate ?? batch.end_date,
+              sort_order,
+              event_id: savedEvent.id,
+            })
+            .select()
+            .single();
+          if (bErr) throw bErr;
+          currentBatchIds.push(savedBatch.id);
+
+          let savedSectors: any[] = [];
+          if (Array.isArray(sectors) && sectors.length > 0) {
+            // 3. Upsert dos setores (camelCase → snake_case)
+            const sectorsToUpsert = sectors.map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              quantity: s.quantity,
+              price: s.price,
+              price_male: s.priceMale ?? s.price_male,
+              price_female: s.priceFemale ?? s.price_female,
+              convenience_fee: s.convenienceFee ?? s.convenience_fee,
+              limit_per_user: s.limitPerUser ?? s.limit_per_user,
+              visibility: s.visibility,
+              description: s.description,
+              batch_id: savedBatch.id,
+              event_id: savedEvent.id,
+            }));
+            const { data: upsertedSectors, error: sErr } = await admin
+              .from("sectors")
+              .upsert(sectorsToUpsert)
+              .select();
+            if (sErr) throw sErr;
+            savedSectors = upsertedSectors ?? [];
+            sectors.forEach((s: any) => currentSectorIds.push(s.id));
+          }
+
+          savedBatches.push({ ...savedBatch, sectors: savedSectors });
+        }
+      }
+
+      // 4. Remover lotes e setores excluídos na UI
+      if (currentSectorIds.length > 0) {
+        await admin.from("sectors").delete().eq("event_id", savedEvent.id)
+          .not("id", "in", `(${currentSectorIds.join(",")})`);
+      } else {
+        await admin.from("sectors").delete().eq("event_id", savedEvent.id);
+      }
+      if (currentBatchIds.length > 0) {
+        await admin.from("batches").delete().eq("event_id", savedEvent.id)
+          .not("id", "in", `(${currentBatchIds.join(",")})`);
+      } else {
+        await admin.from("batches").delete().eq("event_id", savedEvent.id);
+      }
+
+      res.status(200).json({ ...savedEvent, batches: savedBatches });
+    } catch (e: any) {
+      console.error("[EVENTS] Falha ao salvar evento:", e?.message ?? e);
+      res.status(500).json({ error: e?.message ?? "Não foi possível salvar o evento." });
+    }
+  });
+
   app.get("/api/staff", requireAuth, requireAdmin, async (_req, res) => {
     const admin = await getAdminClient();
     if (!admin) { res.json({ staff: [] }); return; }

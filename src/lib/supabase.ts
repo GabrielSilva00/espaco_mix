@@ -380,6 +380,9 @@ export async function signIn(email: string, password: string) {
 /** Login/cadastro com Google (OAuth). Requer o provedor Google habilitado no
  *  painel do Supabase (Auth > Providers > Google) com as credenciais OAuth. */
 export async function signInWithGoogle() {
+  // Marcador persistente (sobrevive ao redirect do OAuth): o handler SIGNED_IN
+  // usa isso para barrar admin/dev que tentem entrar por fora do Acesso Master.
+  try { localStorage.setItem('eventix-oauth-login', '1'); } catch { /* ignore */ }
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo: window.location.origin },
@@ -741,93 +744,30 @@ export async function createEvent(event: Omit<Event, 'id' | 'batches'>): Promise
   return data as Event;
 }
 
-/** Atualizar evento (salva lotes e setores também) */
+/** Atualizar evento (salva lotes e setores também).
+ *  Delega ao backend (service role) — o cliente anônimo esbarra no RLS de
+ *  events/batches/sectors. O servidor define created_by a partir do token. */
 export async function saveEvent(event: Event): Promise<Event> {
   const { batches, ...eventData } = event as any;
 
-  // 1. Upsert do evento principal
-  const { data: savedEvent, error: evErr } = await supabase
-    .from('events')
-    .upsert({ ...eventData, updated_at: new Date().toISOString() })
-    .select()
-    .single();
+  const token = await getAccessTokenSafe();
+  if (!token) throw new Error('Sessão expirada. Faça login novamente para salvar o evento.');
 
-  if (evErr) throw evErr;
+  const response = await fetch('/api/events', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ event: eventData, batches }),
+  });
 
-  const currentBatchIds: string[] = [];
-  const currentSectorIds: string[] = [];
-
-  if (batches && batches.length > 0) {
-    for (const batch of batches) {
-      const { sectors, id, name, startDate, endDate, sort_order } = batch as any;
-
-      // 2. Upsert do lote (mapeia camelCase → snake_case)
-      const { data: savedBatch, error: bErr } = await supabase
-        .from('batches')
-        .upsert({
-          id,
-          name,
-          start_date: startDate ?? batch.start_date,
-          end_date: endDate ?? batch.end_date,
-          sort_order,
-          event_id: savedEvent.id,
-        })
-        .select()
-        .single();
-
-      if (bErr) throw bErr;
-      currentBatchIds.push(savedBatch.id);
-
-      if (sectors && sectors.length > 0) {
-        // 3. Upsert dos setores (mapeia camelCase → snake_case)
-        const sectorsToUpsert = sectors.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          quantity: s.quantity,
-          price: s.price,
-          price_male: s.priceMale ?? s.price_male,
-          price_female: s.priceFemale ?? s.price_female,
-          convenience_fee: s.convenienceFee ?? s.convenience_fee,
-          limit_per_user: s.limitPerUser ?? s.limit_per_user,
-          visibility: s.visibility,
-          description: s.description,
-          batch_id: savedBatch.id,
-          event_id: savedEvent.id,
-        }));
-
-        const { error: sErr } = await supabase
-          .from('sectors')
-          .upsert(sectorsToUpsert);
-
-        if (sErr) throw sErr;
-
-        sectors.forEach((s: any) => currentSectorIds.push(s.id));
-      }
-    }
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error((err as any).error ?? 'Não foi possível salvar o evento.');
   }
 
-  // 4. Remover lotes e setores que foram excluídos na UI
-  if (currentSectorIds.length > 0) {
-    await supabase
-      .from('sectors')
-      .delete()
-      .eq('event_id', savedEvent.id)
-      .not('id', 'in', `(${currentSectorIds.join(',')})`);
-  } else {
-    await supabase.from('sectors').delete().eq('event_id', savedEvent.id);
-  }
-
-  if (currentBatchIds.length > 0) {
-    await supabase
-      .from('batches')
-      .delete()
-      .eq('event_id', savedEvent.id)
-      .not('id', 'in', `(${currentBatchIds.join(',')})`);
-  } else {
-    await supabase.from('batches').delete().eq('event_id', savedEvent.id);
-  }
-
-  return savedEvent as Event;
+  return (await response.json()) as Event;
 }
 
 /** Upload de imagem do evento para o Supabase Storage */
