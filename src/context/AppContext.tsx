@@ -1428,7 +1428,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const resp = await fetch('/api/auth/send-verify-code', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: registerForm.email }),
+          body: JSON.stringify({
+            email: registerForm.email,
+            // CPF só para brasileiros — o servidor rejeita e-mail/CPF já cadastrados
+            // antes de enviar o código (evita criar conta duplicada).
+            cpf: registerForm.nationality === 'br' ? registerForm.cpf.replace(/\D/g, '') : undefined,
+          }),
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {

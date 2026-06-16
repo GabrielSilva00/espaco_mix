@@ -79,6 +79,23 @@ function safeDecrypt(value: string | null | undefined): string | null | undefine
   }
 }
 
+// Impressão digital DETERMINÍSTICA do CPF para checagem de unicidade entre contas.
+// Diferente de encryptData (IV aleatório → ciphertext sempre diferente), o HMAC do
+// mesmo CPF gera sempre o mesmo hash, permitindo um índice único em profiles.cpf_hash.
+// Usa ENCRYPTION_KEY como chave secreta: o hash não é reversível por força bruta
+// (apenas 11 dígitos), preservando a privacidade do CPF. Retorna null se o CPF não
+// tiver 11 dígitos. Sem ENCRYPTION_KEY válida, cai num SHA-256 simples (ainda
+// determinístico, porém menos privado) — em produção a chave é obrigatória.
+function hashCpf(cpf: string): string | null {
+  const digits = (cpf ?? "").replace(/\D/g, "");
+  if (digits.length !== 11) return null;
+  const hex = (process.env.ENCRYPTION_KEY ?? "").trim().replace(/^["']|["']$/g, "");
+  if (hex.length === 64 && /^[0-9a-fA-F]{64}$/.test(hex)) {
+    return crypto.createHmac("sha256", Buffer.from(hex, "hex")).update(digits).digest("hex");
+  }
+  return crypto.createHash("sha256").update(digits).digest("hex");
+}
+
 // ─── Hash de Senha (scrypt) ──────────────────────────────────────────────────
 
 async function hashPassword(password: string): Promise<string> {
@@ -2837,7 +2854,29 @@ export async function createExpressApp() {
       if (name !== undefined) updates.name = name;
 
       if (cpf !== undefined) {
-        updates.cpf = cpf && encKey ? encryptData(cpf) : cpf ?? null;
+        if (cpf) {
+          // Unicidade de CPF: bloqueia se outra conta já usa este CPF. O índice
+          // único em cpf_hash é a garantia final (corrida concorrente é capturada
+          // no catch como 23505); esta checagem dá uma mensagem amigável antes.
+          const cpfHash = hashCpf(cpf);
+          if (cpfHash) {
+            const { data: dupe } = await adminClient
+              .from("profiles")
+              .select("id")
+              .eq("cpf_hash", cpfHash)
+              .neq("id", user.uid)
+              .maybeSingle();
+            if (dupe) {
+              res.status(409).json({ error: "Este CPF já está cadastrado em outra conta." });
+              return;
+            }
+          }
+          updates.cpf = encKey ? encryptData(cpf) : cpf;
+          updates.cpf_hash = cpfHash;
+        } else {
+          updates.cpf = null;
+          updates.cpf_hash = null;
+        }
       }
       if (phone !== undefined) {
         updates.phone = phone && encKey ? encryptData(phone) : phone ?? null;
@@ -2870,6 +2909,11 @@ export async function createExpressApp() {
     } catch (err: any) {
       if (err.message?.includes("ENCRYPTION_KEY")) {
         res.status(503).json({ error: err.message });
+        return;
+      }
+      // Violação do índice único de CPF (corrida concorrente que escapou da checagem).
+      if (err?.code === "23505" || /duplicate key|cpf_hash/i.test(err?.message ?? "")) {
+        res.status(409).json({ error: "Este CPF já está cadastrado em outra conta." });
         return;
       }
       console.error("[PROFILE] Erro ao atualizar perfil:", err.message);
@@ -2955,10 +2999,42 @@ export async function createExpressApp() {
 
   // ── OTP de verificação de e-mail no cadastro (stateless via HMAC) ─────────
   app.post("/api/auth/send-verify-code", authLimiter, async (req, res) => {
-    const { email } = req.body as { email?: string };
+    const { email, cpf } = req.body as { email?: string; cpf?: string };
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       res.status(400).json({ error: "E-mail inválido." });
       return;
+    }
+
+    // ── Bloqueia cadastro com e-mail ou CPF já existentes (antes de criar a conta) ──
+    // Choke point dos dois fluxos de cadastro (AuthView e checkout): se barrarmos
+    // aqui, nenhuma conta duplicada chega a ser criada no Supabase Auth.
+    {
+      const admin = await getAdminClient();
+      if (admin) {
+        const normalizedEmail = email.trim().toLowerCase();
+        const { data: emailDupe } = await admin
+          .from("profiles")
+          .select("id")
+          .ilike("email", normalizedEmail)
+          .maybeSingle();
+        if (emailDupe) {
+          res.status(409).json({ error: "Este e-mail já está cadastrado. Faça login para continuar." });
+          return;
+        }
+
+        const cpfHash = cpf ? hashCpf(cpf) : null;
+        if (cpfHash) {
+          const { data: cpfDupe } = await admin
+            .from("profiles")
+            .select("id")
+            .eq("cpf_hash", cpfHash)
+            .maybeSingle();
+          if (cpfDupe) {
+            res.status(409).json({ error: "Este CPF já está cadastrado em outra conta." });
+            return;
+          }
+        }
+      }
     }
 
     const code = String(Math.floor(100000 + Math.random() * 900000));

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, Lock, User, Phone, ArrowLeft, ShieldCheck, AlertCircle } from 'lucide-react';
 import { GoogleIcon } from './GoogleIcon';
-import { signUp, supabase } from '../lib/supabase';
+import { signUp, supabase, signInWithGoogle } from '../lib/supabase';
 
 export const RegisterProducerStep1 = ({
   onBack,
@@ -128,6 +128,7 @@ export const RegisterProducerStep1 = ({
        <form onSubmit={handleSubmit} className="space-y-4">
          <button
            type="button"
+           onClick={() => signInWithGoogle().catch((e) => setErrors({ form: e?.message || 'Falha ao continuar com Google' }))}
            className="w-full bg-white text-black py-4 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-neutral-200 transition flex justify-center items-center gap-2 mb-6"
          >
            <GoogleIcon className="w-4 h-4" /> Continuar com Google
