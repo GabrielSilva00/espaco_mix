@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
-import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, resolveEmailConfig, sendTransferInvitation } from "./emailService.js";
+import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, resolveEmailConfig, sendTransferInvitation, sendContactMessage } from "./emailService.js";
 
 dotenv.config();
 
@@ -576,13 +576,40 @@ async function computeOrderTotal(sel: OrderSelection): Promise<number> {
 // Reserva pendente sem payment_id = carrinho abandonado antes de pagar → expira
 // em 10 min. Com payment_id = PIX/cartão já iniciado → mantém a mesa pela janela
 // do PIX (30 min, coincide com o polling do front que encerra em ~30 min).
-const PENDING_CART_EXPIRY_MS = 10 * 60 * 1000;
+const PENDING_CART_EXPIRY_MS = 15 * 60 * 1000; // fallback se a config não responder
 const PENDING_PAYMENT_EXPIRY_MS = 30 * 60 * 1000;
-function isPendingExpired(r: { created_at?: string | null; payment_id?: string | null }): boolean {
+
+// Janela de expiração do carrinho = system_config.cart_expiration_minutes (cache 60s).
+let _cartExpiryCache: { at: number; ms: number } | null = null;
+async function getCartExpiryMs(admin: any): Promise<number> {
+  if (_cartExpiryCache && Date.now() - _cartExpiryCache.at < 60_000) return _cartExpiryCache.ms;
+  let minutes = PENDING_CART_EXPIRY_MS / 60000;
+  try {
+    if (admin) {
+      const { data } = await admin
+        .from("system_config")
+        .select("cart_expiration_minutes")
+        .eq("id", "main")
+        .maybeSingle();
+      if (typeof data?.cart_expiration_minutes === "number" && data.cart_expiration_minutes > 0) {
+        minutes = data.cart_expiration_minutes;
+      }
+    }
+  } catch { /* usa fallback */ }
+  const ms = minutes * 60 * 1000;
+  _cartExpiryCache = { at: Date.now(), ms };
+  return ms;
+}
+
+function isPendingExpired(
+  r: { created_at?: string | null; payment_id?: string | null },
+  cartMs: number = PENDING_CART_EXPIRY_MS,
+): boolean {
   if (!r?.created_at) return false;
   const created = new Date(r.created_at).getTime();
   if (!Number.isFinite(created)) return false;
-  const window = r.payment_id ? PENDING_PAYMENT_EXPIRY_MS : PENDING_CART_EXPIRY_MS;
+  // Pagamento já iniciado mantém a mesa pela janela do PIX (ou pela config, se maior).
+  const window = r.payment_id ? Math.max(PENDING_PAYMENT_EXPIRY_MS, cartMs) : cartMs;
   return Date.now() - created > window;
 }
 
@@ -620,6 +647,7 @@ async function getAccountPaymentMethods(accessToken: string): Promise<{ debit: s
 // como 'cancelled' (cleanup lazy — o plano Vercel é Hobby, sem cron), liberando
 // a mesa para outros compradores.
 async function getOccupiedTables(admin: any, eventId: number | string): Promise<number[]> {
+  const cartMs = await getCartExpiryMs(admin);
   const { data, error } = await admin
     .from("reservations")
     .select("id, tables, payment_status, payment_id, created_at")
@@ -629,7 +657,7 @@ async function getOccupiedTables(admin: any, eventId: number | string): Promise<
   const set = new Set<number>();
   const expiredIds: string[] = [];
   (data ?? []).forEach((r: any) => {
-    if (r.payment_status === "pending" && isPendingExpired(r)) {
+    if (r.payment_status === "pending" && isPendingExpired(r, cartMs)) {
       expiredIds.push(r.id);
       return; // mesa não conta como ocupada
     }
@@ -1007,10 +1035,10 @@ export async function createExpressApp() {
     const admin = await getAdminClient();
     if (!admin) { res.json({ staff: [] }); return; }
     try {
+      // Retorna ativos e inativos para o admin poder reativar/excluir.
       const { data, error } = await admin
         .from("staff_accounts")
         .select("id, name, username, event_ids, is_active")
-        .eq("is_active", true)
         .order("name");
       if (error) throw error;
       res.json({ staff: data ?? [] });
@@ -1020,30 +1048,45 @@ export async function createExpressApp() {
     }
   });
 
+  // Exclusão REAL: permitida apenas se o colaborador nunca foi vinculado a um
+  // evento (event_ids vazio). Caso contrário, responde 409 — o admin deve inativar.
   app.delete("/api/staff/:id", requireAuth, requireAdmin, async (req, res) => {
     const admin = await getAdminClient();
     if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
     try {
-      const { error } = await admin.from("staff_accounts").update({ is_active: false }).eq("id", req.params.id);
+      const { data: staff, error: selErr } = await admin
+        .from("staff_accounts")
+        .select("id, event_ids")
+        .eq("id", req.params.id)
+        .maybeSingle();
+      if (selErr) throw selErr;
+      if (!staff) { res.status(404).json({ error: "Colaborador não encontrado." }); return; }
+      const linked = Array.isArray(staff.event_ids) && staff.event_ids.length > 0;
+      if (linked) {
+        res.status(409).json({ error: "Colaborador já vinculado a eventos. Inative-o em vez de excluir." });
+        return;
+      }
+      const { error } = await admin.from("staff_accounts").delete().eq("id", req.params.id);
       if (error) throw error;
-      res.json({ success: true });
+      res.json({ success: true, deleted: true });
     } catch (e: any) {
-      console.error("[STAFF] Falha ao remover:", e?.message ?? e);
-      res.status(500).json({ error: "Não foi possível remover o colaborador." });
+      console.error("[STAFF] Falha ao excluir:", e?.message ?? e);
+      res.status(500).json({ error: "Não foi possível excluir o colaborador." });
     }
   });
 
   app.patch("/api/staff/:id", requireAuth, requireAdmin, async (req, res) => {
-    const { name, username, password } = req.body as { name?: string; username?: string; password?: string };
+    const { name, username, password, is_active } = req.body as { name?: string; username?: string; password?: string; is_active?: boolean };
     const admin = await getAdminClient();
     if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
     try {
-      const updates: Record<string, string> = {};
+      const updates: Record<string, string | boolean> = {};
       if (name?.trim()) updates.name = name.trim();
       if (username?.trim()) updates.username = username.trim().toLowerCase().replace(/\s+/g, '_');
       if (password && password.length >= 6) {
         updates.password = await hashPassword(password);
       }
+      if (typeof is_active === "boolean") updates.is_active = is_active;
       if (Object.keys(updates).length === 0) { res.status(400).json({ error: "Nenhum dado para atualizar." }); return; }
       const { error } = await admin.from("staff_accounts").update(updates).eq("id", req.params.id);
       if (error) throw error;
@@ -1146,6 +1189,35 @@ export async function createExpressApp() {
     }
     const valid = validateCpf(cpf);
     res.json({ valid });
+  });
+
+  // ── Formulário de Contato → e-mail de atendimento ───────────────────────────
+  app.post("/api/contact", authLimiter, async (req, res) => {
+    const b = (req.body ?? {}) as Record<string, string>;
+    const nome = String(b.nome ?? "").trim();
+    const email = String(b.email ?? "").trim();
+    const mensagem = String(b.mensagem ?? "").trim();
+    if (!nome || !email || !mensagem) {
+      res.status(400).json({ error: "Nome, e-mail e mensagem são obrigatórios." });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: "E-mail inválido." });
+      return;
+    }
+    try {
+      await sendContactMessage({
+        nome, email, mensagem,
+        telefone: String(b.telefone ?? "").trim(),
+        cidade: String(b.cidade ?? "").trim(),
+        estado: String(b.estado ?? "").trim(),
+        evento: String(b.evento ?? "").trim(),
+      });
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[CONTACT] Falha ao enviar mensagem:", e?.message ?? e);
+      res.status(502).json({ error: "Não foi possível enviar sua mensagem agora. Tente novamente mais tarde." });
+    }
   });
 
   // ── Resolve Username → E-mail (login por nome de usuário) ───────────────────
@@ -1456,6 +1528,7 @@ export async function createExpressApp() {
     const buyerName = String(reservation.buyer_name ?? "").trim();
     const buyerEmail = String(reservation.buyer_email ?? "").trim();
     const buyerCpf = String(reservation.buyer_cpf ?? "").trim();
+    const buyerPhone = String(reservation.buyer_phone ?? "").trim();
     if (!buyerName || !buyerEmail) {
       res.status(400).json({ error: "Nome e e-mail do comprador são obrigatórios." });
       return;
@@ -1524,6 +1597,7 @@ export async function createExpressApp() {
           buyer_name: buyerName,
           buyer_email: buyerEmail,
           buyer_cpf: buyerCpf,
+          buyer_phone: buyerPhone || null,
           tables: Array.isArray(reservation.tables) ? reservation.tables : [],
           single_tickets: Math.max(0, Math.floor(Number(reservation.single_tickets) || 0)),
           male_tickets: Math.max(0, Math.floor(Number(reservation.male_tickets) || 0)),

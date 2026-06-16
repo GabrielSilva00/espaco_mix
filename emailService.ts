@@ -272,6 +272,52 @@ export async function sendTestEmail(to: string): Promise<void> {
   );
 }
 
+/** Mensagem do formulário de Contato → enviada ao e-mail de atendimento. */
+export async function sendContactMessage(params: {
+  nome: string;
+  email: string;
+  telefone?: string;
+  cidade?: string;
+  estado?: string;
+  evento?: string;
+  mensagem: string;
+}): Promise<void> {
+  const db = getAdminClient();
+  let to = process.env.CONTACT_EMAIL || process.env.EMAIL_SENDER_ADDRESS || '';
+  let siteName = 'Espaço Mix';
+  if (db) {
+    const { data } = await db
+      .from('system_config')
+      .select('contact_email,support_email,site_name')
+      .eq('id', 'main')
+      .maybeSingle();
+    to = (data?.contact_email || data?.support_email || to) as string;
+    siteName = (data?.site_name as string) || siteName;
+  }
+  if (!to) throw new Error('E-mail de atendimento não configurado.');
+
+  const esc = (v?: string) =>
+    String(v ?? '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] as string));
+  const row = (label: string, value?: string) =>
+    value ? `<tr><td style="color:#888;padding:4px 12px 4px 0;">${label}</td><td style="color:#fff;">${esc(value)}</td></tr>` : '';
+
+  const html = `<div style="font-family:Arial,sans-serif;padding:24px;background:#0a0a0a;color:#fff">
+    <h2 style="color:#d4af37;margin:0 0 16px">Nova mensagem de contato — ${esc(siteName)}</h2>
+    <table style="border-collapse:collapse;font-size:14px;margin-bottom:16px">
+      ${row('Nome', params.nome)}
+      ${row('E-mail', params.email)}
+      ${row('Telefone', params.telefone)}
+      ${row('Cidade', params.cidade)}
+      ${row('Estado', params.estado)}
+      ${row('Evento', params.evento)}
+    </table>
+    <div style="background:#111;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;white-space:pre-wrap;color:#ddd;font-size:14px">${esc(params.mensagem)}</div>
+  </div>`;
+
+  const cfg = await resolveEmailConfig();
+  await sendMail(cfg, to, `Contato: ${esc(params.nome)} — ${esc(siteName)}`, html);
+}
+
 /** Convite de transferência de ingresso enviado ao destinatário. */
 export async function sendTransferInvitation(params: {
   toEmail: string;
@@ -381,11 +427,12 @@ export async function sendReminderEmails(): Promise<{ sent: number; errors: numb
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowDate = tomorrow.toISOString().split('T')[0];
 
+  // status é gravado em inglês no banco (ver STATUS_TO_DB): 'active' = Ativo, 'sales_open' = Vendas liberadas.
   const { data: events } = await db
     .from('events')
     .select('id, title, date, time, location')
     .eq('date', tomorrowDate)
-    .in('status', ['Ativo', 'Vendas liberadas']);
+    .in('status', ['active', 'sales_open']);
 
   if (!events || events.length === 0) return { sent: 0, errors: 0 };
 
