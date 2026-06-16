@@ -14,6 +14,10 @@ firebase-applet-config.json
 .env.production
 .env.teste
 
+# Python bytecode (skills)
+__pycache__/
+*.pyc
+
 # Playwright
 /test-results/
 /playwright-report/
