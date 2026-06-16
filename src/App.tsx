@@ -78,7 +78,7 @@ export function App() {
   const {
     isAdminLayout, currentView, isPreviewingEvent, consentData, saveConsent,
     setCurrentView, setDashboardMode, setIsPreviewingEvent,
-    adminScrollRef, events, loadingEvents, selectedDashboardEvent, setFormEvent,
+    adminScrollRef, events, loadingEvents, selectedDashboardEvent, setSelectedDashboardEvent, setFormEvent,
     isTableLayoutEditorOpen, setIsTableLayoutEditorOpen, formEvent, showToast,
     actionTicket, setActionTicket, actionError, setActionError,
     reservations, setReservations,
@@ -316,6 +316,10 @@ export function App() {
               events={events}
               loading={loadingEvents}
               onEventClick={event => {
+                // Sincroniza o evento selecionado para que activeEvent resolva o
+                // evento clicado (e não o último selecionado no dashboard).
+                setSelectedDashboardEvent(event.id);
+                setIsPreviewingEvent(false);
                 setFormEvent({ ...event });
                 setCurrentView('booking');
               }}

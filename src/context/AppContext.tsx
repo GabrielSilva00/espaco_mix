@@ -364,6 +364,7 @@ interface AppContextValue {
   handleImageFileChange: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   handleAddStaff: (e: React.FormEvent) => void;
   handleDeleteStaff: (id: string) => Promise<void>;
+  handleToggleStaffActive: (id: string, isActive: boolean) => Promise<void>;
   handleEditStaff: (id: string, updates: { name?: string; username?: string; password?: string }) => Promise<void>;
   handleStaffLogin: (e: React.FormEvent) => Promise<void>;
   handleCheckIn: (input: string) => Promise<void>;
@@ -1047,6 +1048,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           platformFeePercent: cfg.platform_fee_percent ?? 10,
           platformFeeType: (cfg as any).platform_fee_type === 'fixed' ? 'fixed' : 'percentage',
           gatewayFeePercent: cfg.gateway_fee_percent ?? 0,
+          cartExpirationMinutes: cfg.cart_expiration_minutes ?? undefined,
           allowTransfer: cfg.allow_transfer ?? false,
           address: cfg.address ?? prev.address,
         }));
@@ -1607,7 +1609,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isApprovedEventCreator: false,
       });
       setLoggedInUserId(user.id);
-      setGuestData({ name: buyerName, email: buyerEmail, cpf: buyerCpf });
+      setGuestData({ name: buyerName, email: buyerEmail, cpf: buyerCpf, phone: registerForm.phone || '' });
 
       // 5. Limpa estado de verificação/cadastro
       setVerificationStep(false);
@@ -1793,10 +1795,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         method: 'DELETE',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (!resp.ok) { showToast('Falha ao remover colaborador.', 'error'); return; }
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        showToast(data.error || 'Falha ao excluir colaborador.', 'error');
+        return;
+      }
       setStaffAccounts(prev => prev.filter(s => s.id !== id));
+      showToast('Colaborador excluído.', 'success');
     } catch {
-      showToast('Erro de conexão ao remover.', 'error');
+      showToast('Erro de conexão ao excluir.', 'error');
+    }
+  };
+
+  const handleToggleStaffActive = async (id: string, isActive: boolean) => {
+    // Atualização otimista
+    setStaffAccounts(prev => prev.map(s => s.id === id ? { ...s, is_active: isActive } : s));
+    try {
+      const token = await getAccessTokenSafe();
+      const resp = await fetch(`/api/staff/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ is_active: isActive }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        showToast(data.error || 'Falha ao atualizar status.', 'error');
+        await loadStaffAccounts();
+      } else {
+        showToast(isActive ? 'Colaborador ativado.' : 'Colaborador inativado.', 'success');
+      }
+    } catch {
+      showToast('Erro de conexão ao atualizar status.', 'error');
+      await loadStaffAccounts();
     }
   };
 
@@ -2059,6 +2089,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       name: guestData.name || sessionUser?.name || '',
       email: guestData.email || sessionUser?.email || '',
       cpf: guestData.cpf || '',
+      phone: guestData.phone || '',
     };
     const generatedTickets: TicketItem[] = [];
     const getOwnerData = (isFirst: boolean) => {
@@ -2230,6 +2261,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       name: guestData.name || sessionUser?.name || '',
       email: guestData.email || sessionUser?.email || '',
       cpf: guestData.cpf || '',
+      phone: guestData.phone || '',
     };
 
     try {
@@ -2296,6 +2328,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           buyer_name: buyer.name,
           buyer_email: buyer.email,
           buyer_cpf: buyer.cpf,
+          buyer_phone: buyer.phone,
           tables: selectedTables,
           single_tickets: singleTickets,
           male_tickets: maleTickets,
@@ -2518,7 +2551,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     showToastFn: showToast,
     handleAdminLogin, handleLogout, handleRegister, handleVerifyCode, handleResendCode, handleCheckoutVerifyAndRegister,
     handleEditEvent, handleCreateEvent, handleSaveEvent, handleUpdateEventStatus, handleImageFileChange,
-    handleAddStaff, handleDeleteStaff, handleEditStaff, handleStaffLogin, handleCheckIn, handleUndoCheckIn, handleScannerError,
+    handleAddStaff, handleDeleteStaff, handleToggleStaffActive, handleEditStaff, handleStaffLogin, handleCheckIn, handleUndoCheckIn, handleScannerError,
     toggleTableSelection, getTableStatus, handleCheckout, handleConfirmReservation, handleCreateReservation,
   };
 

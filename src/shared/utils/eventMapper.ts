@@ -18,6 +18,8 @@ export function mapDbEventToApp(db: any): Event {
     location: db.location ?? '',
     status: STATUS_FROM_DB[db.status] ?? 'Em breve',
     img: db.img ?? '',
+    imgFocusHome: db.img_focus_home ?? db.imgFocusHome ?? '50% 50%',
+    imgFocusBooking: db.img_focus_booking ?? db.imgFocusBooking ?? '50% 50%',
     assignedStaffIds: db.assigned_staff ?? db.assignedStaffIds ?? [],
     priceType: db.price_type ?? db.priceType ?? 'unique',
     batches: (db.batches ?? []).map((b: any) => ({
@@ -86,6 +88,8 @@ export function mapAppEventToDb(evt: Event): any {
     location: evt.location,
     status: STATUS_TO_DB[evt.status] ?? evt.status,
     img: evt.img,
+    img_focus_home: evt.imgFocusHome,
+    img_focus_booking: evt.imgFocusBooking,
     assigned_staff: evt.assignedStaffIds,
     price_type: evt.priceType,
     has_tables: evt.hasTables,

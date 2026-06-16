@@ -15,6 +15,7 @@ interface Event {
   location: string;
   status: 'Ativo' | 'Em breve' | 'Vendas liberadas' | 'Rascunho' | 'Finalizado' | 'Pausado';
   img: string;
+  imgFocusHome?: string;
   assignedStaffIds: string[];
   priceType: 'unique' | 'gender';
   batches: any[];
@@ -112,6 +113,7 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
                     src={event.img || "https://picsum.photos/seed/event/1920/1080"}
                     alt={event.title}
                     className="w-full h-full object-cover will-change-transform"
+                    style={{ objectPosition: event.imgFocusHome || '50% 50%' }}
                     loading="eager"
                     draggable={false}
                   />
@@ -233,6 +235,7 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
                         src={event.img || "https://picsum.photos/seed/card/800/1000"}
                         alt={event.title}
                         className={`w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 ${isSoldOut ? 'grayscale opacity-70' : 'opacity-90'}`}
+                        style={{ objectPosition: event.imgFocusHome || '50% 50%' }}
                         loading="lazy"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-[#1e1e1e] via-transparent to-transparent opacity-80" />

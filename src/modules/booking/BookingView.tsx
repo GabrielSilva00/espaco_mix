@@ -138,6 +138,7 @@ export function BookingView() {
           src={activeEvent?.img || "https://picsum.photos/seed/electronicparty/1920/1080?blur=2"}
           alt="Event Banner"
           className="w-full h-full object-cover brightness-110 contrast-110 group-hover:scale-105 transition-transform duration-[2s] ease-out will-change-transform"
+          style={{ objectPosition: activeEvent?.imgFocusBooking || '50% 50%' }}
           referrerPolicy="no-referrer"
           fetchPriority="high"
           decoding="async"
@@ -152,7 +153,7 @@ export function BookingView() {
             className="space-y-4"
           >
             <h1
-              className="text-3xl md:text-5xl font-serif text-[#d4af37] tracking-wide font-medium"
+              className="text-3xl md:text-5xl font-elastic text-[#d4af37] tracking-wide font-medium normal-case"
               style={{ textShadow: '0 4px 24px rgba(0,0,0,0.9), 0 2px 8px rgba(0,0,0,0.6)' }}
             >
               {activeEvent?.title || 'Midnight Soirée'}
@@ -393,7 +394,6 @@ export function BookingView() {
                                               <span className="text-sm font-semibold text-white">Ingresso Masculino</span>
                                               <div className="text-[#d4af37] font-display text-base mt-0.5">
                                                 R$ {(sector.priceMale || 0).toFixed(2)}
-                                                <span className="text-[10px] text-white/40 font-sans tracking-widest"> + taxa</span>
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
@@ -407,7 +407,6 @@ export function BookingView() {
                                               <span className="text-sm font-semibold text-white">Ingresso Feminino</span>
                                               <div className="text-[#d4af37] font-display text-base mt-0.5">
                                                 R$ {(sector.priceFemale || 0).toFixed(2)}
-                                                <span className="text-[10px] text-white/40 font-sans tracking-widest"> + taxa</span>
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
@@ -423,7 +422,6 @@ export function BookingView() {
                                             <span className="text-sm font-semibold text-white">Ingresso {sector.name}</span>
                                             <div className="text-[#d4af37] font-display text-base mt-0.5">
                                               R$ {(sector.price || 0).toFixed(2)}
-                                              <span className="text-[10px] text-white/40 font-sans tracking-widest"> + taxa</span>
                                             </div>
                                           </div>
                                           <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
@@ -463,20 +461,20 @@ export function BookingView() {
                             <div className="flex items-center gap-3 flex-wrap text-[10px] uppercase opacity-60 tracking-widest">
                               <div className="flex items-center gap-1.5">
                                 <div className="w-3 h-3 rounded-sm bg-[#C9A84C]" />
-                                Livre
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <Lock className="w-3 h-3 text-[#555]" />
-                                Reservada
+                                Mesa{typeof activeEvent?.tableConfig?.tablePrice === 'number' ? ` · R$ ${activeEvent.tableConfig.tablePrice.toFixed(2)}` : ''}
                               </div>
                               {hasBistro && (
                                 <div className="flex items-center gap-1.5">
                                   <svg width="12" height="12" viewBox="-2 -2 44 44" style={{ display: 'block', flexShrink: 0 }}>
                                     <circle cx="20" cy="20" r="20" fill="#8B4513" stroke="#C9A84C" strokeWidth="3" />
                                   </svg>
-                                  Bistrô
+                                  Bistrô{typeof activeEvent?.tableConfig?.bistroPrice === 'number' ? ` · R$ ${activeEvent.tableConfig.bistroPrice.toFixed(2)}` : ''}
                                 </div>
                               )}
+                              <div className="flex items-center gap-1.5">
+                                <Lock className="w-3 h-3 text-[#555]" />
+                                Reservada
+                              </div>
                             </div>
                           </div>
 
@@ -758,15 +756,33 @@ export function BookingView() {
                       </div>
                     </div>
                   )}
-                  {activeEvent?.posLocations && (
-                    <div className="flex gap-4">
-                      <Ticket className="w-5 h-5 text-white/40" />
-                      <div>
-                        <h3 className="text-[10px] tracking-widests text-[#d4af37] uppercase mb-1">Pontos Físicos</h3>
-                        <p className="text-sm text-white/70">{activeEvent.posLocations}</p>
+                  {activeEvent?.posLocations && (() => {
+                    // pos_locations pode vir como JSON [{name,address,number}] ou texto simples.
+                    let points: { name?: string; address?: string; number?: string }[] | null = null;
+                    try {
+                      const parsed = JSON.parse(activeEvent.posLocations);
+                      if (Array.isArray(parsed)) points = parsed;
+                    } catch { /* texto simples */ }
+                    return (
+                      <div className="flex gap-4">
+                        <Ticket className="w-5 h-5 text-white/40" />
+                        <div>
+                          <h3 className="text-[10px] tracking-widests text-[#d4af37] uppercase mb-1">Pontos Físicos</h3>
+                          {points ? (
+                            <ul className="text-sm text-white/70 space-y-1">
+                              {points.map((p, i) => (
+                                <li key={i}>
+                                  {[p.name, [p.address, p.number].filter(Boolean).join(', ')].filter(Boolean).join(' — ')}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-white/70">{activeEvent.posLocations}</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
                 {activeEvent?.importantNotes && (
                   <div className="bg-[#d4af37]/5 border border-[#d4af37]/10 p-5 rounded-xl">
@@ -923,29 +939,11 @@ export function BookingView() {
           <div className="space-y-3">
             <details className="bg-[#111] border border-[#ffffff0a] rounded-2xl group hover:border-white/20 transition-all cursor-pointer">
               <summary className="flex justify-between items-center p-5 list-none font-semibold text-white focus:outline-none focus:ring-1 focus:ring-[#d4af37] rounded-xxl tracking-wide text-sm [::-webkit-details-marker]:hidden">
-                Posso transferir meu ingresso?
-                <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
-              </summary>
-              <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
-                Sim, a transferência de titularidade pode ser feita pelo app do Espaço Mix até 24h antes do evento. Apenas um repasse é permitido por ingresso.
-              </div>
-            </details>
-            <details className="bg-[#111] border border-[#ffffff0a] rounded-2xl group hover:border-white/20 transition-all cursor-pointer">
-              <summary className="flex justify-between items-center p-5 list-none font-semibold text-white focus:outline-none focus:ring-1 focus:ring-[#d4af37] rounded-xxl tracking-wide text-sm [::-webkit-details-marker]:hidden">
                 Qual a política de cancelamento?
                 <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
               </summary>
               <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
                 Conforme o CDC, você pode cancelar a compra em até 7 dias após o pedido, desde que falte mais de 48h para o evento.
-              </div>
-            </details>
-            <details className="bg-[#111] border border-[#ffffff0a] rounded-2xl group hover:border-white/20 transition-all cursor-pointer">
-              <summary className="flex justify-between items-center p-5 list-none font-semibold text-white focus:outline-none focus:ring-1 focus:ring-[#d4af37] rounded-xxl tracking-wide text-sm [::-webkit-details-marker]:hidden">
-                Quais os métodos de pagamento?
-                <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
-              </summary>
-              <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
-                Aceitamos Pix (com aprovação imediata), Cartão de Crédito em até 12x e Apple Pay mediante stripe checkout.
               </div>
             </details>
           </div>

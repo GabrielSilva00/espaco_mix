@@ -87,12 +87,28 @@ export function ContactView() {
     setForm(prev => ({ ...prev, [name]: value }));
   };
 
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    setSubmitting(false);
-    setSubmitted(true);
+    setSubmitError(null);
+    try {
+      const resp = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error((err as any).error || 'Não foi possível enviar sua mensagem.');
+      }
+      setSubmitted(true);
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Falha ao enviar. Tente novamente.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const infoCards = [
@@ -332,6 +348,10 @@ export function ContactView() {
                 className={`${INPUT_CLASS} resize-none`}
               />
             </div>
+
+            {submitError && (
+              <p className="text-xs text-red-400 text-center">{submitError}</p>
+            )}
 
             <button
               type="submit"

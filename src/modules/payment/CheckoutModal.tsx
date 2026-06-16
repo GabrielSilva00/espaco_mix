@@ -512,7 +512,7 @@ export function CheckoutModal() {
                           });
                           setLoggedInUserId(data.user.id);
                           setAdminError('');
-                          setGuestData({ name: profile?.name || 'Usuário', email: data.user.email!, cpf: '' });
+                          setGuestData({ name: profile?.name || 'Usuário', email: data.user.email!, cpf: (profile as any)?.cpf || '', phone: (profile as any)?.phone || '' });
                           setCheckoutStep('payment-method');
                         } catch (err: any) {
                           setAdminError(err?.message ?? 'Usuário ou senha incorretos');

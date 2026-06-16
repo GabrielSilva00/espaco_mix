@@ -25,6 +25,7 @@ import { downloadPDFList } from '../../shared/utils/pdf';
 import { generateDefaultLayout, getLayoutViewBox } from '../../shared/utils/defaultLayout';
 import { ReportsPanel } from './ReportsPanel';
 import ImageCropModal from './ImageCropModal';
+import { FocusPointPicker } from './FocusPointPicker';
 import { uploadEventImage } from '../../lib/supabase';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { isEventPast } from '../../shared/utils/eventMapper';
@@ -418,7 +419,7 @@ export function DashboardView() {
     showDefaultCredentialsWarning,
     loadingEvents,
     handleCreateEvent, handleEditEvent, handleSaveEvent, handleUpdateEventStatus,
-    handleCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff, handleDeleteStaff, handleEditStaff,
+    handleCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff, handleDeleteStaff, handleToggleStaffActive, handleEditStaff,
     showToast,
     systemLogs, clearSystemLogs,
     reservations,
@@ -2020,6 +2021,21 @@ export function DashboardView() {
                                     </div>
 
                                     <div className="md:col-span-2">
+                                      <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">Taxa Conv. (R$)</label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={sector.convenienceFee ?? ''}
+                                        onChange={(e) => {
+                                          setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, convenienceFee: e.target.value === '' ? undefined : Number(e.target.value) } : s) } : b) });
+                                        }}
+                                        placeholder="0,00"
+                                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none"
+                                      />
+                                    </div>
+
+                                    <div className="md:col-span-2">
                                       {(() => {
                                         const cap = formEvent.capacity ?? 0;
                                         const totalOthers = formEvent.batches.reduce((sum, b, bi) =>
@@ -2171,6 +2187,27 @@ export function DashboardView() {
                             className={`w-full bg-white/[0.03] border rounded-xl px-4 py-3 text-xs focus:border-[#d4af37] outline-none ${releaseValidationFields.includes('Imagem de Capa') ? 'border-red-500/60' : 'border-white/10'}`}
                           />
                         </div>
+                        {formEvent.img && (
+                          <div className="space-y-4 pt-2 border-t border-white/5">
+                            <p className="text-[9px] uppercase tracking-widest text-[#d4af37]/70 font-bold">Enquadramento — arraste o ponto para ajustar</p>
+                            <FocusPointPicker
+                              imageSrc={formEvent.img}
+                              value={formEvent.imgFocusHome}
+                              aspectClass="aspect-[16/9]"
+                              label="Página Inicial"
+                              hint="Cards e carrossel da home"
+                              onChange={(v) => setFormEvent({ ...formEvent, imgFocusHome: v })}
+                            />
+                            <FocusPointPicker
+                              imageSrc={formEvent.img}
+                              value={formEvent.imgFocusBooking}
+                              aspectClass="aspect-[21/9]"
+                              label="Página de Compra"
+                              hint="Banner do topo da página do evento"
+                              onChange={(v) => setFormEvent({ ...formEvent, imgFocusBooking: v })}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -2544,11 +2581,15 @@ export function DashboardView() {
                       <tbody className="divide-y divide-white/5">
                         {staffAccounts.map(staff => (
                           <React.Fragment key={staff.id}>
+                            {(() => {
+                              const isActive = staff.is_active !== false;
+                              const linked = (staff.event_ids?.length ?? 0) > 0;
+                              return (
                             <tr className="hover:bg-white/[0.03] transition-colors group">
                               <td className="px-8 py-6 font-medium text-sm text-white/90">{staff.name}</td>
                               <td className="px-8 py-6 text-sm text-[#d4af37] font-mono">@{staff.username}</td>
                               <td className="px-8 py-6 text-center">
-                                <span className="text-[9px] uppercase tracking-widest font-black px-4 py-1.5 bg-[#d4af371a] text-[#d4af37] rounded-full border border-[#d4af3733]">Colaborador</span>
+                                <span className={`text-[9px] uppercase tracking-widest font-black px-4 py-1.5 rounded-full border ${isActive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-white/40 border-white/10'}`}>{isActive ? 'Ativo' : 'Inativo'}</span>
                               </td>
                               <td className="px-8 py-6 text-right">
                                 <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
@@ -2558,13 +2599,21 @@ export function DashboardView() {
                                     title="Editar Colaborador"
                                   ><Edit2 className="w-4 h-4" /></button>
                                   <button
+                                    onClick={() => handleToggleStaffActive(staff.id, !isActive)}
+                                    className={`p-3 rounded-xl transition-all ${isActive ? 'text-white/30 hover:text-amber-400 hover:bg-amber-400/10' : 'text-white/30 hover:text-emerald-400 hover:bg-emerald-400/10'}`}
+                                    title={isActive ? 'Inativar Colaborador' : 'Ativar Colaborador'}
+                                  >{isActive ? <StopCircle className="w-4 h-4" /> : <Check className="w-4 h-4" />}</button>
+                                  <button
                                     onClick={() => handleDeleteStaff(staff.id)}
-                                    className="p-3 text-white/10 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"
-                                    title="Remover Colaborador"
-                                  ><X className="w-5 h-5" /></button>
+                                    disabled={linked}
+                                    className="p-3 text-white/10 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all disabled:opacity-20 disabled:hover:text-white/10 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                    title={linked ? 'Vinculado a eventos — apenas inative' : 'Excluir Colaborador'}
+                                  ><Trash2 className="w-5 h-5" /></button>
                                 </div>
                               </td>
                             </tr>
+                              );
+                            })()}
                             {editingStaffId === staff.id && (
                               <tr className="bg-white/[0.02]">
                                 <td colSpan={4} className="px-8 py-5">
@@ -2618,10 +2667,11 @@ export function DashboardView() {
                               </div>
                               <div className="flex gap-2">
                                 <button onClick={() => { setEditingStaffId(staff.id); setEditStaffForm({ name: staff.name, username: staff.username, password: '' }); }} className="p-2 text-[#d4af37]/70 bg-[#d4af37]/10 rounded-lg"><Edit2 className="w-4 h-4" /></button>
-                                <button onClick={() => handleDeleteStaff(staff.id)} className="p-2 text-red-500 bg-red-500/10 rounded-lg"><X className="w-4 h-4" /></button>
+                                <button onClick={() => handleToggleStaffActive(staff.id, !(staff.is_active !== false))} className={`p-2 rounded-lg ${staff.is_active !== false ? 'text-amber-400 bg-amber-400/10' : 'text-emerald-400 bg-emerald-400/10'}`} title={staff.is_active !== false ? 'Inativar' : 'Ativar'}>{staff.is_active !== false ? <StopCircle className="w-4 h-4" /> : <Check className="w-4 h-4" />}</button>
+                                <button onClick={() => handleDeleteStaff(staff.id)} disabled={(staff.event_ids?.length ?? 0) > 0} className="p-2 text-red-500 bg-red-500/10 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed" title={(staff.event_ids?.length ?? 0) > 0 ? 'Vinculado a eventos — apenas inative' : 'Excluir'}><Trash2 className="w-4 h-4" /></button>
                               </div>
                             </div>
-                            <span className="text-[8px] uppercase tracking-widest font-black px-3 py-1 bg-[#d4af371a] text-[#d4af37] rounded-full border border-[#d4af3733]">Colaborador</span>
+                            <span className={`text-[8px] uppercase tracking-widest font-black px-3 py-1 rounded-full border ${staff.is_active !== false ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-white/40 border-white/10'}`}>{staff.is_active !== false ? 'Ativo' : 'Inativo'}</span>
                           </>
                         )}
                       </div>

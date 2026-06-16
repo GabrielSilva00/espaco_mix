@@ -72,6 +72,8 @@ export interface StaffAccount {
   name: string;
   username: string;
   password: string;
+  is_active?: boolean;
+  event_ids?: number[];
 }
 
 export interface ProducerProfile {
@@ -135,6 +137,8 @@ export interface Event {
   location: string;
   status: 'Ativo' | 'Em breve' | 'Vendas liberadas' | 'Rascunho' | 'Finalizado' | 'Pausado';
   img: string;
+  imgFocusHome?: string;
+  imgFocusBooking?: string;
   assignedStaffIds: string[];
   priceType: 'unique' | 'gender';
   batches: Batch[];
@@ -180,6 +184,7 @@ export interface SiteConfig {
   platformFeePercent?: number;
   platformFeeType?: 'percentage' | 'fixed';
   gatewayFeePercent?: number;
+  cartExpirationMinutes?: number;
   allowTransfer?: boolean;
   address?: string;
   contactPhone?: string;
@@ -250,6 +255,7 @@ export interface GuestData {
   name: string;
   email: string;
   cpf: string;
+  phone?: string;
 }
 
 export interface PixData {

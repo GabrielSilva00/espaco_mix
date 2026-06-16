@@ -95,7 +95,14 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
     : (config.trade_name || config.site_name || 'Espaço Mix');
   const legalName = isCompany ? config.company_name : config.trade_name;
   const docLabel = isCompany ? 'CNPJ' : 'CPF';
-  const instagram = config.social_instagram?.replace('@', '');
+  // Aceita handle ("@perfil", "perfil") ou URL completa e normaliza para um link válido.
+  const instagram = (config.social_instagram || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^(www\.)?instagram\.com\//i, '')
+    .replace(/^@/, '')
+    .replace(/\/+$/, '')
+    .trim();
   const instagramLink = instagram ? `https://instagram.com/${instagram}` : null;
 
   // Navega normalmente para rotas públicas; redireciona ao login para rotas protegidas

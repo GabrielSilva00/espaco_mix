@@ -7,15 +7,19 @@ import { getAccessTokenSafe } from '../../lib/supabase';
 type ResumeData = { reservationId: string; qrCode: string; copyPaste: string };
 
 // Janela que um item pendente fica no carrinho (espelha o backend):
-// sem pagamento iniciado = 10 min; com PIX/cartão iniciado = 30 min.
-const PENDING_CART_EXPIRY_MS = 10 * 60 * 1000;
+// sem pagamento iniciado = cart_expiration_minutes (config); com PIX/cartão iniciado = 30 min.
+const DEFAULT_CART_EXPIRY_MS = 15 * 60 * 1000;
 const PENDING_PAYMENT_EXPIRY_MS = 30 * 60 * 1000;
 
 export function CartView() {
   const {
     reservations, events, setCurrentView, showToast,
-    reloadReservations, setFormEvent, cartOriginEventId,
+    reloadReservations, setFormEvent, cartOriginEventId, siteConfig,
   } = useApp();
+
+  const cartExpiryMs = (siteConfig.cartExpirationMinutes && siteConfig.cartExpirationMinutes > 0)
+    ? siteConfig.cartExpirationMinutes * 60 * 1000
+    : DEFAULT_CART_EXPIRY_MS;
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
@@ -34,7 +38,7 @@ export function CartView() {
     if (!r.createdAt) return null;
     const created = new Date(r.createdAt).getTime();
     if (!Number.isFinite(created)) return null;
-    return created + (r.paymentId ? PENDING_PAYMENT_EXPIRY_MS : PENDING_CART_EXPIRY_MS);
+    return created + (r.paymentId ? Math.max(PENDING_PAYMENT_EXPIRY_MS, cartExpiryMs) : cartExpiryMs);
   };
 
   const pending = reservations.filter(r => r.paymentStatus === 'pending' && !removingIds.has(r.id));
