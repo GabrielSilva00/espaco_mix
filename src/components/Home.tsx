@@ -38,12 +38,17 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
   const [filterDate, setFilterDate] = useState('all');
   const [visibleCount, setVisibleCount] = useState(12);
 
+  // O evento deve permanecer visível até a data/hora de TÉRMINO (campo obrigatório
+  // no cadastro). Constrói o instante real de término: endDate+endTime quando há
+  // hora; senão fim do dia de endDate; senão cai no início (date/time) como fallback.
   const isEventPast = (event: Event) => {
-    const referenceDate = event.endDate ? new Date(event.endDate) : new Date(event.date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    referenceDate.setHours(23, 59, 59, 999);
-    return referenceDate < today;
+    const baseDate = event.endDate || event.date;
+    if (!baseDate) return false;
+    const endTime = event.endDate ? event.endTime : event.time;
+    const referenceDate = new Date(`${baseDate}T${endTime || '23:59'}:00`);
+    if (isNaN(referenceDate.getTime())) return false;
+    if (!endTime) referenceDate.setHours(23, 59, 59, 999);
+    return referenceDate.getTime() < Date.now();
   };
 
   // Filter events
@@ -187,7 +192,7 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
                 placeholder="Buscar evento..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full sm:w-64 pl-10 pr-4 py-3 bg-[#1a1a1a] border border-white/5 rounded-xl text-xs text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/30"
+                className="w-full sm:w-64 pl-10 pr-4 py-3 bg-[#1a1a1a] border border-white/5 rounded-xl text-base md:text-xs text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/30"
               />
             </div>
             <select

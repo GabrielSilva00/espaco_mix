@@ -504,6 +504,13 @@ async function getPlatformFeeRates(): Promise<{ platformRate: number; gatewayRat
   }
 }
 
+interface TicketLine {
+  sectorId?: string;
+  single?: number;
+  male?: number;
+  female?: number;
+}
+
 interface OrderSelection {
   eventId?: number | string;
   tables?: unknown;
@@ -511,6 +518,9 @@ interface OrderSelection {
   maleTickets?: number;
   femaleTickets?: number;
   sectorId?: string;
+  // Carrinho multi-setor: detalhamento por setor. Quando presente, tem
+  // precedência sobre os campos planos acima (mantidos por compatibilidade).
+  ticketLines?: TicketLine[];
 }
 
 async function computeOrderTotal(sel: OrderSelection): Promise<number> {
@@ -523,10 +533,16 @@ async function computeOrderTotal(sel: OrderSelection): Promise<number> {
 
   const { data: event, error: evErr } = await admin
     .from("events")
-    .select("price_type, has_tables, table_total, total_bistros, table_price, bistro_price, table_seats, table_layout")
+    .select("status, price_type, has_tables, table_total, total_bistros, table_price, bistro_price, table_seats, table_layout")
     .eq("id", sel.eventId)
     .maybeSingle();
   if (evErr || !event) throw new Error("Evento não encontrado.");
+
+  // Pausa de emergência: bloqueia qualquer nova compra enquanto o evento estiver
+  // pausado (fonte de verdade no servidor — o front apenas reflete o estado).
+  if (event.status === "paused") {
+    throw new Error("As vendas deste evento estão pausadas no momento.");
+  }
 
   const tables = Array.isArray(sel.tables) ? sel.tables.map(Number) : [];
   const singleTickets = Math.max(0, Math.floor(Number(sel.singleTickets) || 0));
@@ -565,7 +581,35 @@ async function computeOrderTotal(sel: OrderSelection): Promise<number> {
 
   // ── Ingressos ──────────────────────────────────────────────────────────
   let ticketsTotal = 0;
-  if (singleTickets > 0 || maleTickets > 0 || femaleTickets > 0) {
+  const ticketLines = Array.isArray(sel.ticketLines)
+    ? sel.ticketLines.filter((l) => l && l.sectorId)
+    : [];
+
+  if (ticketLines.length > 0) {
+    // Carrinho multi-setor: soma o preço de cada setor a partir dos preços do banco.
+    const sectorIds = [...new Set(ticketLines.map((l) => String(l.sectorId)))];
+    const { data: sectors } = await admin
+      .from("sectors")
+      .select("id, price, price_male, price_female, event_id")
+      .in("id", sectorIds);
+    const byId = new Map<string, any>((sectors ?? []).map((s: any) => [String(s.id), s]));
+    for (const line of ticketLines) {
+      const sector = byId.get(String(line.sectorId));
+      if (!sector) throw new Error("Setor selecionado inválido.");
+      if (Number(sector.event_id) !== Number(sel.eventId)) {
+        throw new Error("Setor não pertence ao evento.");
+      }
+      const single = Math.max(0, Math.floor(Number(line.single) || 0));
+      const male = Math.max(0, Math.floor(Number(line.male) || 0));
+      const female = Math.max(0, Math.floor(Number(line.female) || 0));
+      if (event.price_type === "gender") {
+        ticketsTotal += male * (sector.price_male ?? 0) + female * (sector.price_female ?? 0);
+      } else {
+        ticketsTotal += single * (sector.price ?? DEFAULT_TICKET_PRICE);
+      }
+    }
+  } else if (singleTickets > 0 || maleTickets > 0 || femaleTickets > 0) {
+    // Caminho legado (1 setor por pedido).
     let sector: any = null;
     if (sel.sectorId) {
       const { data } = await admin
@@ -1576,6 +1620,7 @@ export async function createExpressApp() {
       maleTickets: reservation.male_tickets,
       femaleTickets: reservation.female_tickets,
       sectorId: reservation.sector_id,
+      ticketLines: Array.isArray(reservation.ticket_lines) ? reservation.ticket_lines : undefined,
     };
     let grandTotal: number;
     try {
@@ -1619,6 +1664,7 @@ export async function createExpressApp() {
           single_tickets: Math.max(0, Math.floor(Number(reservation.single_tickets) || 0)),
           male_tickets: Math.max(0, Math.floor(Number(reservation.male_tickets) || 0)),
           female_tickets: Math.max(0, Math.floor(Number(reservation.female_tickets) || 0)),
+          ticket_lines: Array.isArray(reservation.ticket_lines) ? reservation.ticket_lines : null,
           total: grandTotal,
           platform_fee: platformFee,
           net_amount: netAmount,
@@ -3113,6 +3159,138 @@ export async function createExpressApp() {
     }
 
     res.json({ valid: true });
+  });
+
+  // ── Recuperação de senha (OTP stateless via HMAC) ─────────────────────────
+  // Diferente do cadastro, aqui o e-mail PRECISA existir. Para não vazar quais
+  // e-mails têm conta (enumeração), respondemos sempre 200 com ticket/exp, mas
+  // só enviamos o código quando há conta — quem não tem conta nunca recebe o
+  // código e, portanto, não consegue avançar.
+  app.post("/api/auth/send-reset-code", authLimiter, async (req, res) => {
+    const { email } = req.body as { email?: string };
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: "E-mail inválido." });
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const exp = Date.now() + 10 * 60 * 1000;
+    const ticket = signOtp(normalizedEmail, code, exp);
+
+    const admin = await getAdminClient();
+    let accountExists = false;
+    if (admin) {
+      const { data: profile } = await admin
+        .from("profiles")
+        .select("id")
+        .ilike("email", normalizedEmail)
+        .maybeSingle();
+      accountExists = Boolean(profile);
+    }
+
+    // Conta inexistente: devolve ticket/exp (anti-enumeração) sem enviar código.
+    if (!accountExists) {
+      res.json({ sent: true, ticket, exp });
+      return;
+    }
+
+    const emailCfg = await resolveEmailConfig();
+
+    if (!emailCfg.resendApiKey) {
+      console.log(`\n[RESET DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`[RESET DEV]  E-mail : ${normalizedEmail}`);
+      console.log(`[RESET DEV]  Código : ${code}`);
+      console.log(`[RESET DEV]  Expira : ${new Date(exp).toLocaleTimeString()}`);
+      console.log(`[RESET DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+      res.json({ sent: true, devMode: true, ticket, exp });
+      return;
+    }
+
+    const { Resend } = await import("resend");
+    const resend = new Resend(emailCfg.resendApiKey);
+
+    try {
+      const { error } = await resend.emails.send({
+        from: `${emailCfg.senderName} <${emailCfg.senderAddress}>`,
+        to: normalizedEmail,
+        subject: "Recuperação de senha — Espaço Mix",
+        html: `
+          <div style="background:#0a0a0a;padding:40px;font-family:serif;max-width:480px;margin:0 auto;border-radius:12px">
+            <h2 style="color:#d4af37;text-align:center;letter-spacing:4px;font-size:18px;margin-bottom:8px">ESPAÇO MIX</h2>
+            <p style="color:#fff;text-align:center;font-size:14px;opacity:0.7;margin-bottom:32px">Recuperação de Senha</p>
+            <div style="background:#1a1a1a;border-radius:8px;padding:32px;text-align:center;border:1px solid #2a2a2a">
+              <p style="color:#aaa;font-size:13px;margin-bottom:16px">Seu código para redefinir a senha é:</p>
+              <div style="font-size:40px;font-weight:bold;color:#d4af37;letter-spacing:12px">${code}</div>
+              <p style="color:#666;font-size:11px;margin-top:16px">Válido por 10 minutos</p>
+            </div>
+            <p style="color:#666;text-align:center;font-size:11px;margin-top:24px">Se você não solicitou a recuperação, ignore este e-mail.</p>
+          </div>
+        `,
+      });
+      if (error) {
+        console.error("[RESET] Resend rejeitou o envio:", error);
+        res.status(502).json({ error: `Não foi possível enviar o e-mail: ${(error as any).message ?? (error as any).name ?? "erro do provedor"}` });
+        return;
+      }
+      res.json({ sent: true, ticket, exp });
+    } catch (err: any) {
+      console.error("[RESET] Erro ao enviar código:", err.message);
+      res.status(500).json({ error: "Erro ao enviar e-mail de recuperação." });
+    }
+  });
+
+  app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
+    const { email, code, ticket, exp, newPassword } = req.body as {
+      email?: string; code?: string; ticket?: string; exp?: number; newPassword?: string;
+    };
+    if (!email || !code || !ticket || !exp || !newPassword) {
+      res.status(400).json({ error: "Dados ausentes. Solicite um novo código." });
+      return;
+    }
+    if (typeof newPassword !== "string" || newPassword.length < 6) {
+      res.status(400).json({ error: "A senha deve ter no mínimo 6 caracteres." });
+      return;
+    }
+    if (Date.now() > Number(exp)) {
+      res.status(400).json({ error: "Código expirado. Solicite um novo." });
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const expected = signOtp(normalizedEmail, String(code), Number(exp));
+    const ok =
+      ticket.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(ticket), Buffer.from(expected));
+    if (!ok) {
+      res.status(400).json({ error: "Código incorreto." });
+      return;
+    }
+
+    const admin = await getAdminClient();
+    if (!admin) {
+      res.status(503).json({ error: "Serviço indisponível no momento." });
+      return;
+    }
+
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("id")
+      .ilike("email", normalizedEmail)
+      .maybeSingle();
+    if (!profile?.id) {
+      res.status(400).json({ error: "Não foi possível redefinir a senha." });
+      return;
+    }
+
+    const { error: updErr } = await admin.auth.admin.updateUserById(profile.id, { password: newPassword });
+    if (updErr) {
+      console.error("[RESET] Falha ao atualizar senha:", updErr.message);
+      res.status(500).json({ error: "Não foi possível redefinir a senha. Tente novamente." });
+      return;
+    }
+
+    res.json({ ok: true });
   });
 
   // ── Email - Confirmação de Compra (reenvio) ───────────────────────────────

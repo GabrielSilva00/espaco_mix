@@ -104,6 +104,8 @@ export interface Reservation {
   single_tickets?: number;
   male_tickets?: number;
   female_tickets?: number;
+  // Carrinho multi-setor: detalhamento por setor (quantidade de cada tipo).
+  ticket_lines?: Array<{ sectorId: string; name?: string; single: number; male: number; female: number }>;
   total: number;
   platform_fee?: number;
   net_amount?: number;

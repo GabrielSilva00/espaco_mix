@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Ticket,
@@ -26,9 +27,8 @@ export function BookingView() {
     activeEvent,
     previewSectors,
     expandedSectorId, setExpandedSectorId,
-    singleTickets, setSingleTickets,
-    maleTickets, setMaleTickets,
-    femaleTickets, setFemaleTickets,
+    ticketSelections, setSectorQty,
+    selectedTicketLines,
     totalTicketsSelected,
     selectedTables,
     derivedTables,
@@ -196,6 +196,17 @@ export function BookingView() {
               </section>
             )}
 
+            {/* Vendas pausadas (pausa de emergência) */}
+            {activeEvent?.status === 'Pausado' && (
+              <section className="bg-red-500/10 border border-red-500/20 rounded-3xl p-8 text-center">
+                <div className="w-14 h-14 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+                  <Clock className="w-7 h-7 text-red-400" />
+                </div>
+                <h3 className="text-lg font-serif text-red-300 mb-2">Vendas pausadas</h3>
+                <p className="text-sm text-white/50">As vendas deste evento estão temporariamente pausadas. Tente novamente em instantes.</p>
+              </section>
+            )}
+
             {/* Selection Cards + Panels */}
             {isEventActive && (
               <section>
@@ -340,6 +351,8 @@ export function BookingView() {
                             const sectorMinPrice = activeEvent!.priceType === 'gender'
                               ? Math.min(sector.priceMale || Infinity, sector.priceFemale || Infinity)
                               : sector.price;
+                            const sel = ticketSelections[sector.id] ?? { single: 0, male: 0, female: 0 };
+                            const sectorCount = sel.single + sel.male + sel.female;
 
                             return (
                               <div
@@ -349,14 +362,9 @@ export function BookingView() {
                                 <div
                                   className="p-5 flex justify-between items-center"
                                   onClick={() => {
-                                    if (!isExpanded) {
-                                      setExpandedSectorId(sector.id);
-                                      setSingleTickets(0);
-                                      setMaleTickets(0);
-                                      setFemaleTickets(0);
-                                    } else {
-                                      setExpandedSectorId(null);
-                                    }
+                                    // Apenas alterna a exibição do setor — NÃO zera as
+                                    // seleções (carrinho multi-setor acumula entre setores).
+                                    setExpandedSectorId(isExpanded ? null : sector.id);
                                   }}
                                 >
                                   <div className="flex-1 pr-4">
@@ -364,7 +372,9 @@ export function BookingView() {
                                       <h3 className="text-base font-semibold text-white">{sector.name}</h3>
                                     </div>
                                     <p className="text-xs text-white/40 line-clamp-1">
-                                      {isExpanded ? 'Inclui acesso à área selecionada.' : 'Selecione para ver opções'}
+                                      {sectorCount > 0
+                                        ? `${sectorCount} ingresso${sectorCount > 1 ? 's' : ''} selecionado${sectorCount > 1 ? 's' : ''}`
+                                        : isExpanded ? 'Inclui acesso à área selecionada.' : 'Selecione para ver opções'}
                                     </p>
                                   </div>
                                   <div className="text-right flex items-center gap-4 shrink-0">
@@ -397,9 +407,9 @@ export function BookingView() {
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
-                                              <button aria-label="Remover ingresso masculino" onClick={(e) => { e.stopPropagation(); setMaleTickets(Math.max(0, maleTickets - 1)); }} disabled={maleTickets === 0} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
-                                              <span className="w-5 text-center text-sm font-bold text-white">{maleTickets}</span>
-                                              <button aria-label="Adicionar ingresso masculino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setMaleTickets(maleTickets + 1); }} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
+                                              <button aria-label="Remover ingresso masculino" onClick={(e) => { e.stopPropagation(); setSectorQty(sector.id, 'male', sel.male - 1); }} disabled={sel.male === 0} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
+                                              <span className="w-5 text-center text-sm font-bold text-white">{sel.male}</span>
+                                              <button aria-label="Adicionar ingresso masculino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setSectorQty(sector.id, 'male', sel.male + 1); }} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
                                             </div>
                                           </div>
                                           <div className="flex justify-between items-center py-3 border-t border-white/5">
@@ -410,9 +420,9 @@ export function BookingView() {
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
-                                              <button aria-label="Remover ingresso feminino" onClick={(e) => { e.stopPropagation(); setFemaleTickets(Math.max(0, femaleTickets - 1)); }} disabled={femaleTickets === 0} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
-                                              <span className="w-5 text-center text-sm font-bold text-white">{femaleTickets}</span>
-                                              <button aria-label="Adicionar ingresso feminino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setFemaleTickets(femaleTickets + 1); }} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
+                                              <button aria-label="Remover ingresso feminino" onClick={(e) => { e.stopPropagation(); setSectorQty(sector.id, 'female', sel.female - 1); }} disabled={sel.female === 0} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
+                                              <span className="w-5 text-center text-sm font-bold text-white">{sel.female}</span>
+                                              <button aria-label="Adicionar ingresso feminino" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setSectorQty(sector.id, 'female', sel.female + 1); }} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
                                             </div>
                                           </div>
                                         </>
@@ -425,9 +435,9 @@ export function BookingView() {
                                             </div>
                                           </div>
                                           <div className="flex items-center gap-3 bg-white/5 rounded-full p-1 border border-white/10">
-                                            <button aria-label="Remover ingresso" onClick={(e) => { e.stopPropagation(); setSingleTickets(Math.max(0, singleTickets - 1)); }} disabled={singleTickets === 0} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
-                                            <span className="w-5 text-center text-sm font-bold text-white">{singleTickets}</span>
-                                            <button aria-label="Adicionar ingresso" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setSingleTickets(singleTickets + 1); }} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
+                                            <button aria-label="Remover ingresso" onClick={(e) => { e.stopPropagation(); setSectorQty(sector.id, 'single', sel.single - 1); }} disabled={sel.single === 0} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors text-white disabled:opacity-30 disabled:hover:bg-transparent"><Minus className="w-4 h-4" /></button>
+                                            <span className="w-5 text-center text-sm font-bold text-white">{sel.single}</span>
+                                            <button aria-label="Adicionar ingresso" onClick={(e) => { e.stopPropagation(); if (totalTicketsSelected >= MAX_TICKETS_PER_ORDER) { showToast(`Limite máximo de ${MAX_TICKETS_PER_ORDER} ingressos por compra.`, 'warning'); return; } setSectorQty(sector.id, 'single', sel.single + 1); }} className="min-w-[44px] min-h-[44px] w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#d4af37]/20 transition-colors text-[#d4af37]"><Plus className="w-4 h-4" /></button>
                                           </div>
                                         </div>
                                       )}
@@ -808,7 +818,7 @@ export function BookingView() {
                 <h2 className="text-[10px] tracking-[0.2em] uppercase text-[#d4af37] mb-6">Detalhes do Pedido</h2>
                 <div className="bg-white/5 border border-white/10 rounded-xl p-6 flex-1 flex flex-col">
                   <div className="space-y-4 flex-1">
-                    {selectedTables.length === 0 && singleTickets === 0 && maleTickets === 0 && femaleTickets === 0 ? (
+                    {selectedTables.length === 0 && totalTicketsSelected === 0 ? (
                       <div className="flex flex-col items-center justify-center h-48 text-center space-y-4 opacity-70">
                         <div className="w-16 h-16 rounded-full border border-white/20 bg-white/5 flex items-center justify-center">
                           <Ticket className="w-6 h-6 text-white/50" />
@@ -821,47 +831,54 @@ export function BookingView() {
                     ) : (
                       <AnimatePresence>
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-0">
-                          {activeEvent?.priceType === 'gender' ? (
-                            <>
-                              {maleTickets > 0 && (
-                                <div className="flex justify-between items-center py-4 border-b border-white/10 group">
-                                  <div className="flex items-start flex-col gap-1">
-                                    <span className="text-[11px] uppercase opacity-60 tracking-wider">Masc: {previewSectors[0]?.name || 'Pista'}</span>
-                                    <span className="text-xs text-[#d4af37] font-bold">{maleTickets}x Ingressos</span>
-                                  </div>
-                                  <div className="flex items-center gap-3">
-                                    <span className="text-sm font-display">R$ {(maleTickets * (previewSectors[0]?.priceMale || 0)).toFixed(2)}</span>
-                                    <button aria-label="Remover ingressos masculinos" onClick={() => setMaleTickets(0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
-                                  </div>
-                                </div>
-                              )}
-                              {femaleTickets > 0 && (
-                                <div className="flex justify-between items-center py-4 border-b border-white/10 group">
-                                  <div className="flex items-start flex-col gap-1">
-                                    <span className="text-[11px] uppercase opacity-60 tracking-wider">Fem: {previewSectors[0]?.name || 'Pista'}</span>
-                                    <span className="text-xs text-[#d4af37] font-bold">{femaleTickets}x Ingressos</span>
-                                  </div>
-                                  <div className="flex items-center gap-3">
-                                    <span className="text-sm font-display">R$ {(femaleTickets * (previewSectors[0]?.priceFemale || 0)).toFixed(2)}</span>
-                                    <button aria-label="Remover ingressos femininos" onClick={() => setFemaleTickets(0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
-                                  </div>
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            singleTickets > 0 && (
-                              <div className="flex justify-between items-center py-4 border-b border-white/10 group">
-                                <div className="flex items-start flex-col gap-1">
-                                  <span className="text-[11px] uppercase opacity-60 tracking-wider">{previewSectors[0]?.name || 'Entrada Pista'}</span>
-                                  <span className="text-xs text-[#d4af37] font-bold">{singleTickets}x Ingressos</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="text-sm font-display">R$ {ticketsTotal.toFixed(2)}</span>
-                                  <button aria-label="Remover ingressos" onClick={() => setSingleTickets(0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
-                                </div>
-                              </div>
-                            )
-                          )}
+                          {selectedTicketLines.map((line) => {
+                            const sector = previewSectors.find(s => s.id === line.sectorId);
+                            return (
+                              <Fragment key={line.sectorId}>
+                                {activeEvent?.priceType === 'gender' ? (
+                                  <>
+                                    {line.male > 0 && (
+                                      <div className="flex justify-between items-center py-4 border-b border-white/10 group">
+                                        <div className="flex items-start flex-col gap-1">
+                                          <span className="text-[11px] uppercase opacity-60 tracking-wider">Masc: {line.name}</span>
+                                          <span className="text-xs text-[#d4af37] font-bold">{line.male}x Ingressos</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-sm font-display">R$ {(line.male * (sector?.priceMale || 0)).toFixed(2)}</span>
+                                          <button aria-label="Remover ingressos masculinos" onClick={() => setSectorQty(line.sectorId, 'male', 0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {line.female > 0 && (
+                                      <div className="flex justify-between items-center py-4 border-b border-white/10 group">
+                                        <div className="flex items-start flex-col gap-1">
+                                          <span className="text-[11px] uppercase opacity-60 tracking-wider">Fem: {line.name}</span>
+                                          <span className="text-xs text-[#d4af37] font-bold">{line.female}x Ingressos</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-sm font-display">R$ {(line.female * (sector?.priceFemale || 0)).toFixed(2)}</span>
+                                          <button aria-label="Remover ingressos femininos" onClick={() => setSectorQty(line.sectorId, 'female', 0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  line.single > 0 && (
+                                    <div className="flex justify-between items-center py-4 border-b border-white/10 group">
+                                      <div className="flex items-start flex-col gap-1">
+                                        <span className="text-[11px] uppercase opacity-60 tracking-wider">{line.name}</span>
+                                        <span className="text-xs text-[#d4af37] font-bold">{line.single}x Ingressos</span>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-sm font-display">R$ {(line.single * (sector?.price || 0)).toFixed(2)}</span>
+                                        <button aria-label="Remover ingressos" onClick={() => setSectorQty(line.sectorId, 'single', 0)} className="text-white/20 hover:text-red-400 transition ml-2"><X className="w-4 h-4" /></button>
+                                      </div>
+                                    </div>
+                                  )
+                                )}
+                              </Fragment>
+                            );
+                          })}
                           {selectedTablesData.map((table) => {
                             const layoutEl = interactiveLayoutEls[table.id - 1];
                             const itemIsBistro = layoutEl?.type === 'bistro-table';

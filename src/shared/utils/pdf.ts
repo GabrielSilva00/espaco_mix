@@ -48,15 +48,21 @@ export function downloadPDFList(buyers: Buyer[], event: Event | undefined): void
   win.document.close();
 }
 
-export function downloadTicketPDF(ticket: { id: string; name: string; ownerName?: string }): void {
+/**
+ * Abre uma janela imprimível com o ingresso (QR + dados) para o usuário salvar
+ * como PDF. Retorna `false` quando o navegador bloqueia o pop-up, para o
+ * chamador avisar o usuário.
+ */
+export function downloadTicketPDF(ticket: { id: string; name: string; ownerName?: string; eventTitle?: string }): boolean {
   const win = window.open('', '_blank');
-  if (!win) return;
+  if (!win) return false;
 
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(ticket.id)}`;
+  const eventTitle = ticket.eventTitle?.trim() || 'Evento';
 
-  win.document.write(`<!DOCTYPE html><html><head><title>Ingresso</title><style>
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ingresso</title><style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:Georgia,serif;background:#0a0a0a;color:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:24px}
+    body{font-family:Georgia,serif;background:#0a0a0a;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100vh;padding:24px}
     .ticket{background:linear-gradient(135deg,#111,#1a1a1a);border:1px solid #d4af37;border-radius:16px;padding:40px;max-width:420px;width:100%;text-align:center}
     .brand{color:#d4af37;font-size:10px;letter-spacing:.35em;text-transform:uppercase;margin-bottom:20px}
     .event{color:#d4af37;font-size:22px;margin-bottom:4px}
@@ -67,14 +73,24 @@ export function downloadTicketPDF(ticket: { id: string; name: string; ownerName?
     hr{border:none;border-top:1px solid rgba(212,175,55,.3);margin:20px 0}
     .lbl{font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.4);margin-bottom:4px}
     .owner{font-size:16px;color:#fff}
-    @media print{body{background:#fff}.ticket{background:#fff;color:#000;border-color:#000}.event,.brand{color:#000}.tid,.lbl{color:#666}.owner{color:#000}hr{border-color:#ccc}}
+    .print-btn{margin-top:24px;background:#d4af37;color:#0a0a0a;border:none;font-family:sans-serif;font-weight:bold;text-transform:uppercase;letter-spacing:.15em;font-size:11px;padding:12px 28px;border-radius:10px;cursor:pointer}
+    @media print{body{background:#fff}.ticket{background:#fff;color:#000;border-color:#000}.event,.brand{color:#000}.tid,.lbl{color:#666}.owner{color:#000}hr{border-color:#ccc}.print-btn{display:none}}
   </style></head><body><div class="ticket">
     <p class="brand">Espaço Mix</p>
-    <h1 class="event">Midnight Soirée</h1>
+    <h1 class="event">${eventTitle}</h1>
     <p class="type">${ticket.name}</p>
-    <div class="qr-wrap"><img src="${qrUrl}" alt="QR"/></div>
+    <div class="qr-wrap"><img id="qr" src="${qrUrl}" alt="QR"/></div>
     <p class="tid">${ticket.id}</p>
     ${ticket.ownerName ? `<hr><p class="lbl">Portador</p><p class="owner">${ticket.ownerName}</p>` : ''}
-  </div><script>window.onload=function(){setTimeout(function(){window.print();window.close();},600);};</script></body></html>`);
+  </div>
+  <button class="print-btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+  <script>
+    var qr=document.getElementById('qr');
+    var printed=false;
+    function go(){if(printed)return;printed=true;setTimeout(function(){window.print();},300);}
+    if(qr.complete){go();}else{qr.onload=go;qr.onerror=go;}
+    setTimeout(go,2500);
+  </script></body></html>`);
   win.document.close();
+  return true;
 }

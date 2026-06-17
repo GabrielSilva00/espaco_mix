@@ -57,13 +57,14 @@ function useCountdown(expiresAt: number | undefined): string {
   return remaining;
 }
 
-function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }: {
+function SingleTicketRow({ tkt, singleCount, eventTitle, setQrFullscreen, setActionTicket }: {
   tkt: TicketItem;
   singleCount: number;
-  setQrFullscreen: (v: { id: string; name: string } | null) => void;
+  eventTitle: string;
+  setQrFullscreen: (v: { id: string; name: string; eventTitle?: string } | null) => void;
   setActionTicket: (v: any) => void;
 }) {
-  const { loggedInUserId, siteConfig } = useApp();
+  const { loggedInUserId, siteConfig, showToast } = useApp();
   const isRecipient = !!tkt.holderUserId && tkt.holderUserId === loggedInUserId;
   const needsData = !tkt.ownerName;
   const countdown = useCountdown(tkt.transferExpiresAt);
@@ -72,7 +73,7 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
       <div className="flex gap-3 md:gap-4 items-center w-full md:w-auto">
         <div
           className={`relative group ${tkt.status === 'active' ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-          onClick={(e) => { e.stopPropagation(); if (tkt.status === 'active') setQrFullscreen({ id: tkt.id, name: tkt.name }); }}
+          onClick={(e) => { e.stopPropagation(); if (tkt.status === 'active') setQrFullscreen({ id: tkt.id, name: tkt.name, eventTitle }); }}
         >
           <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-14 h-14 md:w-16 md:h-16 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} loading="lazy" decoding="async" />
           {tkt.status === 'active' && (
@@ -146,7 +147,7 @@ function SingleTicketRow({ tkt, singleCount, setQrFullscreen, setActionTicket }:
         )}
         {tkt.status === 'active' && (
           <div className="flex gap-2 flex-1 md:flex-none w-full md:w-auto mt-2 md:mt-0">
-            <button onClick={(e) => { e.stopPropagation(); downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName }); }} className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/50 hover:text-white transition flex justify-center items-center" title="Baixar PDF">
+            <button onClick={(e) => { e.stopPropagation(); if (!downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName, eventTitle })) showToast('Permita pop-ups neste site para baixar o ingresso.', 'warning'); }} className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/50 hover:text-white transition flex justify-center items-center" title="Baixar PDF">
               <Download className="w-4 h-4" />
             </button>
           </div>
@@ -167,6 +168,7 @@ export function ReservationsView() {
     events,
     actionTicket, setActionTicket,
     siteConfig,
+    showToast,
   } = useApp();
 
   // "Histórico": evento passado, pagamento cancelado/reembolsado, ou todos os
@@ -462,7 +464,7 @@ export function ReservationsView() {
                                               <div className="flex gap-4 items-center w-full md:w-auto">
                                                 <div
                                                    className={`relative group ${tkt.status === 'active' ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-                                                   onClick={(e) => { e.stopPropagation(); if (tkt.status === 'active') setQrFullscreen({ id: tkt.id, name: tkt.name }); }}
+                                                   onClick={(e) => { e.stopPropagation(); if (tkt.status === 'active') setQrFullscreen({ id: tkt.id, name: tkt.name, eventTitle: events.find(ev => ev.id === res.eventId)?.title ?? 'Evento' }); }}
                                                 >
                                                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${tkt.id}`} alt="QR" className={`w-14 h-14 bg-white p-1 rounded-lg transition ${tkt.status !== 'active' ? 'opacity-20 grayscale' : 'group-hover:opacity-80'}`} loading="lazy" decoding="async" />
                                                    {tkt.status === 'active' && (
@@ -499,7 +501,7 @@ export function ReservationsView() {
                                                 )}
                                                 {tkt.status === 'active' && !allCancelled && (
                                                   <div className="flex gap-2 flex-1 md:flex-none">
-                                                    <button onClick={(e) => { e.stopPropagation(); downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName }); }} className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/50 hover:text-white transition flex justify-center items-center" title="Baixar PDF">
+                                                    <button onClick={(e) => { e.stopPropagation(); if (!downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName, eventTitle: events.find(ev => ev.id === res.eventId)?.title ?? 'Evento' })) showToast('Permita pop-ups neste site para baixar o ingresso.', 'warning'); }} className="h-[34px] flex-1 md:flex-none px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/50 hover:text-white transition flex justify-center items-center" title="Baixar PDF">
                                                       <Download className="w-4 h-4" />
                                                     </button>
                                                   </div>
@@ -519,6 +521,7 @@ export function ReservationsView() {
                                       key={tkt.id}
                                       tkt={tkt}
                                       singleCount={singleTicketsArr.length}
+                                      eventTitle={events.find(ev => ev.id === res.eventId)?.title ?? 'Evento'}
                                       setQrFullscreen={setQrFullscreen}
                                       setActionTicket={setActionTicket}
                                     />
@@ -560,13 +563,13 @@ export function ReservationsView() {
               </button>
               <div className="text-center w-full mb-6 border-b border-black/10 pb-4 mt-2">
                  <h3 className="text-black font-serif text-xl md:text-2xl">{qrFullscreen.name}</h3>
-                 <p className="text-black/50 text-[10px] uppercase font-bold tracking-[0.2em] mt-1">Midnight Soirée</p>
+                 <p className="text-black/50 text-[10px] uppercase font-bold tracking-[0.2em] mt-1">{qrFullscreen.eventTitle ?? 'Evento'}</p>
               </div>
               <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${qrFullscreen.id}`} alt="QR Code Enlarged" className="w-56 h-56 md:w-64 md:h-64 border border-black/5 rounded-xl shadow-[inset_0_0_10px_rgba(0,0,0,0.1)] p-2 mb-2" />
               <p className="text-black/40 text-xs font-mono tracking-widest text-center mt-4 bg-black/5 px-4 py-1.5 rounded-full">{qrFullscreen.id}</p>
               <div className="mt-8 flex gap-3 w-full">
                 <button
-                  onClick={() => downloadTicketPDF({ id: qrFullscreen.id, name: qrFullscreen.name })}
+                  onClick={() => { if (!downloadTicketPDF({ id: qrFullscreen.id, name: qrFullscreen.name, eventTitle: qrFullscreen.eventTitle })) showToast('Permita pop-ups neste site para baixar o ingresso.', 'warning'); }}
                   className="flex-1 bg-black/5 text-black/70 text-[9px] font-bold tracking-widest uppercase py-3 rounded-xl hover:bg-black/10 transition flex items-center justify-center gap-2"
                 >
                   <Download className="w-4 h-4" /> PDF

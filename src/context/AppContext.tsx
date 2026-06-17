@@ -30,6 +30,15 @@ import Lenis from 'lenis';
 // são liberados quando o webhook/polling confirmar a aprovação.
 type PaymentFlowStatus = 'idle' | 'processing' | 'in_review' | 'success' | 'error';
 
+// Linha do carrinho multi-setor: quantidades de cada tipo de ingresso por setor.
+export interface TicketLineSelection {
+  sectorId: string;
+  name: string;
+  single: number;
+  male: number;
+  female: number;
+}
+
 // Converte uma reserva do banco (snake_case + ticket_items) no shape do app
 // (camelCase) que as views consomem (dashboard, "Minhas Reservas").
 function mapDbReservationToApp(r: any): Reservation {
@@ -109,12 +118,15 @@ interface AppContextValue {
   // Cart
   selectedTables: number[];
   setSelectedTables: React.Dispatch<React.SetStateAction<number[]>>;
+  // Carrinho multi-setor: quantidades por setor (fonte da verdade). Os totais
+  // singleTickets/maleTickets/femaleTickets são derivados para exibição.
+  ticketSelections: Record<string, { single: number; male: number; female: number }>;
+  setSectorQty: (sectorId: string, kind: 'single' | 'male' | 'female', qty: number) => void;
+  clearTicketSelections: () => void;
+  selectedTicketLines: TicketLineSelection[];
   singleTickets: number;
-  setSingleTickets: React.Dispatch<React.SetStateAction<number>>;
   maleTickets: number;
-  setMaleTickets: React.Dispatch<React.SetStateAction<number>>;
   femaleTickets: number;
-  setFemaleTickets: React.Dispatch<React.SetStateAction<number>>;
   cartExpiresAt: number | null;
   setCartExpiresAt: React.Dispatch<React.SetStateAction<number | null>>;
   cartTimeLeft: number | null;
@@ -235,6 +247,7 @@ interface AppContextValue {
   setForgotPasswordStep: React.Dispatch<React.SetStateAction<'none' | 'email' | 'code' | 'new_password'>>;
   forgotPasswordData: { email: string; code: string; newPassword: string };
   setForgotPasswordData: React.Dispatch<React.SetStateAction<{ email: string; code: string; newPassword: string }>>;
+  handleForgotPassword: (e: React.FormEvent) => Promise<void>;
 
   // Consentimento / LGPD
   consentData: ConsentData | null;
@@ -303,8 +316,8 @@ interface AppContextValue {
   setReservationsTab: React.Dispatch<React.SetStateAction<'upcoming' | 'past'>>;
   copiedCod: string | null;
   setCopiedCod: React.Dispatch<React.SetStateAction<string | null>>;
-  qrFullscreen: { id: string; name: string } | null;
-  setQrFullscreen: React.Dispatch<React.SetStateAction<{ id: string; name: string } | null>>;
+  qrFullscreen: { id: string; name: string; eventTitle?: string } | null;
+  setQrFullscreen: React.Dispatch<React.SetStateAction<{ id: string; name: string; eventTitle?: string } | null>>;
 
   // Dashboard UI
   salesChartPeriod: '7d' | '30d';
@@ -401,9 +414,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Números de mesa já ocupados (reservas pagas/pendentes) do evento ativo —
   // vindos do servidor (RLS impede o cliente de ler reservas alheias direto).
   const [occupiedTableIds, setOccupiedTableIds] = useState<number[]>([]);
-  const [singleTickets, setSingleTickets] = useState(0);
-  const [maleTickets, setMaleTickets] = useState(0);
-  const [femaleTickets, setFemaleTickets] = useState(0);
+  const [ticketSelections, setTicketSelections] = useState<Record<string, { single: number; male: number; female: number }>>({});
+  const setSectorQty = (sectorId: string, kind: 'single' | 'male' | 'female', qty: number) => {
+    setTicketSelections(prev => {
+      const cur = prev[sectorId] ?? { single: 0, male: 0, female: 0 };
+      const next = { ...cur, [kind]: Math.max(0, qty) };
+      const updated = { ...prev, [sectorId]: next };
+      if (next.single === 0 && next.male === 0 && next.female === 0) delete updated[sectorId];
+      return updated;
+    });
+  };
+  const clearTicketSelections = () => setTicketSelections({});
   const [cartExpiresAt, setCartExpiresAt] = useState<number | null>(null);
   const [cartTimeLeft, setCartTimeLeft] = useState<number | null>(null);
   const [expandedSectorId, setExpandedSectorId] = useState<string | null>(null);
@@ -495,6 +516,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [adminError, setAdminError] = useState('');
   const [forgotPasswordStep, setForgotPasswordStep] = useState<'none' | 'email' | 'code' | 'new_password'>('none');
   const [forgotPasswordData, setForgotPasswordData] = useState({ email: '', code: '', newPassword: '' });
+  const [resetTicket, setResetTicket] = useState<{ ticket: string; exp: number } | null>(null);
 
   // Consentimento / LGPD
   const [consentData, setConsentData] = useState<ConsentData | null>(() => {
@@ -564,7 +586,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [expandedRes, setExpandedRes] = useState<string | null>(null);
   const [reservationsTab, setReservationsTab] = useState<'upcoming' | 'past'>('upcoming');
   const [copiedCod, setCopiedCod] = useState<string | null>(null);
-  const [qrFullscreen, setQrFullscreen] = useState<{ id: string; name: string } | null>(null);
+  const [qrFullscreen, setQrFullscreen] = useState<{ id: string; name: string; eventTitle?: string } | null>(null);
 
   // Dashboard UI
   const [salesChartPeriod, setSalesChartPeriod] = useState<'7d' | '30d'>('7d');
@@ -588,8 +610,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Computed values ─────────────────────────────────────────────────────
 
-  const totalTicketsSelected = singleTickets + maleTickets + femaleTickets;
-
   const activeEvent = (currentView === 'booking' && isPreviewingEvent && formEvent)
     ? formEvent
     : (currentView === 'booking' && !isPreviewingEvent
@@ -598,6 +618,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const activeBatch = activeEvent?.batches?.find(b => b.is_active !== false) ?? activeEvent?.batches?.[0];
   const previewSectors = activeBatch?.sectors || [];
+
+  // Linhas do carrinho consideram apenas os setores do evento/lote ativo (ignora
+  // seleções antigas de outro evento). Fonte única para totais, preço e geração.
+  const selectedTicketLines: TicketLineSelection[] = previewSectors
+    .map((s: Sector) => {
+      const sel = ticketSelections[s.id] ?? { single: 0, male: 0, female: 0 };
+      return { sectorId: s.id as string, name: s.name, single: sel.single, male: sel.male, female: sel.female };
+    })
+    .filter((l: TicketLineSelection) => l.single > 0 || l.male > 0 || l.female > 0);
+  const singleTickets = selectedTicketLines.reduce((a, l) => a + l.single, 0);
+  const maleTickets = selectedTicketLines.reduce((a, l) => a + l.male, 0);
+  const femaleTickets = selectedTicketLines.reduce((a, l) => a + l.female, 0);
+  const totalTicketsSelected = singleTickets + maleTickets + femaleTickets;
 
   const layoutTableElements = (activeEvent?.tableLayout || []).filter(
     el => el.type === 'round-table' || el.type === 'rect-table' || el.type === 'bistro-table'
@@ -642,9 +675,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const selectedTablesData = derivedTables.filter(t => selectedTables.includes(t.id));
   const tablesTotal = selectedTablesData.reduce((acc, curr) => acc + curr.price, 0);
   const expandedSector: Partial<Sector> = previewSectors.find(s => s.id === expandedSectorId) || previewSectors[0] || {};
-  const ticketsTotal = activeEvent?.priceType === 'gender'
-    ? (maleTickets * (expandedSector.priceMale || 0) + femaleTickets * (expandedSector.priceFemale || 0))
-    : (singleTickets * (expandedSector.price || EVENT_TICKET_PRICE));
+  // Preço somado por setor (carrinho multi-setor). O servidor revalida tudo.
+  const ticketsTotal = selectedTicketLines.reduce((acc, line) => {
+    const sector = previewSectors.find((s: Sector) => s.id === line.sectorId);
+    if (!sector) return acc;
+    return activeEvent?.priceType === 'gender'
+      ? acc + line.male * (sector.priceMale || 0) + line.female * (sector.priceFemale || 0)
+      : acc + line.single * (sector.price || EVENT_TICKET_PRICE);
+  }, 0);
 
   const subTotal = tablesTotal + ticketsTotal;
   const taxAmount = siteConfig.platformFeeType === 'fixed'
@@ -891,18 +929,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const remaining = Math.max(0, cartExpiresAt - Date.now());
         setCartTimeLeft(remaining);
         if (remaining <= 0) {
-          setSingleTickets(0);
-          setMaleTickets(0);
-          setFemaleTickets(0);
+          clearTicketSelections();
           setSelectedTables([]);
           setCartExpiresAt(null);
           setIsCheckoutOpen(false);
-          showToast('O tempo para concluir a compra expirou e os ingressos foram liberados.', 'warning');
+          // Se o carrinho expira com o usuário deslogado, não mostramos o aviso
+          // na hora — guardamos uma flag e exibimos quando ele logar de novo.
+          if (sessionUser) {
+            showToast('O tempo para concluir a compra expirou e os ingressos foram liberados.', 'warning');
+          } else {
+            sessionStorage.setItem('cart-expired-pending', '1');
+          }
         }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [cartExpiresAt]);
+  }, [cartExpiresAt, sessionUser]);
+
+  // Exibe o aviso de carrinho expirado quando o usuário loga de volta (caso o
+  // carrinho tenha expirado enquanto ele estava deslogado).
+  useEffect(() => {
+    if (sessionUser && sessionStorage.getItem('cart-expired-pending')) {
+      sessionStorage.removeItem('cart-expired-pending');
+      showToast('O tempo para concluir a compra expirou e os ingressos foram liberados.', 'warning');
+    }
+  }, [sessionUser]);
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1226,7 +1277,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const session = JSON.parse(savedCart);
         let restoredAnything = false;
         const conflictList: string[] = [];
-        if (session.singleTickets) { setSingleTickets(session.singleTickets); restoredAnything = true; }
+        if (session.ticketSelections && typeof session.ticketSelections === 'object' && Object.keys(session.ticketSelections).length > 0) {
+          setTicketSelections(session.ticketSelections); restoredAnything = true;
+        }
         if (session.guestData?.name) { setGuestData(prev => ({ ...prev, ...session.guestData })); restoredAnything = true; }
         // Checkout nunca é reaberto automaticamente — apenas o carrinho é restaurado
         if (Array.isArray(session.selectedTables) && session.selectedTables.length > 0) {
@@ -1255,13 +1308,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Não persistir estados de pagamento em andamento ou finalizado
     if (paymentStatus === 'processing' || paymentStatus === 'in_review' || paymentStatus === 'success') return;
-    if (selectedTables.length === 0 && singleTickets === 0) {
+    if (selectedTables.length === 0 && Object.keys(ticketSelections).length === 0) {
       sessionStorage.removeItem('eventix-cart');
       return;
     }
     const { cpf: _cpf, ...guestDataSafe } = guestData;
-    sessionStorage.setItem('eventix-cart', JSON.stringify({ selectedTables, singleTickets, guestData: guestDataSafe }));
-  }, [selectedTables, singleTickets, guestData, paymentStatus]);
+    sessionStorage.setItem('eventix-cart', JSON.stringify({ selectedTables, ticketSelections, guestData: guestDataSafe }));
+  }, [selectedTables, ticketSelections, guestData, paymentStatus]);
 
   // Carrega a equipe de portaria do servidor (service role bypassa RLS).
   const loadStaffAccounts = async () => {
@@ -1537,6 +1590,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err: any) {
       setAdminError(err.message ?? 'Erro ao criar conta');
+    }
+  };
+
+  // Recuperação de senha em 3 etapas (e-mail → código → nova senha). Usado tanto
+  // na AuthView quanto no login dentro do checkout (compartilham o mesmo estado).
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = forgotPasswordData.email.trim();
+    if (forgotPasswordStep === 'email') {
+      if (!email) { setAdminError('Preencha o e-mail'); return; }
+      setAdminError('');
+      try {
+        const resp = await fetch('/api/auth/send-reset-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) { setAdminError((data as any).error ?? 'Erro ao enviar código.'); return; }
+        setResetTicket({ ticket: (data as any).ticket, exp: (data as any).exp });
+        setForgotPasswordStep('code');
+      } catch {
+        setAdminError('Erro de conexão. Verifique sua internet.');
+      }
+    } else if (forgotPasswordStep === 'code') {
+      const code = forgotPasswordData.code.trim();
+      if (!code) { setAdminError('Preencha o código'); return; }
+      if (!resetTicket) { setAdminError('Sessão expirada. Reenvie o código.'); return; }
+      setAdminError('');
+      try {
+        const resp = await fetch('/api/auth/check-verify-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code, ticket: resetTicket.ticket, exp: resetTicket.exp }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !(data as any).valid) { setAdminError((data as any).error ?? 'Código inválido.'); return; }
+        setForgotPasswordStep('new_password');
+      } catch {
+        setAdminError('Erro de conexão. Verifique sua internet.');
+      }
+    } else if (forgotPasswordStep === 'new_password') {
+      const newPassword = forgotPasswordData.newPassword;
+      if (!newPassword || newPassword.length < 6) { setAdminError('A senha deve ter no mínimo 6 caracteres'); return; }
+      if (!resetTicket) { setAdminError('Sessão expirada. Reenvie o código.'); return; }
+      setAdminError('');
+      try {
+        const resp = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code: forgotPasswordData.code.trim(), ticket: resetTicket.ticket, exp: resetTicket.exp, newPassword }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !(data as any).ok) { setAdminError((data as any).error ?? 'Não foi possível redefinir a senha.'); return; }
+        setForgotPasswordStep('none');
+        setForgotPasswordData({ email: '', code: '', newPassword: '' });
+        setResetTicket(null);
+        setAuthTab('login');
+        showToast('Senha redefinida com sucesso! Faça login com a nova senha.', 'success');
+      } catch {
+        setAdminError('Erro de conexão. Verifique sua internet.');
+      }
     }
   };
 
@@ -2087,6 +2202,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Nomes ordenados dos ingressos individuais (carrinho multi-setor): para cada
+  // setor, single → masculino → feminino. A MESMA ordem é usada ao criar os
+  // ticket_items no banco e ao montar a reserva local, para os ids/QR casarem.
+  const buildIndividualTicketNames = (): string[] => {
+    const names: string[] = [];
+    for (const line of selectedTicketLines) {
+      for (let i = 0; i < line.single; i++) names.push(`Ingresso ${line.name}`);
+      for (let i = 0; i < line.male; i++) names.push(`Ingresso ${line.name} (Masculino)`);
+      for (let i = 0; i < line.female; i++) names.push(`Ingresso ${line.name} (Feminino)`);
+    }
+    return names;
+  };
+
   // Constrói a reserva local com os ingressos REAIS do banco e mostra o sucesso.
   // Só é chamada quando o pagamento está 'approved' no banco.
   const finalizePaidReservation = (resId: string, dbTickets: any[] = [], method?: PaymentMethod | null) => {
@@ -2123,17 +2251,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tIndex++;
       }
     });
-    const ticketCount = singleTickets + maleTickets + femaleTickets;
-    for (let i = 0; i < ticketCount; i++) {
+    buildIndividualTicketNames().forEach((name) => {
       generatedTickets.push({
         id: ticketIdAt(tIndex),
-        name: `Ingresso Individual`,
+        name,
         isTable: false,
         status: 'active',
         ...getOwnerData(tIndex === 0),
       });
       tIndex++;
-    }
+    });
     const newRes: Reservation = {
       id: resId,
       date: new Date().toISOString(),
@@ -2154,9 +2281,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsProcessingPayment(false);
     setCartExpiresAt(null);
     setSelectedTables([]);
-    setSingleTickets(0);
-    setMaleTickets(0);
-    setFemaleTickets(0);
+    clearTicketSelections();
   };
 
   const startPaymentPolling = (reservationId: string, dbTickets: any[], method: PaymentMethod) => {
@@ -2234,9 +2359,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPixData(null);
     setIsCheckoutOpen(false);
     setCheckoutStep('selection');
-    setSingleTickets(0);
-    setMaleTickets(0);
-    setFemaleTickets(0);
+    clearTicketSelections();
     setSelectedTables([]);
     setReloadKey(k => k + 1);
     setCurrentView('cart');
@@ -2280,6 +2403,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       // Seleção enviada ao servidor para recálculo autoritativo do preço (anti-fraude).
       // O servidor ignora `amount` e recalcula a partir dos preços do banco.
+      // Carrinho multi-setor: envia a quebra por setor (ticketLines). O servidor
+      // revalida cada preço pelo banco. Campos planos mantidos por compatibilidade.
+      const ticketLinesPayload = selectedTicketLines.map(l => ({
+        sectorId: l.sectorId, name: l.name, single: l.single, male: l.male, female: l.female,
+      }));
       const selection = {
         eventId: activeEvent?.id,
         tables: selectedTables,
@@ -2287,6 +2415,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         maleTickets,
         femaleTickets,
         sectorId: expandedSectorId,
+        ticketLines: ticketLinesPayload,
       };
 
       // Persiste a reserva como 'pending' no banco ANTES de cobrar (fonte da verdade).
@@ -2312,15 +2441,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             idx++;
           }
         });
-        const ticketCount = singleTickets + maleTickets + femaleTickets;
-        for (let i = 0; i < ticketCount; i++) {
+        buildIndividualTicketNames().forEach((name) => {
           items.push({
             reservation_id: '', event_id: activeEvent?.id ?? 0,
-            name: 'Ingresso Individual', is_table: false,
+            name, is_table: false,
             status: 'active', ...ownerFor(idx === 0),
           });
           idx++;
-        }
+        });
         return items;
       };
 
@@ -2345,6 +2473,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           payment_method: (selectedPaymentMethod ?? undefined) as any,
           // Usado pelo servidor para recalcular o preço de ingressos por setor.
           sector_id: expandedSectorId ?? undefined,
+          ticket_lines: ticketLinesPayload,
         } as any, buildDbTicketItems());
         dbReservationId = created.id;
         dbTicketItems = (created as any).ticket_items ?? [];
@@ -2448,9 +2577,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     siteConfig, setSiteConfig,
     tables, setTables,
     selectedTables, setSelectedTables,
-    singleTickets, setSingleTickets,
-    maleTickets, setMaleTickets,
-    femaleTickets, setFemaleTickets,
+    ticketSelections, setSectorQty, clearTicketSelections, selectedTicketLines,
+    singleTickets,
+    maleTickets,
+    femaleTickets,
     cartExpiresAt, setCartExpiresAt,
     cartTimeLeft,
     expandedSectorId, setExpandedSectorId,
@@ -2554,7 +2684,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     totalTicketsSelected,
     previewSectors, expandedSector,
     showToastFn: showToast,
-    handleAdminLogin, handleLogout, handleRegister, handleVerifyCode, handleResendCode, handleCheckoutVerifyAndRegister,
+    handleAdminLogin, handleLogout, handleRegister, handleVerifyCode, handleResendCode, handleCheckoutVerifyAndRegister, handleForgotPassword,
     handleEditEvent, handleCreateEvent, handleSaveEvent, handleUpdateEventStatus, handleImageFileChange,
     handleAddStaff, handleDeleteStaff, handleToggleStaffActive, handleEditStaff, handleStaffLogin, handleCheckIn, handleUndoCheckIn, handleScannerError,
     toggleTableSelection, getTableStatus, handleCheckout, handleConfirmReservation, handleCreateReservation,

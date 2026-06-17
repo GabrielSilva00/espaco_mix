@@ -264,12 +264,13 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
             ) : filteredCustomers.length === 0 ? (
               <div className="py-20 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum resultado para “{customerSearch}”</div>
             ) : (
-              <table className="w-full">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[420px]">
                 <thead className="border-b border-white/5 sticky top-0 bg-[#0a0a0a]">
                   <tr>
-                    <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">Nome</th>
-                    <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">E-mail</th>
-                    <th className="px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30 hidden sm:table-cell">Cadastro</th>
+                    <th className="px-4 md:px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">Nome</th>
+                    <th className="px-4 md:px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">E-mail</th>
+                    <th className="px-4 md:px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30 hidden sm:table-cell">Cadastro</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -282,6 +283,7 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </div>
@@ -1272,13 +1274,14 @@ export function DashboardView() {
                          </div>
                          <span className="text-[9px] uppercase tracking-widest font-bold opacity-70 text-center">Aviso a todos</span>
                        </button>
-                       <button onClick={() => {
+                       <button onClick={async () => {
                          const currentEvt = events.find(e => e.id === selectedDashboardEvent);
-                         if (currentEvt?.status === 'Pausado') {
-                            setEvents(events.map(e => e.id === selectedDashboardEvent ? { ...e, status: 'Ativo' } : e));
+                         if (!currentEvt) return;
+                         if (currentEvt.status === 'Pausado') {
+                            await handleUpdateEventStatus(currentEvt.id, 'Vendas liberadas');
                             showToast("Vendas retomadas com sucesso.", "success");
                          } else {
-                            setEvents(events.map(e => e.id === selectedDashboardEvent ? { ...e, status: 'Pausado' } : e));
+                            await handleUpdateEventStatus(currentEvt.id, 'Pausado');
                             showToast("ALERTA CRÍTICO: VENDAS FORAM PAUSADAS IMEDIATAMENTE!", "error");
                          }
                        }} className={`col-span-2 border rounded-2xl p-4 transition flex items-center justify-center gap-3 group ${events.find(e => e.id === selectedDashboardEvent)?.status === 'Pausado' ? 'bg-white/5 border-white/20 text-white/80 hover:bg-white/10' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`}>

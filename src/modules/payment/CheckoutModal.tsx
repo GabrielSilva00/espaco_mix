@@ -44,7 +44,7 @@ export function CheckoutModal() {
     verifyPaymentNow,
     payLater,
     guestData, setGuestData,
-    selectedTables, singleTickets, maleTickets, femaleTickets,
+    selectedTables, selectedTicketLines,
     grandTotal, ticketsTotal, tablesTotal,
     previewSectors,
     derivedTables,
@@ -62,7 +62,7 @@ export function CheckoutModal() {
     totpPending, setTotpPending,
     totpInput, setTotpInput,
     adminError, setAdminError,
-    handleAdminLogin, handleRegister, handleVerifyCode, handleResendCode, handleCheckoutVerifyAndRegister,
+    handleAdminLogin, handleRegister, handleVerifyCode, handleResendCode, handleCheckoutVerifyAndRegister, handleForgotPassword,
     handleConfirmReservation, handleCreateReservation,
     showToast,
     setCurrentView, setAuthIntent,
@@ -73,7 +73,7 @@ export function CheckoutModal() {
     errors, setErrors,
     isProcessingPayment,
     users, setUsers, setUserRole, setSessionUser, setLoggedInUserId, setIsApprovedEventCreator,
-    setSelectedTables, setSingleTickets,
+    setSelectedTables, clearTicketSelections,
     reservations,
     handleCheckIn,
   } = useApp();
@@ -172,32 +172,34 @@ export function CheckoutModal() {
                         <span className="text-white font-serif whitespace-nowrap ml-4">R$ {tablesTotal.toFixed(2)}</span>
                       </div>
                     )}
-                    {activeEvent?.priceType === 'gender' ? (
-                      <>
-                        {maleTickets > 0 && (
-                          <div className="flex justify-between items-start text-sm group">
-                            <span className="opacity-60 uppercase text-[10px] tracking-widest leading-relaxed">Ingressos Masc. ({maleTickets})</span>
-                            <span className="text-white font-serif whitespace-nowrap ml-4">R$ {(maleTickets * (previewSectors[0]?.priceMale || 0)).toFixed(2)}</span>
-                          </div>
-                        )}
-                        {femaleTickets > 0 && (
-                          <div className="flex justify-between items-start text-sm group">
-                            <span className="opacity-60 uppercase text-[10px] tracking-widest leading-relaxed">Ingressos Fem. ({femaleTickets})</span>
-                            <span className="text-white font-serif whitespace-nowrap ml-4">R$ {(femaleTickets * (previewSectors[0]?.priceFemale || 0)).toFixed(2)}</span>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        {singleTickets > 0 && (
-                          <div className="flex justify-between items-start text-sm group">
-                            <span className="opacity-60 uppercase text-[10px] tracking-widest leading-relaxed">{previewSectors[0]?.name || 'Ingressos'} ({singleTickets})</span>
-                            <span className="text-white font-serif whitespace-nowrap ml-4">R$ {(singleTickets * (previewSectors[0]?.price || EVENT_TICKET_PRICE)).toFixed(2)}</span>
-                          </div>
-                        )}
-                      </>
-                    )}
-                    
+                    {selectedTicketLines.map((line) => {
+                      const sector = previewSectors.find(s => s.id === line.sectorId);
+                      if (activeEvent?.priceType === 'gender') {
+                        return (
+                          <React.Fragment key={line.sectorId}>
+                            {line.male > 0 && (
+                              <div className="flex justify-between items-start text-sm group">
+                                <span className="opacity-60 uppercase text-[10px] tracking-widest leading-relaxed">Masc. {line.name} ({line.male})</span>
+                                <span className="text-white font-serif whitespace-nowrap ml-4">R$ {(line.male * (sector?.priceMale || 0)).toFixed(2)}</span>
+                              </div>
+                            )}
+                            {line.female > 0 && (
+                              <div className="flex justify-between items-start text-sm group">
+                                <span className="opacity-60 uppercase text-[10px] tracking-widest leading-relaxed">Fem. {line.name} ({line.female})</span>
+                                <span className="text-white font-serif whitespace-nowrap ml-4">R$ {(line.female * (sector?.priceFemale || 0)).toFixed(2)}</span>
+                              </div>
+                            )}
+                          </React.Fragment>
+                        );
+                      }
+                      return line.single > 0 ? (
+                        <div key={line.sectorId} className="flex justify-between items-start text-sm group">
+                          <span className="opacity-60 uppercase text-[10px] tracking-widest leading-relaxed">{line.name} ({line.single})</span>
+                          <span className="text-white font-serif whitespace-nowrap ml-4">R$ {(line.single * (sector?.price || EVENT_TICKET_PRICE)).toFixed(2)}</span>
+                        </div>
+                      ) : null;
+                    })}
+
                     <div className="pt-2 mt-2 border-t border-white/5 flex justify-between items-center">
                       <span className="text-[11px] uppercase opacity-80 tracking-[0.2em] font-bold text-[#d4af37]">Total</span>
                       <span className="text-white text-2xl font-serif whitespace-nowrap">R$ {grandTotal.toFixed(2)}</span>
@@ -529,7 +531,7 @@ export function CheckoutModal() {
                               type="text" 
                               value={registerForm.name}
                               onChange={(e) => setRegisterForm({...registerForm, name: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                               placeholder="Seu nome"
                             />
                           </div>
@@ -539,7 +541,7 @@ export function CheckoutModal() {
                               type="email" 
                               value={registerForm.email}
                               onChange={(e) => setRegisterForm({...registerForm, email: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                               placeholder="contato@exemplo.com"
                             />
                           </div>
@@ -549,7 +551,7 @@ export function CheckoutModal() {
                               type="password" 
                               value={registerForm.password}
                               onChange={(e) => setRegisterForm({...registerForm, password: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                               placeholder="••••••••"
                             />
                           </div>
@@ -570,7 +572,7 @@ export function CheckoutModal() {
                               type="tel" 
                               value={registerForm.phone}
                               onChange={(e) => setRegisterForm({...registerForm, phone: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                               placeholder="(11) 90000-0000"
                             />
                           </div>
@@ -580,7 +582,7 @@ export function CheckoutModal() {
                               type="text" 
                               value={registerForm.cpf}
                               onChange={(e) => setRegisterForm({...registerForm, cpf: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                               placeholder="000.000.000-00"
                             />
                           </div>
@@ -590,7 +592,7 @@ export function CheckoutModal() {
                               type="date" 
                               value={registerForm.birthDate}
                               onChange={(e) => setRegisterForm({...registerForm, birthDate: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition text-white"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition text-white"
                               style={{ colorScheme: 'dark' }}
                             />
                           </div>
@@ -606,7 +608,7 @@ export function CheckoutModal() {
                               autoComplete="username"
                               value={adminForm.username}
                               onChange={(e) => setAdminForm({...adminForm, username: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                               placeholder="seu@email.com"
                             />
                           </div>
@@ -618,7 +620,7 @@ export function CheckoutModal() {
                               autoComplete="current-password"
                               value={adminForm.password}
                               onChange={(e) => setAdminForm({...adminForm, password: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                               placeholder="••••••••"
                             />
                           </div>
@@ -677,33 +679,7 @@ export function CheckoutModal() {
                       )}
                     </form>
                   ) : (
-                    <form onSubmit={(e) => {
-                      e.preventDefault();
-                      if (forgotPasswordStep === 'email') {
-                         if (!forgotPasswordData.email) {
-                           setAdminError('Preencha o e-mail');
-                           return;
-                         }
-                         setAdminError('');
-                         setForgotPasswordStep('code');
-                      } else if (forgotPasswordStep === 'code') {
-                         if (!forgotPasswordData.code) {
-                           setAdminError('Preencha o código');
-                           return;
-                         }
-                         setAdminError('');
-                         setForgotPasswordStep('new_password');
-                      } else if (forgotPasswordStep === 'new_password') {
-                         if (!forgotPasswordData.newPassword) {
-                           setAdminError('Preencha a nova senha');
-                           return;
-                         }
-                         setAdminError('');
-                         setForgotPasswordStep('none');
-                         setForgotPasswordData({ email: '', code: '', newPassword: '' });
-                         showToast('Senha redefinida com sucesso!', 'success');
-                      }
-                    }} className="space-y-4 md:space-y-5 animate-in fade-in zoom-in duration-300">
+                    <form onSubmit={handleForgotPassword} className="space-y-4 md:space-y-5 animate-in fade-in zoom-in duration-300">
                        <button
                           type="button"
                           onClick={() => {
@@ -733,7 +709,7 @@ export function CheckoutModal() {
                               type="email" 
                               value={forgotPasswordData.email}
                               onChange={(e) => setForgotPasswordData({...forgotPasswordData, email: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                               placeholder="contato@exemplo.com"
                             />
                           </div>
@@ -746,9 +722,10 @@ export function CheckoutModal() {
                               type="text" 
                               value={forgotPasswordData.code}
                               onChange={(e) => setForgotPasswordData({...forgotPasswordData, code: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition text-center tracking-[1em]"
-                              placeholder="0000"
-                              maxLength={4}
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition text-center tracking-[0.6em]"
+                              placeholder="000000"
+                              inputMode="numeric"
+                              maxLength={6}
                             />
                           </div>
                        )}
@@ -760,7 +737,7 @@ export function CheckoutModal() {
                               type="password" 
                               value={forgotPasswordData.newPassword}
                               onChange={(e) => setForgotPasswordData({...forgotPasswordData, newPassword: e.target.value})}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-sm focus:border-[#d4af37] outline-none transition"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                               placeholder="••••••••"
                             />
                           </div>
@@ -892,7 +869,7 @@ export function CheckoutModal() {
                     onClick={() => {
                       setIsCheckoutOpen(false);
                       setSelectedTables([]);
-                      setSingleTickets(0);
+                      clearTicketSelections();
                       setCurrentView('reservations');
                       setPaymentStatus('idle');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -969,7 +946,7 @@ export function CheckoutModal() {
                         onClick={() => {
                           setIsCheckoutOpen(false);
                           setSelectedTables([]);
-                          setSingleTickets(0);
+                          clearTicketSelections();
                           setCurrentView('reservations');
                           setPaymentStatus('idle');
                           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1016,7 +993,10 @@ export function CheckoutModal() {
                       onClick={() => {
                         const tickets = reservations[0]?.ticketsObj?.filter(t => t.id);
                         if (!tickets?.length) return;
-                        tickets.forEach(tkt => downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName }));
+                        const eventTitle = activeEvent?.title ?? 'Evento';
+                        let blocked = false;
+                        tickets.forEach(tkt => { if (!downloadTicketPDF({ id: tkt.id, name: tkt.name, ownerName: tkt.ownerName, eventTitle })) blocked = true; });
+                        if (blocked) showToast('Permita pop-ups neste site para baixar os ingressos.', 'warning');
                       }}
                       className="w-full bg-[#1a1a1a] hover:bg-[#222] border border-white/10 rounded-xl py-3 flex items-center justify-center gap-2 group transition"
                     >
@@ -1030,7 +1010,7 @@ export function CheckoutModal() {
                       onClick={() => {
                         setIsCheckoutOpen(false);
                         setSelectedTables([]);
-                        setSingleTickets(0);
+                        clearTicketSelections();
                         setCurrentView('reservations');
                         setPaymentStatus('idle');
                         window.scrollTo({ top: 0, behavior: 'smooth' });

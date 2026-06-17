@@ -37,7 +37,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
     handleRegister,
     handleVerifyCode,
     handleResendCode,
-    showToast,
+    handleForgotPassword,
     setUserRole,
     setIsApprovedEventCreator,
     setSessionUser,
@@ -54,7 +54,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
         <div className="absolute top-0 right-0 w-32 h-32 bg-[#d4af37] opacity-5 blur-3xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
 
         {/* Switcher de cliente (Entrar / Cadastrar) — só fora do modo portal */}
-        {!portal && authTab !== 'staff' && !totpPending && !verificationStep && !(authTab === 'register' && registerStep === 2) && (
+        {!portal && authTab !== 'staff' && !totpPending && !verificationStep && !(authTab === 'register' && registerStep === 2) && forgotPasswordStep === 'none' && (
           <div className="flex bg-white/5 p-1 rounded-xl mb-6">
             <button
               onClick={() => setAuthTab('login')}
@@ -465,7 +465,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
                         autoComplete="username"
                         value={adminForm.username}
                         onChange={(e) => setAdminForm({...adminForm, username: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="seu@email.com"
                       />
                     </div>
@@ -477,7 +477,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
                         autoComplete="current-password"
                         value={adminForm.password}
                         onChange={(e) => setAdminForm({...adminForm, password: e.target.value})}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                         placeholder="••••••••"
                       />
                     </div>
@@ -560,33 +560,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
               </form>
             </>
           ) : (
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              if (forgotPasswordStep === 'email') {
-                 if (!forgotPasswordData.email) {
-                   setAdminError('Preencha o e-mail');
-                   return;
-                 }
-                 setAdminError('');
-                 setForgotPasswordStep('code');
-              } else if (forgotPasswordStep === 'code') {
-                 if (!forgotPasswordData.code) {
-                   setAdminError('Preencha o código');
-                   return;
-                 }
-                 setAdminError('');
-                 setForgotPasswordStep('new_password');
-              } else if (forgotPasswordStep === 'new_password') {
-                 if (!forgotPasswordData.newPassword) {
-                   setAdminError('Preencha a nova senha');
-                   return;
-                 }
-                 setAdminError('');
-                 setForgotPasswordStep('none');
-                 setForgotPasswordData({ email: '', code: '', newPassword: '' });
-                 showToast('Senha redefinida com sucesso!', 'success');
-              }
-            }} className="space-y-4 md:space-y-5 animate-in fade-in zoom-in duration-300">
+            <form onSubmit={handleForgotPassword} className="space-y-4 md:space-y-5 animate-in fade-in zoom-in duration-300">
                <button
                   type="button"
                   onClick={() => {
@@ -616,7 +590,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
                       type="email"
                       value={forgotPasswordData.email}
                       onChange={(e) => setForgotPasswordData({...forgotPasswordData, email: e.target.value})}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                       placeholder="contato@exemplo.com"
                     />
                   </div>
@@ -629,9 +603,10 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
                       type="text"
                       value={forgotPasswordData.code}
                       onChange={(e) => setForgotPasswordData({...forgotPasswordData, code: e.target.value})}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition text-center tracking-[1em]"
-                      placeholder="0000"
-                      maxLength={4}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition text-center tracking-[0.6em]"
+                      placeholder="000000"
+                      inputMode="numeric"
+                      maxLength={6}
                     />
                   </div>
                )}
@@ -643,7 +618,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
                       type="password"
                       value={forgotPasswordData.newPassword}
                       onChange={(e) => setForgotPasswordData({...forgotPasswordData, newPassword: e.target.value})}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[42px] text-sm focus:border-[#d4af37] outline-none transition"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 min-h-[48px] text-base md:text-sm focus:border-[#d4af37] outline-none transition"
                       placeholder="••••••••"
                     />
                   </div>
