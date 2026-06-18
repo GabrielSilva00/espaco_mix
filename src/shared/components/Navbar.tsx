@@ -33,7 +33,7 @@ export function Navbar() {
             <img
               src={siteConfig.platformLogo || '/logo-rect.png'}
               alt={siteConfig.platformName || 'Espaço Mix'}
-              className="h-10 md:h-12 w-auto object-contain"
+              className="h-11 md:h-14 w-auto object-contain"
             />
           </button>
 

@@ -1,7 +1,7 @@
-// Gera os logos (fundo preto removido) e os ícones de favicon/PWA/Apple a partir
-// das logos de origem em public/. Requer `sharp` (devDependency).
+// Gera os logos (fundo preto removido + margem aparada) e os ícones de
+// favicon/PWA/Apple a partir das logos de origem em public/. Requer `sharp` e
+// `sharp-ico` (devDependencies).
 //
-//   npm i -D sharp   # se ainda não instalado
 //   node scripts/generate-icons.mjs
 //
 // Fontes (mantidas no repo):
@@ -9,14 +9,14 @@
 //   public/logo-full.png  → logo REDONDA (com o anel/círculo)
 //
 // Saídas em public/:
-//   logo-rect.png                  → retangular, FUNDO TRANSPARENTE (menu/sidebar aberta)
-//   logo-round.png                 → redonda, FUNDO TRANSPARENTE (sidebar recolhida)
-//   favicon.ico, favicon-32x32.png → redonda, transparente (ícone do site)
-//   apple-touch-icon-180x180.png,
-//   pwa-192x192.png, pwa-512x512.png,
+//   logo-rect.png                  → retangular, transparente e APARADA (menu/sidebar aberta/header mobile)
+//   logo-round.png                 → redonda, transparente e aparada (sidebar recolhida)
+//   favicon.ico (16/32/48), favicon-32x32.png → redonda transparente (ícone do site)
+//   apple-touch-icon-180x180.png, pwa-192x192.png, pwa-512x512.png,
 //   maskable-icon-512x512.png      → redonda, FUNDO PRETO, preenchendo todo o ícone (app)
 
 import sharp from 'sharp';
+import sharpIco from 'sharp-ico';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -25,6 +25,7 @@ const PUBLIC = join(__dirname, '..', 'public');
 const SRC_RECT = join(PUBLIC, 'logo-mark.png');   // retangular
 const SRC_ROUND = join(PUBLIC, 'logo-full.png');  // redonda
 const BLACK = { r: 0, g: 0, b: 0 };
+const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
 
 // Remove o fundo preto: alpha proporcional à luminância (preto → transparente,
 // branco/amarelo da logo → opaco), com borda suave entre os limiares.
@@ -42,19 +43,23 @@ async function makeTransparentBuffer(srcPath) {
 const roundTransparent = await makeTransparentBuffer(SRC_ROUND);
 const rectTransparent = await makeTransparentBuffer(SRC_RECT);
 
-// Logos transparentes para o menu/sidebar
-await sharp(rectTransparent).toFile(join(PUBLIC, 'logo-rect.png'));
-await sharp(roundTransparent).toFile(join(PUBLIC, 'logo-round.png'));
+// Apara a moldura transparente para a logo PREENCHER seu espaço na UI (sem isso
+// a logo fica pequena no meio de uma área transparente grande).
+const rectTight = await sharp(rectTransparent).trim({ threshold: 10 }).png().toBuffer();
+const roundTight = await sharp(roundTransparent).trim({ threshold: 10 }).png().toBuffer();
+await sharp(rectTight).toFile(join(PUBLIC, 'logo-rect.png'));
+await sharp(roundTight).toFile(join(PUBLIC, 'logo-round.png'));
 
-// Favicon (ícone do site): redonda, transparente, contida no quadrado
-async function favicon(size, out) {
-  return sharp(roundTransparent)
-    .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .png()
-    .toFile(join(PUBLIC, out));
+// Favicon (ícone do site): redonda, transparente, contida no quadrado.
+async function faviconPng(size) {
+  return sharp(roundTight).resize(size, size, { fit: 'contain', background: TRANSPARENT }).png().toBuffer();
 }
-await favicon(32, 'favicon-32x32.png');
-await favicon(32, 'favicon.ico'); // PNG dentro de .ico — aceito pelos navegadores atuais
+const fav16 = await faviconPng(16);
+const fav32 = await faviconPng(32);
+const fav48 = await faviconPng(48);
+await sharp(fav32).toFile(join(PUBLIC, 'favicon-32x32.png'));
+// .ico REAL (multi-resolução) — o PNG-renomeado anterior não era confiável.
+await sharpIco.sharpsToIco([sharp(fav16), sharp(fav32), sharp(fav48)], join(PUBLIC, 'favicon.ico'));
 
 // Ícone do app (PWA/Apple/mobile): redonda, FUNDO PRETO, preenchendo todo o
 // espaço. Apara a borda preta e redimensiona com cover para tocar as bordas.
