@@ -1,5 +1,18 @@
 import type { Buyer, Event } from '../../types';
 
+// Escapa dados controlados pelo usuário (nome/e-mail/telefone do comprador,
+// título do evento etc.) antes de injetá-los no HTML gerado via document.write.
+// Sem isso, um comprador poderia gravar um nome com <script>/<img onerror> que
+// executaria na janela de impressão aberta pelo admin (XSS armazenado).
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function downloadPDFList(buyers: Buyer[], event: Event | undefined): void {
   const win = window.open('', '_blank');
   if (!win) return;
@@ -9,10 +22,10 @@ export function downloadPDFList(buyers: Buyer[], event: Event | undefined): void
       (b) => `
       <tr>
         <td>${b.purchaseDate ? new Date(b.purchaseDate).toLocaleDateString('pt-BR') : '—'}</td>
-        <td><div class="name">${b.name}</div><div class="sub">${b.email}</div></td>
-        <td>${b.phone || '—'}</td>
-        <td class="badge">${b.type}</td>
-        <td class="status" style="color:${b.status === 'Pago' ? '#4ade80' : b.status === 'Cancelado' ? '#f87171' : '#fbbf24'}">${b.status}</td>
+        <td><div class="name">${escapeHtml(b.name)}</div><div class="sub">${escapeHtml(b.email)}</div></td>
+        <td>${b.phone ? escapeHtml(b.phone) : '—'}</td>
+        <td class="badge">${escapeHtml(b.type)}</td>
+        <td class="status" style="color:${b.status === 'Pago' ? '#4ade80' : b.status === 'Cancelado' ? '#f87171' : '#fbbf24'}">${escapeHtml(b.status)}</td>
         <td class="status" style="color:${b.checkedIn ? '#4ade80' : '#aaa'}">${b.checkedIn ? 'Presente' : 'Aguardando'}</td>
       </tr>`
     )
@@ -36,7 +49,7 @@ export function downloadPDFList(buyers: Buyer[], event: Event | undefined): void
     </style>
   </head><body>
     <header>
-      <h1>${event?.title || 'Lista de Participantes'}</h1>
+      <h1>${event?.title ? escapeHtml(event.title) : 'Lista de Participantes'}</h1>
       <p class="meta">Total: ${buyers.length} participante${buyers.length !== 1 ? 's' : ''} &nbsp;•&nbsp; Gerado em ${new Date().toLocaleString('pt-BR')}</p>
     </header>
     <table>
@@ -58,7 +71,7 @@ export function downloadTicketPDF(ticket: { id: string; name: string; ownerName?
   if (!win) return false;
 
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(ticket.id)}`;
-  const eventTitle = ticket.eventTitle?.trim() || 'Evento';
+  const eventTitle = escapeHtml(ticket.eventTitle?.trim() || 'Evento');
 
   win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ingresso</title><style>
     *{margin:0;padding:0;box-sizing:border-box}
@@ -78,10 +91,10 @@ export function downloadTicketPDF(ticket: { id: string; name: string; ownerName?
   </style></head><body><div class="ticket">
     <p class="brand">Espaço Mix</p>
     <h1 class="event">${eventTitle}</h1>
-    <p class="type">${ticket.name}</p>
+    <p class="type">${escapeHtml(ticket.name)}</p>
     <div class="qr-wrap"><img id="qr" src="${qrUrl}" alt="QR"/></div>
-    <p class="tid">${ticket.id}</p>
-    ${ticket.ownerName ? `<hr><p class="lbl">Portador</p><p class="owner">${ticket.ownerName}</p>` : ''}
+    <p class="tid">${escapeHtml(ticket.id)}</p>
+    ${ticket.ownerName ? `<hr><p class="lbl">Portador</p><p class="owner">${escapeHtml(ticket.ownerName)}</p>` : ''}
   </div>
   <button class="print-btn" onclick="window.print()">Imprimir / Salvar PDF</button>
   <script>

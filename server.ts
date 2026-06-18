@@ -126,8 +126,16 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 // check-in só autoriza ingressos desses eventos. Formato: staff.<payload>.<sig>
 interface StaffTokenPayload { sid: string; name: string; eventIds: string[]; exp: number; }
 
+// Segredo de assinatura dos tokens de portaria. SEM fallback hardcoded: um
+// segredo padrão conhecido permitiria forjar tokens de staff (check-in livre).
+// Falha fechada — em produção a SUPABASE_SERVICE_ROLE_KEY sempre existe, então
+// isto só dispara em ambiente mal configurado.
 function staffSecret(): string {
-  return process.env.CRON_SECRET || process.env.ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "staff-fallback-secret";
+  const s = process.env.CRON_SECRET || process.env.ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!s) {
+    throw new Error("Nenhum segredo de assinatura configurado (CRON_SECRET / ENCRYPTION_KEY / SUPABASE_SERVICE_ROLE_KEY).");
+  }
+  return s;
 }
 
 function signStaffToken(payload: StaffTokenPayload): string {
@@ -141,11 +149,10 @@ function verifyStaffToken(token: string): StaffTokenPayload | null {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [, body, sig] = parts;
-  const expected = crypto.createHmac("sha256", staffSecret()).update(body).digest("base64url");
   try {
+    // staffSecret() pode lançar (sem segredo configurado) → token inválido.
+    const expected = crypto.createHmac("sha256", staffSecret()).update(body).digest("base64url");
     if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
-  } catch { return null; }
-  try {
     const payload = JSON.parse(Buffer.from(body, "base64url").toString()) as StaffTokenPayload;
     if (!payload.exp || Date.now() > payload.exp) return null;
     return payload;
@@ -465,7 +472,11 @@ function safeJsonParse(s: string): any {
 // email+código+expiração e devolvemos o "ticket" ao cliente. A verificação
 // recalcula a assinatura, sem precisar de estado compartilhado.
 function signOtp(email: string, code: string, exp: number): string {
-  const key = process.env.ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "otp-fallback-secret";
+  // Sem fallback hardcoded: um segredo conhecido permitiria forjar o "ticket" e
+  // burlar a verificação do código. Falha fechada (em produção ENCRYPTION_KEY/
+  // SERVICE_ROLE_KEY sempre existem).
+  const key = process.env.ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error("Nenhum segredo de assinatura de OTP configurado (ENCRYPTION_KEY / SUPABASE_SERVICE_ROLE_KEY).");
   return crypto.createHmac("sha256", key).update(`${email.trim().toLowerCase()}:${code}:${exp}`).digest("hex");
 }
 
@@ -477,6 +488,54 @@ function escapeHtml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+// ─── Saneamento de texto livre fornecido pelo usuário (nome, telefone…) ──────
+// Defesa em profundidade contra XSS armazenado: esses campos são exibidos em
+// PDFs/listas geradas via document.write no navegador do admin. Remove os
+// caracteres de marcação (< >) e de controle e limita o tamanho na origem.
+function sanitizeName(value: unknown, maxLen = 120): string {
+  return String(value ?? "")
+    .replace(/[<>]/g, "")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .trim()
+    .slice(0, maxLen);
+}
+
+// ─── Limite de tentativas de OTP (persistido em otp_attempts) ────────────────
+// O OTP de reset é stateless (HMAC), então o rate-limit por IP não impede o
+// brute-force do código de 6 dígitos via rotação de IP. Aqui contamos as falhas
+// por e-mail (guardado como hash) numa tabela — funciona em serverless, ao
+// contrário de um contador em memória — e bloqueamos após o limite. Em caso de
+// indisponibilidade da tabela, falha ABERTO (degrada para só o limite por IP):
+// é um controle anti-DoS, não a única barreira de autenticação.
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+
+function emailFingerprint(email: string): string {
+  return crypto.createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
+}
+
+async function otpAttemptsExceeded(admin: any, email: string, kind = "password_reset"): Promise<boolean> {
+  try {
+    const since = new Date(Date.now() - OTP_ATTEMPT_WINDOW_MS).toISOString();
+    const { count } = await admin
+      .from("otp_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("email_hash", emailFingerprint(email))
+      .eq("kind", kind)
+      .gte("created_at", since);
+    return (count ?? 0) >= OTP_MAX_ATTEMPTS;
+  } catch {
+    return false;
+  }
+}
+
+async function recordOtpFailure(admin: any, email: string, kind = "password_reset"): Promise<void> {
+  try {
+    await admin.from("otp_attempts").insert({ email_hash: emailFingerprint(email), kind });
+  } catch { /* melhor-esforço */ }
 }
 
 // ─── Cálculo autoritativo do valor do pedido (anti-fraude) ───────────────────
@@ -899,9 +958,13 @@ export async function createExpressApp() {
         res.status(401).json({ error: "Falha ao verificar token." });
         return;
       }
-    } else {
-      // Dev fallback: aceita qualquer token não-vazio quando Supabase não está configurado
+    } else if (!isProduction) {
+      // Dev fallback: aceita qualquer token não-vazio quando Supabase não está
+      // configurado. NUNCA em produção — lá a ausência de config é falha fechada.
       (req as any).user = { uid: "dev-user", email: "dev@localhost" };
+    } else {
+      res.status(503).json({ error: "Serviço de autenticação não configurado." });
+      return;
     }
 
     next();
@@ -1586,10 +1649,10 @@ export async function createExpressApp() {
       return;
     }
 
-    const buyerName = String(reservation.buyer_name ?? "").trim();
-    const buyerEmail = String(reservation.buyer_email ?? "").trim();
+    const buyerName = sanitizeName(reservation.buyer_name);
+    const buyerEmail = String(reservation.buyer_email ?? "").trim().slice(0, 254);
     const buyerCpf = String(reservation.buyer_cpf ?? "").trim();
-    const buyerPhone = String(reservation.buyer_phone ?? "").trim();
+    const buyerPhone = sanitizeName(reservation.buyer_phone, 40);
     if (!buyerName || !buyerEmail) {
       res.status(400).json({ error: "Nome e e-mail do comprador são obrigatórios." });
       return;
@@ -1682,11 +1745,11 @@ export async function createExpressApp() {
         const toInsert = items.map((t) => ({
           reservation_id: res1.id,
           event_id: reservation.event_id,
-          name: String(t?.name ?? "Ingresso"),
+          name: sanitizeName(t?.name ?? "Ingresso", 80),
           is_table: Boolean(t?.is_table),
           table_number: t?.table_number ?? null,
           occupant_index: t?.occupant_index ?? null,
-          owner_name: String(t?.owner_name ?? ""),
+          owner_name: sanitizeName(t?.owner_name),
           owner_cpf: String(t?.owner_cpf ?? ""),
           owner_email: t?.owner_email ?? null,
           status: String(t?.status ?? "active"),
@@ -2768,8 +2831,15 @@ export async function createExpressApp() {
           res.status(200).json({ received: true });
           return;
         }
+      } else if (isProduction) {
+        // Em produção, processar webhooks sem verificar assinatura é inaceitável.
+        // Falha fechada: descarta a notificação (o status real ainda é a rede de
+        // segurança via polling com ?refresh=1). Configure MERCADOPAGO_WEBHOOK_SECRET.
+        console.error("[WEBHOOK] MERCADOPAGO_WEBHOOK_SECRET ausente em produção — notificação descartada.");
+        res.status(200).json({ received: true });
+        return;
       } else {
-        console.warn("[WEBHOOK] MERCADOPAGO_WEBHOOK_SECRET não configurado — assinatura não verificada.");
+        console.warn("[WEBHOOK] MERCADOPAGO_WEBHOOK_SECRET não configurado — assinatura não verificada (dev).");
       }
 
       // 3. Confirma o status REAL consultando a API do MP (não confia no corpo).
@@ -3083,7 +3153,7 @@ export async function createExpressApp() {
       }
     }
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = String(crypto.randomInt(100000, 1000000));
     const exp = Date.now() + 10 * 60 * 1000;
     const ticket = signOtp(email, code, exp);
 
@@ -3174,7 +3244,7 @@ export async function createExpressApp() {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = String(crypto.randomInt(100000, 1000000));
     const exp = Date.now() + 10 * 60 * 1000;
     const ticket = signOtp(normalizedEmail, code, exp);
 
@@ -3258,18 +3328,27 @@ export async function createExpressApp() {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+
+    const admin = await getAdminClient();
+    if (!admin) {
+      res.status(503).json({ error: "Serviço indisponível no momento." });
+      return;
+    }
+
+    // Anti brute-force: bloqueia o e-mail após muitas tentativas erradas dentro
+    // da janela do código (o rate-limit por IP não basta — vide otpAttemptsExceeded).
+    if (await otpAttemptsExceeded(admin, normalizedEmail)) {
+      res.status(429).json({ error: "Muitas tentativas. Solicite um novo código e aguarde alguns minutos." });
+      return;
+    }
+
     const expected = signOtp(normalizedEmail, String(code), Number(exp));
     const ok =
       ticket.length === expected.length &&
       crypto.timingSafeEqual(Buffer.from(ticket), Buffer.from(expected));
     if (!ok) {
+      await recordOtpFailure(admin, normalizedEmail);
       res.status(400).json({ error: "Código incorreto." });
-      return;
-    }
-
-    const admin = await getAdminClient();
-    if (!admin) {
-      res.status(503).json({ error: "Serviço indisponível no momento." });
       return;
     }
 
