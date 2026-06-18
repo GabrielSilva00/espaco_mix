@@ -852,6 +852,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const _isPopState = useRef(false);
   const navStackRef = useRef<CurrentView[]>(['home']);
   const exitingRef = useRef(false);
+  // Telas de login/portaria não devem permanecer no histórico após a navegação
+  // seguinte (ex.: login bem-sucedido leva a 'booking'/'dashboard').
+  const TRANSIENT_VIEWS = useRef(new Set<CurrentView>(['admin-login', 'staff-portal'])).current;
 
   useEffect(() => {
     if (!_historyInitialized.current) {
@@ -867,10 +870,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Navegação para frente (clique/ação). A home é a raiz: zera a pilha.
     if (currentView === 'home') {
       navStackRef.current = ['home'];
+      window.history.pushState({ view: currentView }, '');
     } else {
-      navStackRef.current.push(currentView);
+      // Telas de login são transientes: ao sair delas (ex.: após autenticar),
+      // substituímos o topo da pilha em vez de empilhar, para que o "voltar"
+      // não retorne à tela de login.
+      const prev = navStackRef.current[navStackRef.current.length - 1];
+      if (TRANSIENT_VIEWS.has(prev) && !TRANSIENT_VIEWS.has(currentView)) {
+        navStackRef.current[navStackRef.current.length - 1] = currentView;
+        window.history.replaceState({ view: currentView }, '');
+      } else {
+        navStackRef.current.push(currentView);
+        window.history.pushState({ view: currentView }, '');
+      }
     }
-    window.history.pushState({ view: currentView }, '');
   }, [currentView]);
 
   useEffect(() => {
@@ -894,16 +907,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('popstate', handlePop);
   }, []);
 
-  // Confirma a saída do app (best-effort): em PWA standalone tenta fechar;
-  // no navegador comum apenas recua no histórico real para fora do SPA.
+  // Confirma a saída do app (best-effort). A Web NÃO garante o fechamento
+  // programático de um PWA — especialmente no iOS. Em PWA standalone no Android,
+  // recuar no histórico real até esgotá-lo faz o SO encerrar o app; no navegador
+  // comum apenas recua para fora do SPA. window.close() só funciona em janelas
+  // abertas por script, mas alguns PWAs Android o honram — tentamos mesmo assim.
   const confirmExitApp = useCallback(() => {
     setShowExitConfirm(false);
     exitingRef.current = true;
     try { window.close(); } catch { /* ignore */ }
-    // Um único passo para trás na história REAL: em PWA standalone o Android
-    // fecha o app; no navegador apenas recua para fora do SPA. O antigo
-    // go(-2) recaía numa entrada intermediária e o SW (NetworkFirst) recarregava
-    // o documento em vez de sair — era o "recarrega ao tentar sair".
+    // Um único passo para trás na história REAL. O antigo go(-2) recaía numa
+    // entrada intermediária e o SW (NetworkFirst) recarregava o documento em
+    // vez de sair — era o "recarrega ao tentar sair".
     window.history.back();
   }, []);
 
