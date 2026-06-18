@@ -31,7 +31,7 @@ export function Navbar() {
             className="flex items-center gap-3 hover:opacity-80 transition-opacity"
           >
             <img
-              src={siteConfig.platformLogo || '/logo-full.png'}
+              src={siteConfig.platformLogo || '/logo-rect.png'}
               alt={siteConfig.platformName || 'Espaço Mix'}
               className="h-10 md:h-12 w-auto object-contain"
             />

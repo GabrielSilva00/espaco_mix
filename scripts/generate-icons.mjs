@@ -1,12 +1,20 @@
-// Gera os ícones de favicon/PWA/Apple a partir de public/logo-mark.png (logo
-// reduzida "Espaço Mix"). Requer `sharp` (devDependency).
+// Gera os logos (fundo preto removido) e os ícones de favicon/PWA/Apple a partir
+// das logos de origem em public/. Requer `sharp` (devDependency).
 //
 //   npm i -D sharp   # se ainda não instalado
 //   node scripts/generate-icons.mjs
 //
-// Sobrescreve, em public/: favicon.ico, favicon-32x32.png,
-// apple-touch-icon-180x180.png, pwa-192x192.png, pwa-512x512.png e
-// maskable-icon-512x512.png.
+// Fontes (mantidas no repo):
+//   public/logo-mark.png  → logo RETANGULAR ("espaço MIX", sem círculo)
+//   public/logo-full.png  → logo REDONDA (com o anel/círculo)
+//
+// Saídas em public/:
+//   logo-rect.png                  → retangular, FUNDO TRANSPARENTE (menu/sidebar aberta)
+//   logo-round.png                 → redonda, FUNDO TRANSPARENTE (sidebar recolhida)
+//   favicon.ico, favicon-32x32.png → redonda, transparente (ícone do site)
+//   apple-touch-icon-180x180.png,
+//   pwa-192x192.png, pwa-512x512.png,
+//   maskable-icon-512x512.png      → redonda, FUNDO PRETO, preenchendo todo o ícone (app)
 
 import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
@@ -14,27 +22,53 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(__dirname, '..', 'public');
-const SRC = join(PUBLIC, 'logo-mark.png');
-const BG = { r: 10, g: 10, b: 10, alpha: 1 }; // #0a0a0a (identidade do app)
+const SRC_RECT = join(PUBLIC, 'logo-mark.png');   // retangular
+const SRC_ROUND = join(PUBLIC, 'logo-full.png');  // redonda
+const BLACK = { r: 0, g: 0, b: 0 };
 
-// Ícone simples: a logo redimensionada (contain) sobre fundo da marca.
-async function icon(size, out, padRatio = 0) {
-  const inner = Math.round(size * (1 - padRatio));
-  const resized = await sharp(SRC)
-    .resize(inner, inner, { fit: 'contain', background: BG })
-    .toBuffer();
-  return sharp({ create: { width: size, height: size, channels: 4, background: BG } })
-    .composite([{ input: resized, gravity: 'center' }])
+// Remove o fundo preto: alpha proporcional à luminância (preto → transparente,
+// branco/amarelo da logo → opaco), com borda suave entre os limiares.
+async function makeTransparentBuffer(srcPath) {
+  const { data, info } = await sharp(srcPath).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info; // 4
+  const T0 = 22, T1 = 64;
+  for (let i = 0; i < data.length; i += channels) {
+    const lum = Math.max(data[i], data[i + 1], data[i + 2]);
+    data[i + 3] = lum <= T0 ? 0 : lum >= T1 ? 255 : Math.round(((lum - T0) / (T1 - T0)) * 255);
+  }
+  return sharp(data, { raw: { width, height, channels } }).png().toBuffer();
+}
+
+const roundTransparent = await makeTransparentBuffer(SRC_ROUND);
+const rectTransparent = await makeTransparentBuffer(SRC_RECT);
+
+// Logos transparentes para o menu/sidebar
+await sharp(rectTransparent).toFile(join(PUBLIC, 'logo-rect.png'));
+await sharp(roundTransparent).toFile(join(PUBLIC, 'logo-round.png'));
+
+// Favicon (ícone do site): redonda, transparente, contida no quadrado
+async function favicon(size, out) {
+  return sharp(roundTransparent)
+    .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .png()
     .toFile(join(PUBLIC, out));
 }
+await favicon(32, 'favicon-32x32.png');
+await favicon(32, 'favicon.ico'); // PNG dentro de .ico — aceito pelos navegadores atuais
 
-await icon(32, 'favicon-32x32.png');
-await icon(32, 'favicon.ico'); // PNG dentro de .ico — aceito pelos navegadores atuais
-await icon(180, 'apple-touch-icon-180x180.png');
-await icon(192, 'pwa-192x192.png');
-await icon(512, 'pwa-512x512.png');
-// Maskable precisa de margem de segurança (~20%) para o recorte adaptativo.
-await icon(512, 'maskable-icon-512x512.png', 0.2);
+// Ícone do app (PWA/Apple/mobile): redonda, FUNDO PRETO, preenchendo todo o
+// espaço. Apara a borda preta e redimensiona com cover para tocar as bordas.
+const roundTrimmed = await sharp(SRC_ROUND).trim({ threshold: 12 }).toBuffer();
+async function appIcon(size, out) {
+  return sharp(roundTrimmed)
+    .resize(size, size, { fit: 'cover', position: 'center' })
+    .flatten({ background: BLACK })
+    .png()
+    .toFile(join(PUBLIC, out));
+}
+await appIcon(180, 'apple-touch-icon-180x180.png');
+await appIcon(192, 'pwa-192x192.png');
+await appIcon(512, 'pwa-512x512.png');
+await appIcon(512, 'maskable-icon-512x512.png');
 
-console.log('Ícones gerados em public/.');
+console.log('Logos e ícones gerados em public/.');

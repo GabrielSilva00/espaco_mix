@@ -45,11 +45,11 @@ export function AdminSidebar() {
         <div className={`h-20 flex items-center shrink-0 ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-5'} border-b border-[#ffffff0a]`}>
           <div className="flex items-center gap-3 overflow-hidden">
             {isAdminSidebarCollapsed ? (
-              // Menu recolhido → logo reduzida (marca)
-              <img src="/logo-mark.png" alt={siteConfig.platformName || 'Espaço Mix'} className="w-12 h-8 object-contain shrink-0" />
+              // Menu recolhido → logo redonda
+              <img src="/logo-round.png" alt={siteConfig.platformName || 'Espaço Mix'} className="w-14 h-14 object-contain shrink-0" />
             ) : (
-              // Menu expandido → logo completa
-              <img src={siteConfig.platformLogo || '/logo-full.png'} alt={siteConfig.platformName || 'Espaço Mix'} className="h-11 w-auto object-contain shrink-0 animate-in fade-in" />
+              // Menu expandido → logo retangular (maior)
+              <img src={siteConfig.platformLogo || '/logo-rect.png'} alt={siteConfig.platformName || 'Espaço Mix'} className="h-16 w-auto max-w-[210px] object-contain shrink-0 animate-in fade-in" />
             )}
           </div>
           <button
