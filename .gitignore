@@ -25,3 +25,6 @@ __pycache__/
 /playwright/.cache/
 /playwright/.auth/
 tests/.screenshots/
+
+# Claude Code (internos de ferramenta)
+.claude/
