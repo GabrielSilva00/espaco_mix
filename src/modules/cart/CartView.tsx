@@ -15,6 +15,7 @@ export function CartView() {
   const {
     reservations, events, setCurrentView, showToast,
     reloadReservations, setFormEvent, cartOriginEventId, siteConfig,
+    cartSelection, clearCartSelection,
   } = useApp();
 
   const cartExpiryMs = (siteConfig.cartExpirationMinutes && siteConfig.cartExpirationMinutes > 0)
@@ -131,6 +132,9 @@ export function CartView() {
     else setCurrentView('booking');
   };
 
+  // Card da seleção local em andamento (ainda não enviada ao banco).
+  const selectionEvent = cartSelection ? eventOf(cartSelection.eventId ?? undefined) : null;
+
   return (
     <div className="max-w-4xl mx-auto px-6 sm:px-10 mt-12">
       <div className="flex justify-between items-center mb-8 flex-col md:flex-row gap-4">
@@ -154,7 +158,7 @@ export function CartView() {
         )}
       </div>
 
-      {pending.length === 0 ? (
+      {pending.length === 0 && !cartSelection ? (
         <div className="border border-white/10 bg-[#0d0d0d] rounded-2xl p-12 md:p-16 flex flex-col items-center justify-center text-center shadow-xl">
           <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6">
             <ShoppingCart className="w-8 h-8 opacity-40" />
@@ -170,6 +174,43 @@ export function CartView() {
         </div>
       ) : (
         <div className="grid gap-4">
+          {/* Seleção local em andamento (ainda não finalizada) */}
+          {cartSelection && (
+            <div className="border border-[#d4af37]/20 bg-[#0d0d0d] rounded-2xl p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="w-14 h-14 flex-shrink-0 bg-[#111] overflow-hidden rounded-xl border border-white/10">
+                <img src={selectionEvent?.img || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80'} alt="Cover" className="w-full h-full object-cover" loading="lazy" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-[8px] uppercase font-bold px-2 py-0.5 rounded-full flex items-center gap-1 bg-blue-500/10 text-blue-400">
+                    <Clock className="w-2 h-2" /> Seleção não finalizada
+                  </span>
+                </div>
+                <h3 className="text-sm md:text-base font-serif text-[#d4af37]">{selectionEvent?.title ?? 'Evento'}</h3>
+                <p className="text-[10px] opacity-50 tracking-widest">
+                  {[
+                    cartSelection.ticketCount > 0 ? `${cartSelection.ticketCount} ingresso(s)` : null,
+                    cartSelection.tableCount > 0 ? `${cartSelection.tableCount} mesa(s)` : null,
+                  ].filter(Boolean).join(' • ')} • R$ {cartSelection.total.toFixed(2)}
+                </p>
+              </div>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => handleContinue(cartSelection.eventId ?? undefined)}
+                  className="flex-1 sm:flex-none px-4 py-2.5 bg-[#d4af37] text-black rounded-xl text-[10px] font-bold uppercase tracking-widest hover:brightness-110 transition"
+                >
+                  Continuar compra
+                </button>
+                <button
+                  onClick={clearCartSelection}
+                  className="px-3 py-2.5 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500/20 transition flex items-center justify-center"
+                  title="Remover do carrinho"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
           {pending.map(res => {
             const ev = eventOf(res.eventId);
             const awaitingPayment = !!res.paymentId;

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import {
   supabase,
-  signIn, signOut, signUp, getMyProfile, resolveUsernameToEmail, updateProfile, getAccessTokenSafe,
+  signIn, signOut, signUp, getMyProfile, loginWithUsername, updateProfile, getAccessTokenSafe,
   getEvents, getEventBatches, saveEvent as saveEventToDb, createEvent, deleteEvent, uploadEventImage,
   createReservation as createReservationInDb, getMyReservations, getEventReservations, getAllReservations,
   getSystemConfig, getSystemConfigAdmin, updateSystemConfig,
@@ -208,6 +208,10 @@ interface AppContextValue {
   payLater: () => void;
   /** ID do evento de origem quando o usuário clicou em "Pagar depois" — usado pelo carrinho para "Continuar comprando". */
   cartOriginEventId: number | null;
+  /** Seleção local em andamento (ainda não virou reserva) — exibida no Carrinho e contada no badge da Navbar. */
+  cartSelection: { eventId: number | null; ticketCount: number; tableCount: number; total: number } | null;
+  /** Limpa a seleção local em andamento (remove o item virtual do carrinho). */
+  clearCartSelection: () => void;
   /** Recarrega as reservas do banco (após retomar/remover item do carrinho). */
   reloadReservations: () => void;
   /** Falha ao carregar dados essenciais do banco (config/reservas) — exibe banner com retry. */
@@ -411,6 +415,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Tables / cart
   const [tables, setTables] = useState<TableDef[]>([]);
   const [selectedTables, setSelectedTables] = useState<number[]>([]);
+  // Snapshot da seleção local em andamento (badge da Navbar + card do Carrinho).
+  // Inicializa a partir do sessionStorage para sobreviver a reloads.
+  const [cartSelection, setCartSelection] = useState<{ eventId: number | null; ticketCount: number; tableCount: number; total: number } | null>(() => {
+    try { const m = sessionStorage.getItem('eventix-cart-meta'); return m ? JSON.parse(m) : null; } catch { return null; }
+  });
   // Números de mesa já ocupados (reservas pagas/pendentes) do evento ativo —
   // vindos do servidor (RLS impede o cliente de ler reservas alheias direto).
   const [occupiedTableIds, setOccupiedTableIds] = useState<number[]>([]);
@@ -1397,14 +1406,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAdminError('');
     const input = adminForm.username.trim();
     try {
-      // Aceita e-mail direto ou nome de usuário (resolvido para e-mail no servidor)
-      let email = input;
-      if (!input.includes('@')) {
-        const resolved = await resolveUsernameToEmail(input);
-        if (!resolved) { setAdminError('Usuário não encontrado'); return; }
-        email = resolved;
+      // Aceita e-mail direto (login no SDK) ou nome de usuário (resolvido +
+      // autenticado no servidor, sem expor o e-mail).
+      if (input.includes('@')) {
+        await signIn(input, adminForm.password);
+      } else {
+        await loginWithUsername(input, adminForm.password);
       }
-      await signIn(email, adminForm.password);
       const profile: Profile | null = await getMyProfile();
       if (!profile) throw new Error('Perfil não encontrado');
       const r = profile.role as UserRole;
@@ -2571,9 +2579,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return reservation;
   };
 
+  // Seleção local em andamento (ainda não virou reserva no banco). Exposta para
+  // o Carrinho e o badge da Navbar: ao sair da página de compra (em especial no
+  // mobile, sem a coluna-resumo do desktop), o item aparece imediatamente no
+  // carrinho. É um SNAPSHOT em estado (persistido em sessionStorage) porque os
+  // totais derivados (`totalTicketsSelected`/`grandTotal`) só são corretos na
+  // booking — fora dela, `activeEvent` cai num evento de fallback e zera tudo.
+  // Contagem "crua" (independe do evento ativo): soma direto de `ticketSelections`.
+  const rawTicketCount = Object.values(ticketSelections)
+    .reduce((a, v) => a + (v?.single ?? 0) + (v?.male ?? 0) + (v?.female ?? 0), 0);
+  const rawHasSelection = rawTicketCount > 0 || selectedTables.length > 0;
+
+  useEffect(() => {
+    if (!rawHasSelection) {
+      setCartSelection(null);
+      try { sessionStorage.removeItem('eventix-cart-meta'); } catch { /* ignore */ }
+      return;
+    }
+    // Só atualiza o snapshot (com preço/contagem precisos) enquanto na booking,
+    // onde os setores/preços do evento correto estão carregados.
+    if (currentView === 'booking') {
+      const snap = {
+        eventId: formEvent?.id ?? cartOriginEventId ?? null,
+        ticketCount: totalTicketsSelected,
+        tableCount: selectedTables.length,
+        total: grandTotal,
+      };
+      setCartSelection(snap);
+      try { sessionStorage.setItem('eventix-cart-meta', JSON.stringify(snap)); } catch { /* ignore */ }
+    }
+    // Fora da booking, mantém o último snapshot (não sobrescreve com totais zerados).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawHasSelection, currentView, totalTicketsSelected, selectedTables.length, grandTotal, formEvent?.id]);
+
+  const clearCartSelection = useCallback(() => {
+    clearTicketSelections();
+    setSelectedTables([]);
+    setCartSelection(null);
+    try { sessionStorage.removeItem('eventix-cart'); sessionStorage.removeItem('eventix-cart-meta'); } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ─── Context value ────────────────────────────────────────────────────────
 
   const value: AppContextValue = {
+    cartSelection, clearCartSelection,
     siteConfig, setSiteConfig,
     tables, setTables,
     selectedTables, setSelectedTables,

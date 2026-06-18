@@ -44,16 +44,12 @@ export function AdminSidebar() {
         {/* Header */}
         <div className={`h-20 flex items-center shrink-0 ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-5'} border-b border-[#ffffff0a]`}>
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 bg-[#d4af37] rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
-              {siteConfig.platformLogo
-                ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-cover" />
-                : <span className="text-[#0a0a0a] font-bold leading-none text-base">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
-              }
-            </div>
-            {!isAdminSidebarCollapsed && (
-              <span className="text-base font-display tracking-widest text-[#d4af37] uppercase whitespace-nowrap animate-in fade-in">
-                {siteConfig.platformName}
-              </span>
+            {isAdminSidebarCollapsed ? (
+              // Menu recolhido → logo reduzida (marca)
+              <img src="/logo-mark.png" alt={siteConfig.platformName || 'Espaço Mix'} className="w-12 h-8 object-contain shrink-0" />
+            ) : (
+              // Menu expandido → logo completa
+              <img src={siteConfig.platformLogo || '/logo-full.png'} alt={siteConfig.platformName || 'Espaço Mix'} className="h-11 w-auto object-contain shrink-0 animate-in fade-in" />
             )}
           </div>
           <button

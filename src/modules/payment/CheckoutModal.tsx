@@ -156,7 +156,7 @@ export function CheckoutModal() {
                     <div className={`p-3 rounded-xl mb-4 flex items-center justify-center gap-3 transition-colors ${cartTimeLeft < 120000 ? 'bg-red-500/10 border border-red-500/20 text-red-400' : 'bg-white/5 border border-white/10 text-white/70'}`}>
                       <Clock className="w-4 h-4" />
                       <span className="text-[10px] uppercase font-bold tracking-widest">
-                        {cartTimeLeft < 120000 ? 'Reserva Expirando:' : 'Sua mesa está garantida por:'}
+                        {cartTimeLeft < 120000 ? 'Reserva Expirando:' : 'Seu ingresso está garantido por:'}
                       </span>
                       <span className="font-mono font-bold">
                         {Math.floor(cartTimeLeft / 60000).toString().padStart(2, '0')}:

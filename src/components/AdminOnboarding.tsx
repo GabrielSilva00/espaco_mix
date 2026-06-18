@@ -73,25 +73,51 @@ export function AdminOnboarding() {
 
   const inputCls = 'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-[#d4af37] outline-none transition placeholder:text-white/20';
 
+  // Traduz mensagens conhecidas do Supabase para PT-BR (credenciais opcionais).
+  const friendlyAuthError = (msg: string): string => {
+    const m = (msg || '').toLowerCase();
+    if (m.includes('different from the old password')) return 'A nova senha deve ser diferente da atual.';
+    if (m.includes('already registered') || m.includes('already been registered') || m.includes('email address is already')) return 'Este e-mail já está em uso por outra conta.';
+    if (m.includes('email') && m.includes('invalid')) return 'E-mail inválido.';
+    if (m.includes('rate limit') || m.includes('too many')) return 'Muitas tentativas. Aguarde alguns instantes e tente de novo.';
+    return msg || 'Não foi possível atualizar e-mail/senha.';
+  };
+
   // ── Salvamentos por etapa ──────────────────────────────────────────────
+  // Só o NOME é obrigatório. Avatar, e-mail e senha são opcionais: se algum
+  // falhar (RLS de storage, senha igual à atual, e-mail em uso, confirmação de
+  // troca de e-mail), avisamos mas NÃO travamos a conclusão do onboarding.
   const saveStep1 = async () => {
     if (!name.trim()) { showToast('Informe seu nome.', 'error'); return false; }
     if (newPassword && newPassword.length < 6) { showToast('A nova senha deve ter ao menos 6 caracteres.', 'error'); return false; }
     if (newPassword && newPassword !== confirmPassword) { showToast('As senhas não coincidem.', 'error'); return false; }
+
+    // Avatar (opcional) — falha não impede salvar o nome.
+    let avatarUrl = avatarPreview;
+    if (avatarFile) {
+      try { avatarUrl = await uploadAsset(avatarFile, 'avatars'); }
+      catch { showToast('Não foi possível enviar a foto agora — você pode adicioná-la depois em Configurações.', 'warning'); avatarUrl = avatarPreview; }
+    }
+
+    // Nome (essencial) — se falhar, aborta a etapa.
     try {
-      let avatarUrl = avatarPreview;
-      if (avatarFile) avatarUrl = await uploadAsset(avatarFile, 'avatars');
       if (loggedInUserId && loggedInUserId !== 'dev') {
         await updateProfile(loggedInUserId, { name: name.trim(), avatar_url: avatarUrl || undefined });
       }
-      const creds: { email?: string; password?: string } = {};
-      if (email && email !== sessionUser?.email) creds.email = email.trim();
-      if (newPassword) creds.password = newPassword;
-      if (creds.email || creds.password) await updateMyCredentials(creds);
-      if (sessionUser) setSessionUser({ ...sessionUser, name: name.trim(), email: email || sessionUser.email, avatarUrl: avatarUrl || sessionUser.avatarUrl });
-      setNewPassword(''); setConfirmPassword('');
-      return true;
     } catch (e: any) { showToast(e?.message ?? 'Falha ao salvar seus dados.', 'error'); return false; }
+
+    // E-mail/senha (opcionais) — falha vira aviso, não bloqueia a conclusão.
+    const creds: { email?: string; password?: string } = {};
+    if (email && email !== sessionUser?.email) creds.email = email.trim();
+    if (newPassword) creds.password = newPassword;
+    if (creds.email || creds.password) {
+      try { await updateMyCredentials(creds); }
+      catch (e: any) { showToast(friendlyAuthError(e?.message) + ' Seus demais dados foram salvos; ajuste isso depois em Configurações.', 'warning'); }
+    }
+
+    if (sessionUser) setSessionUser({ ...sessionUser, name: name.trim(), email: email || sessionUser.email, avatarUrl: avatarUrl || sessionUser.avatarUrl });
+    setNewPassword(''); setConfirmPassword('');
+    return true;
   };
 
   const saveStep2 = async () => {

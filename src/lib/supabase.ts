@@ -399,16 +399,27 @@ export async function signOut() {
   if (error) throw error;
 }
 
-/** Resolve um nome de usuário para o e-mail correspondente (login por username) */
-export async function resolveUsernameToEmail(username: string): Promise<string | null> {
-  const response = await fetch('/api/auth/resolve-username', {
+/**
+ * Login por nome de usuário: o servidor resolve username → e-mail e autentica
+ * internamente (sem expor o e-mail), devolvendo os tokens da sessão. Aqui apenas
+ * aplicamos a sessão no SDK. Lança em caso de credenciais inválidas.
+ */
+export async function loginWithUsername(username: string, password: string) {
+  const response = await fetch('/api/auth/login-username', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username }),
+    body: JSON.stringify({ username, password }),
   });
-  if (!response.ok) return null;
   const data = await response.json().catch(() => ({}));
-  return (data as any).email ?? null;
+  if (!response.ok) throw new Error((data as any).error ?? 'Usuário ou senha incorretos');
+  const session = (data as any).session;
+  if (!session?.access_token || !session?.refresh_token) throw new Error('Usuário ou senha incorretos');
+  const { data: setData, error } = await supabase.auth.setSession({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+  });
+  if (error) throw error;
+  return setData;
 }
 
 /** Pegar sessão atual */

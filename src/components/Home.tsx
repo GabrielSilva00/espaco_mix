@@ -52,11 +52,16 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
   };
 
   // Filter events
-  const publicEvents = events.filter(e => e.status !== 'Rascunho');
-  const activeFeatured = publicEvents.filter(e => e.isFeatured && !isEventPast(e));
-  const featuredEvents = activeFeatured.length > 0
-    ? activeFeatured
-    : publicEvents.filter(e => !isEventPast(e)).slice(0, 5);
+  const publicEvents = useMemo(() => events.filter(e => e.status !== 'Rascunho'), [events]);
+
+  // Memoizado: evita recalcular (e re-renderizar o Embla) a cada render do pai.
+  const featuredEvents = useMemo(() => {
+    const activeFeatured = publicEvents.filter(e => e.isFeatured && !isEventPast(e));
+    return activeFeatured.length > 0
+      ? activeFeatured
+      : publicEvents.filter(e => !isEventPast(e)).slice(0, 5);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publicEvents]);
 
   const filteredEvents = useMemo(() => {
     return publicEvents.filter(event => {
@@ -112,21 +117,26 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
         <section className="relative w-full h-[420px] md:h-[500px] bg-[#0a0a0a]">
           <div className="overflow-hidden w-full h-full" ref={emblaRef}>
             <div className="flex w-full h-full">
-              {featuredEvents.map((event) => (
+              {featuredEvents.map((event, idx) => (
                 <div key={event.id} className="relative flex-[0_0_100%] h-full group" onClick={() => onEventClick(event)}>
                   <img
                     src={event.img || "https://picsum.photos/seed/event/1920/1080"}
                     alt={event.title}
-                    className="w-full h-full object-cover will-change-transform"
+                    className="w-full h-full object-cover"
                     style={{ objectPosition: event.imgFocusHome || '50% 50%' }}
-                    loading="eager"
+                    // Só o primeiro slide carrega imediatamente; os demais sob demanda
+                    // (evita baixar todas as imagens full-res de uma vez = travamento).
+                    loading={idx === 0 ? 'eager' : 'lazy'}
+                    fetchPriority={idx === 0 ? 'high' : 'auto'}
+                    decoding="async"
                     draggable={false}
                   />
                   {/* Overlay gradiente */}
                   <div className="absolute inset-0 bg-gradient-to-t from-[#111111] via-[#111111]/60 to-transparent" />
-                  
+
                   <div className="absolute bottom-0 left-0 w-full p-6 md:p-12 md:pl-20 max-w-7xl mx-auto flex flex-col justify-end h-full">
-                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="max-w-2xl">
+                    {/* Entrada leve via CSS (sem reanimar a cada ciclo do autoplay) */}
+                    <div className="max-w-2xl animate-in fade-in slide-in-from-bottom-4 duration-500">
                       <span className="inline-block px-3 py-1 bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#d4af37] text-[10px] uppercase font-bold tracking-[0.2em] rounded-full mb-4">
                         Destaque
                       </span>
@@ -140,7 +150,7 @@ export function Home({ events, loading, onEventClick }: HomeProps) {
                       <button className="px-8 py-3.5 bg-[#d4af37] text-black text-xs uppercase font-bold tracking-widest rounded-xl hover:bg-white transition-all shadow-[0_0_20px_rgba(212,175,55,0.3)]">
                         Ver Ingressos
                       </button>
-                    </motion.div>
+                    </div>
                   </div>
                 </div>
               ))}

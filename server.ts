@@ -1033,6 +1033,10 @@ export async function createExpressApp() {
       res.status(400).json({ error: "Nome, usuário e senha são obrigatórios." });
       return;
     }
+    if (password.length < 6) {
+      res.status(400).json({ error: "A senha deve ter no mínimo 6 caracteres." });
+      return;
+    }
     const admin = await getAdminClient();
     if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
     try {
@@ -1241,6 +1245,16 @@ export async function createExpressApp() {
         res.status(401).json({ error: "Usuário ou senha incorretos." });
         return;
       }
+      // Migração transparente: se a senha estava em plaintext legado, re-hasheia
+      // agora que sabemos que confere (não trava contas antigas e elimina o
+      // fallback plaintext conta a conta no primeiro login).
+      if (!String(staff.password).startsWith("scrypt:")) {
+        try {
+          await admin.from("staff_accounts").update({ password: await hashPassword(password) }).eq("id", staff.id);
+        } catch (e: any) {
+          console.error("[STAFF] Falha ao re-hashear senha legada:", e?.message ?? e);
+        }
+      }
       const eventIds = Array.isArray(staff.event_ids) ? staff.event_ids.map(String) : [];
       const token = signStaffToken({
         sid: staff.id, name: staff.name, eventIds,
@@ -1344,17 +1358,21 @@ export async function createExpressApp() {
     }
   });
 
-  // ── Resolve Username → E-mail (login por nome de usuário) ───────────────────
-  app.post("/api/auth/resolve-username", authLimiter, async (req, res) => {
-    const { username } = req.body as { username?: string };
-    if (!username || typeof username !== "string" || !username.trim()) {
-      res.status(400).json({ error: "Usuário ausente." });
+  // ── Login por nome de usuário (resolve + autentica no servidor) ─────────────
+  // Resolve username → e-mail INTERNAMENTE e autentica server-side, devolvendo a
+  // sessão. Nunca expõe o e-mail ao cliente (evita enumeração username → e-mail)
+  // e nunca distingue "usuário inexistente" de "senha incorreta".
+  app.post("/api/auth/login-username", authLimiter, async (req, res) => {
+    const { username, password } = req.body as { username?: string; password?: string };
+    if (!username || typeof username !== "string" || !username.trim() || !password) {
+      res.status(400).json({ error: "Usuário e senha são obrigatórios." });
       return;
     }
 
     const supabaseUrl = process.env.VITE_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !serviceRoleKey) {
+    const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !serviceRoleKey || !anonKey) {
       res.status(503).json({ error: "Serviço de autenticação não configurado." });
       return;
     }
@@ -1363,18 +1381,31 @@ export async function createExpressApp() {
       const { createClient } = await import("@supabase/supabase-js");
       const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-      const { data, error } = await adminClient
+      const { data: profile } = await adminClient
         .from("profiles")
         .select("email")
         .ilike("username", username.trim())
         .maybeSingle();
 
-      if (error) throw error;
-      // Retorna apenas o e-mail (nunca outros dados do perfil)
-      res.json({ email: data?.email ?? null });
+      const email = (profile as any)?.email as string | undefined;
+      // Mensagem genérica e idêntica para usuário inexistente OU senha incorreta.
+      const genericError = () => res.status(401).json({ error: "Usuário ou senha incorretos." });
+      if (!email) { genericError(); return; }
+
+      const authClient = createClient(supabaseUrl, anonKey);
+      const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword({ email, password });
+      if (signInError || !signInData?.session) { genericError(); return; }
+
+      // Devolve apenas os tokens da sessão; o cliente faz supabase.auth.setSession.
+      res.json({
+        session: {
+          access_token: signInData.session.access_token,
+          refresh_token: signInData.session.refresh_token,
+        },
+      });
     } catch (err: any) {
-      console.error("[AUTH] Erro ao resolver username:", err.message);
-      res.status(500).json({ error: "Erro ao resolver usuário." });
+      console.error("[AUTH] Erro no login por username:", err.message);
+      res.status(500).json({ error: "Erro ao autenticar." });
     }
   });
 
@@ -1409,48 +1440,6 @@ export async function createExpressApp() {
     res.status(201).json({
       success: true,
       message: "Usuário registrado com sucesso.",
-    });
-  });
-
-  // ── Orders ────────────────────────────────────────────────────────────────
-  app.post("/api/orders", requireAuth, async (req, res) => {
-    const { eventId, items, total, paymentId, paymentMethod } = req.body as {
-      eventId?: string | number;
-      items?: unknown[];
-      total?: number;
-      paymentId?: string;
-      paymentMethod?: string;
-    };
-
-    if (!eventId || !Array.isArray(items) || items.length === 0) {
-      res.status(400).json({ error: "Dados do pedido incompletos." });
-      return;
-    }
-
-    if (typeof total !== "number" || total <= 0) {
-      res.status(400).json({ error: "Valor total inválido." });
-      return;
-    }
-
-    const allowedMethods = new Set(["pix", "credit_card", "debit_card", "boleto"]);
-    if (!paymentMethod || !allowedMethods.has(paymentMethod)) {
-      res.status(400).json({ error: "Forma de pagamento inválida." });
-      return;
-    }
-
-    const user = (req as any).user;
-    const orderId = "ORD-" + Math.random().toString(36).slice(2, 10).toUpperCase();
-
-    console.log(`[ORDER] Created ${orderId} for user ${user?.uid} | total: R$${total}`);
-
-    // TODO: persist order to Firestore when Firebase Admin SDK is configured.
-    // const db = getFirestore();
-    // await db.collection("orders").doc(orderId).set({ ... });
-
-    res.status(201).json({
-      orderId,
-      status: "pending",
-      createdAt: new Date().toISOString(),
     });
   });
 
@@ -1655,6 +1644,19 @@ export async function createExpressApp() {
     const buyerPhone = sanitizeName(reservation.buyer_phone, 40);
     if (!buyerName || !buyerEmail) {
       res.status(400).json({ error: "Nome e e-mail do comprador são obrigatórios." });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyerEmail)) {
+      res.status(400).json({ error: "E-mail do comprador inválido." });
+      return;
+    }
+    // CPF é opcional (convidado/estrangeiro). O frontend envia "000.000.000-00"
+    // como sentinela de "sem CPF" — tratado como ausente. Só validamos quando um
+    // CPF real é informado, para não aceitar dado malformado.
+    const buyerCpfDigits = buyerCpf.replace(/\D/g, "");
+    const cpfProvided = buyerCpfDigits.length > 0 && !/^0+$/.test(buyerCpfDigits);
+    if (cpfProvided && !validateCpf(buyerCpfDigits)) {
+      res.status(400).json({ error: "CPF do comprador inválido." });
       return;
     }
 
@@ -2436,7 +2438,6 @@ export async function createExpressApp() {
         console.error("[MERCADOPAGO] Erro:", JSON.stringify(data));
         res.status(response.status).json({
           error: data.errors?.[0]?.message || data.message || "Erro ao processar pagamento",
-          details: data,
         });
         return;
       }
@@ -3205,7 +3206,7 @@ export async function createExpressApp() {
     }
   });
 
-  app.post("/api/auth/check-verify-code", authLimiter, (req, res) => {
+  app.post("/api/auth/check-verify-code", authLimiter, async (req, res) => {
     const { email, code, ticket, exp } = req.body as {
       email?: string; code?: string; ticket?: string; exp?: number;
     };
@@ -3219,11 +3220,21 @@ export async function createExpressApp() {
       return;
     }
 
+    // Anti brute-force do código de 6 dígitos: limita tentativas erradas por
+    // e-mail (o rate-limit por IP é contornável por rotação). Degrada de forma
+    // graciosa se o admin client não estiver disponível (mesmo desenho do reset).
+    const admin = await getAdminClient();
+    if (admin && (await otpAttemptsExceeded(admin, email, "email_verify"))) {
+      res.status(429).json({ valid: false, error: "Muitas tentativas. Solicite um novo código e aguarde alguns minutos." });
+      return;
+    }
+
     const expected = signOtp(email, String(code), Number(exp));
     const ok =
       ticket.length === expected.length &&
       crypto.timingSafeEqual(Buffer.from(ticket), Buffer.from(expected));
     if (!ok) {
+      if (admin) await recordOtpFailure(admin, email, "email_verify");
       res.status(400).json({ valid: false, error: "Código incorreto." });
       return;
     }
@@ -3445,9 +3456,11 @@ export async function createExpressApp() {
         const { data } = await admin.from("system_config").select("reminder_cron_hour").eq("id", "main").maybeSingle();
         if (typeof data?.reminder_cron_hour === "number") targetHour = data.reminder_cron_hour;
       }
-      const currentHour = new Date().getUTCHours();
+      // A hora configurada pelo admin é interpretada em horário de Brasília
+      // (UTC−3, fixo — sem horário de verão desde 2019), não em UTC.
+      const currentHour = (new Date().getUTCHours() - 3 + 24) % 24;
       if (currentHour !== targetHour) {
-        res.json({ skipped: true, sent: 0, errors: 0, reason: `Hora atual ${currentHour}h UTC ≠ hora configurada ${targetHour}h UTC.` });
+        res.json({ skipped: true, sent: 0, errors: 0, reason: `Hora atual ${currentHour}h (Brasília) ≠ hora configurada ${targetHour}h.` });
         return;
       }
       const result = await sendReminderEmails();
@@ -3602,7 +3615,8 @@ export async function createExpressApp() {
         `refund-full-${reservationId}`,
       );
       if (!result.ok) {
-        res.status(502).json({ error: "Erro no Mercado Pago", details: result.body });
+        console.error("[Refund] Erro Mercado Pago:", JSON.stringify(result.body));
+        res.status(502).json({ error: "Erro no Mercado Pago ao processar o estorno." });
         return;
       }
 

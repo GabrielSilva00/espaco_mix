@@ -36,6 +36,8 @@ interface ReportsPanelProps {
   events: Event[];
   reservations: Reservation[];
   gatewayFeePercent: number;
+  platformFeePercent: number;
+  platformFeeType: 'percentage' | 'fixed';
 }
 
 type FilterType = 'all' | 'event' | 'month' | 'year';
@@ -43,7 +45,7 @@ type FilterType = 'all' | 'event' | 'month' | 'year';
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const PIE_COLORS = ['#d4af37', '#C9A84C', '#8B7000', '#F0D060'];
 
-export function ReportsPanel({ events, reservations, gatewayFeePercent }: ReportsPanelProps) {
+export function ReportsPanel({ events, reservations, gatewayFeePercent, platformFeePercent, platformFeeType }: ReportsPanelProps) {
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [selectedEventId, setSelectedEventId] = useState<number | 'all'>('all');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -71,15 +73,19 @@ export function ReportsPanel({ events, reservations, gatewayFeePercent }: Report
   }, [reservations, filterType, selectedEventId, selectedMonth, selectedYear]);
 
   // Relatório 1 — Financeiro
-  // netAfterPlatform vem do banco (total − taxa da plataforma, por venda).
-  // A taxa do gateway (MP) não é gravada por venda, então é aplicada aqui sobre
-  // o líquido pós-plataforma, igual ao painel de controle (AdminOverviewPanel).
+  // platformFee/netAmount vêm do banco (gravados por venda). Quando ausentes,
+  // o fallback usa a TAXA CONFIGURADA (não mais um 10% fixo), igual ao painel de
+  // controle (AdminOverviewPanel). A taxa do gateway (MP) não é gravada por
+  // venda, então é aplicada aqui sobre o líquido pós-plataforma.
+  const platformFeeOf = (total: number) =>
+    platformFeeType === 'fixed' ? platformFeePercent : total * (platformFeePercent / 100);
   const grossRevenue = filtered.reduce((s, r) => s + r.total, 0);
-  const platformFees = filtered.reduce((s, r) => s + (r.platformFee ?? 0), 0);
-  const netAfterPlatform = filtered.reduce((s, r) => s + (r.netAmount ?? r.total * 0.9), 0);
+  const platformFees = filtered.reduce((s, r) => s + (r.platformFee ?? platformFeeOf(r.total)), 0);
+  const netAfterPlatform = filtered.reduce((s, r) => s + (r.netAmount ?? (r.total - platformFeeOf(r.total))), 0);
   const gatewayFees = netAfterPlatform * (gatewayFeePercent / 100);
   const netRevenue = netAfterPlatform - gatewayFees;
   const totalFees = platformFees + gatewayFees;
+  const platformFeeLabel = platformFeeType === 'fixed' ? `R$ ${platformFeePercent.toFixed(2)}/venda` : `${platformFeePercent}%`;
 
   const byMethod = [
     { name: 'PIX', value: filtered.filter(r => r.paymentMethod === 'pix').reduce((s, r) => s + r.total, 0) },
@@ -184,7 +190,7 @@ export function ReportsPanel({ events, reservations, gatewayFeePercent }: Report
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           {[
             { label: 'Faturamento Bruto', value: fmt(grossRevenue), color: 'text-[#d4af37]' },
-            { label: `Taxas (plataforma + MP ${gatewayFeePercent}%)`, value: fmt(totalFees), color: 'text-red-400' },
+            { label: `Taxas (plataforma ${platformFeeLabel} + MP ${gatewayFeePercent}%)`, value: fmt(totalFees), color: 'text-red-400' },
             { label: 'Faturamento Líquido', value: fmt(netRevenue), color: 'text-green-400' },
           ].map(card => (
             <div key={card.label} className="bg-white/[0.03] border border-white/5 rounded-2xl p-4">

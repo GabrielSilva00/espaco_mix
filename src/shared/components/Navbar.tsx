@@ -12,10 +12,13 @@ export function Navbar() {
     isUserDropdownOpen, setIsUserDropdownOpen, userDropdownRef,
     handleLogout, showToast, pendingApprovalsCount,
     setAuthIntent, setAuthTab, isApprovedEventCreator,
-    reservations,
+    reservations, cartSelection,
   } = useApp();
 
-  const cartCount = reservations.filter(r => r.paymentStatus === 'pending').length;
+  // Conta as reservas pendentes (banco) + a seleção local em andamento (item
+  // virtual), para o badge refletir a seleção imediatamente — inclusive no mobile.
+  const cartCount = reservations.filter(r => r.paymentStatus === 'pending').length
+    + (cartSelection ? 1 : 0);
 
   return (
     <>
@@ -27,13 +30,11 @@ export function Navbar() {
             onClick={() => setCurrentView('home')}
             className="flex items-center gap-3 hover:opacity-80 transition-opacity"
           >
-            <div className="w-7 h-7 md:w-9 md:h-9 bg-[#d4af37] rounded-lg flex items-center justify-center overflow-hidden shrink-0">
-              {siteConfig.platformLogo
-                ? <img src={siteConfig.platformLogo} alt="logo" className="w-full h-full object-cover" />
-                : <span className="text-[#0a0a0a] font-bold leading-none text-xs md:text-base">{siteConfig.platformName.charAt(0).toUpperCase()}</span>
-              }
-            </div>
-            <span className="text-base md:text-lg font-serif tracking-widest text-[#d4af37] uppercase">{siteConfig.platformName}</span>
+            <img
+              src={siteConfig.platformLogo || '/logo-full.png'}
+              alt={siteConfig.platformName || 'Espaço Mix'}
+              className="h-10 md:h-12 w-auto object-contain"
+            />
           </button>
 
           {/* Desktop Menu */}

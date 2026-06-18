@@ -462,8 +462,8 @@ export function BookingView() {
                       transition={{ duration: 0.25 }}
                     >
                       <div className="space-y-6 flex flex-col p-1 border border-[#ffffff1a] bg-gradient-to-br from-[#0f0f0f] to-[#0a0a0a] rounded-[1.5rem] min-h-[480px] md:min-h-[720px]">
-                        <div className="pt-4 pb-4 pr-4 pl-4 md:pt-8 md:pb-8 md:pr-8 md:pl-[17px]">
-                          <div className="flex flex-col gap-3 mb-4 md:mb-8">
+                        <div className="p-2 md:p-4">
+                          <div className="flex flex-col gap-3 mb-3 md:mb-5">
                             <div>
                               <h2 className="text-xl font-serif text-[#d4af37] mb-2">Mapa do Evento</h2>
                               <p className="text-[10px] opacity-50 uppercase tracking-widest">Selecione sua mesa ou bistrô</p>

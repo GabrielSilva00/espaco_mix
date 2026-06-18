@@ -234,6 +234,14 @@ export function AdminSettings({
     setSettings(prev => ({ ...prev, [name]: val }));
   };
 
+  // Converte string → número preservando 0 (só vira undefined se vazio/NaN).
+  // Evita que uma taxa de 0% deixe de ser salva (Number('0') || undefined === undefined).
+  const numOrUndef = (v: string | number | undefined): number | undefined => {
+    if (v === '' || v == null) return undefined;
+    const n = Number(v);
+    return Number.isNaN(n) ? undefined : n;
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     setSaveError(null);
@@ -249,9 +257,9 @@ export function AdminSettings({
         allow_scheduled:         settings.allowScheduled,
         default_event_status:    settings.defaultEventStatus,
         // Pagamento
-        platform_fee_percent:    Number(settings.platformFee) || undefined,
+        platform_fee_percent:    numOrUndef(settings.platformFee),
         platform_fee_type:       settings.feeType as 'percentage' | 'fixed',
-        gateway_fee_percent:     Number(settings.gatewayFee) || undefined,
+        gateway_fee_percent:     numOrUndef(settings.gatewayFee),
         fee_payer:               settings.feePayer as 'buyer' | 'seller',
         show_fee_to_buyer:       settings.showFeeToBuyer,
         payment_provider:        settings.paymentGateway as any,

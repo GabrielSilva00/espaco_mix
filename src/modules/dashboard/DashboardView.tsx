@@ -2704,8 +2704,9 @@ export function DashboardView() {
                   ...prev,
                   platformName: name,
                   platformLogo: logo,
-                  platformFeePercent: Number(settings?.platformFee) || prev.platformFeePercent,
-                  gatewayFeePercent: Number(settings?.gatewayFee) || prev.gatewayFeePercent,
+                  platformFeePercent: settings?.platformFee != null && settings.platformFee !== '' && !Number.isNaN(Number(settings.platformFee)) ? Number(settings.platformFee) : prev.platformFeePercent,
+                  platformFeeType: (settings?.feeType === 'fixed' ? 'fixed' : 'percentage'),
+                  gatewayFeePercent: settings?.gatewayFee != null && settings.gatewayFee !== '' && !Number.isNaN(Number(settings.gatewayFee)) ? Number(settings.gatewayFee) : prev.gatewayFeePercent,
                   address: settings?.address,
                   contactPhone: settings?.contactPhone,
                   contactEmail: settings?.contactEmail,
@@ -2729,7 +2730,7 @@ export function DashboardView() {
             ) : dashboardMode === 'dev-overview' && userRole === 'developer' ? (
               <DevOverviewPanel events={events} buyers={buyers} reservations={reservations} systemLogs={systemLogs} clearSystemLogs={clearSystemLogs} />
             ) : dashboardMode === 'reports' && isAtLeast('admin') ? (
-              <ReportsPanel events={events} reservations={reservations} gatewayFeePercent={siteConfig.gatewayFeePercent ?? 0} />
+              <ReportsPanel events={events} reservations={reservations} gatewayFeePercent={siteConfig.gatewayFeePercent ?? 0} platformFeePercent={siteConfig.platformFeePercent ?? 10} platformFeeType={siteConfig.platformFeeType ?? 'percentage'} />
             ) : null}
             </>
           )}
