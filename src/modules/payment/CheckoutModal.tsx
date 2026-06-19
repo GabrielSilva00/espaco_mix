@@ -516,8 +516,10 @@ export function CheckoutModal() {
                           setAdminError('');
                           setGuestData({ name: profile?.name || 'Usuário', email: data.user.email!, cpf: (profile as any)?.cpf || '', phone: (profile as any)?.phone || '' });
                           setCheckoutStep('payment-method');
-                        } catch (err: any) {
-                          setAdminError(err?.message ?? 'Usuário ou senha incorretos');
+                        } catch {
+                          // Mensagem genérica (anti-enumeração): idêntica para senha
+                          // errada e conta criada via Google. Saída: botão Google abaixo.
+                          setAdminError('E-mail ou senha incorretos.');
                         }
                       } else {
                         handleRegister(e);

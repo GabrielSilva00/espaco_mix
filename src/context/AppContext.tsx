@@ -24,6 +24,7 @@ import type {
 } from '../types';
 import { loadDeveloperConfig, saveDeveloperConfig } from '../services/developerConfig';
 import type { DeveloperConfig } from '../types/developer';
+import { isInStandaloneMode as isStandaloneMode } from '../components/InstallPrompt';
 import Lenis from 'lenis';
 
 // 'in_review': cartão aceito pelo MP mas ainda em análise — os ingressos só
@@ -890,6 +891,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const TRANSIENT_VIEWS = useRef(new Set<CurrentView>(['admin-login', 'staff-portal'])).current;
 
   useEffect(() => {
+    // Só interceptamos o histórico no PWA instalado (standalone). No navegador
+    // web o "voltar" nativo deve funcionar normalmente — interceptar lá causava
+    // o card "Sair do aplicativo" aparecer indevidamente (ex.: ao voltar do
+    // redirect do login com Google).
+    if (!isStandaloneMode()) return;
     if (!_historyInitialized.current) {
       _historyInitialized.current = true;
       navStackRef.current = [currentView];
@@ -920,6 +926,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [currentView]);
 
   useEffect(() => {
+    // Confirmação de saída só no PWA instalado (standalone) — ver comentário acima.
+    if (!isStandaloneMode()) return;
     const handlePop = () => {
       if (exitingRef.current) return; // saída em andamento — deixa o browser sair
       const stack = navStackRef.current;
@@ -1478,8 +1486,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (r === 'admin' || r === 'developer') { setCurrentView('dashboard'); setDashboardMode('admin-overview'); }
       else if (profile.is_approved_event_creator) { setCurrentView('dashboard'); setDashboardMode('producer-dashboard'); }
       else setCurrentView('booking');
-    } catch (err: any) {
-      setAdminError(err.message ?? 'Usuário ou senha incorretos');
+    } catch {
+      // Mensagem SEMPRE genérica (anti-enumeração): não revela se o e-mail existe
+      // nem qual provedor usa. O Supabase retorna o mesmo erro para senha errada e
+      // para conta criada via Google — mantemos isso na UI. A saída discreta é o
+      // botão "Entrar com Google" sempre visível abaixo do erro.
+      setAdminError(input.includes('@') ? 'E-mail ou senha incorretos.' : 'Usuário ou senha incorretos.');
     }
   };
 

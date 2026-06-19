@@ -96,6 +96,60 @@ function hashCpf(cpf: string): string | null {
   return crypto.createHash("sha256").update(digits).digest("hex");
 }
 
+// ─── Anti-enumeração de contas (cadastro/login) ──────────────────────────────
+// Descobre os provedores de auth vinculados a um e-mail (ex.: 'google', 'email')
+// usando a Admin API com service_role. NUNCA exposto ao cliente — usado apenas
+// no servidor para personalizar o e-mail de "conta já existe".
+async function getAuthUserProviders(admin: any, email: string): Promise<string[]> {
+  try {
+    const target = email.trim().toLowerCase();
+    const perPage = 1000;
+    for (let page = 1; page <= 5; page++) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+      if (error || !data?.users?.length) break;
+      const u = data.users.find((x: any) => (x.email ?? "").toLowerCase() === target);
+      if (u) {
+        const fromIdentities: string[] = (u.identities ?? []).map((i: any) => i.provider);
+        const fromMeta: string[] = u.app_metadata?.providers
+          ?? (u.app_metadata?.provider ? [u.app_metadata.provider] : []);
+        return Array.from(new Set([...fromIdentities, ...fromMeta].filter(Boolean)));
+      }
+      if (data.users.length < perPage) break;
+    }
+  } catch { /* best-effort */ }
+  return [];
+}
+
+// E-mail enviado quando alguém tenta se cadastrar com um e-mail JÁ existente.
+// A resposta HTTP é idêntica à de sucesso (anti-enumeração); só o dono do e-mail
+// recebe esta orientação para entrar com o método correto.
+function buildAccountExistsEmail(providers: string[], loginUrl: string): { subject: string; html: string } {
+  const hasGoogle = providers.includes("google");
+  const hasPassword = providers.includes("email");
+  let metodo: string;
+  if (hasGoogle && !hasPassword) metodo = "Use o botão <strong>Entrar com Google</strong> para acessar.";
+  else if (hasPassword && !hasGoogle) metodo = "Entre com seu <strong>e-mail e senha</strong>. Se esqueceu a senha, use “Esqueci minha senha”.";
+  else metodo = "Entre com o método que você já usa (e-mail e senha ou Google).";
+  const btn = loginUrl
+    ? `<div style="text-align:center;margin-top:24px"><a href="${loginUrl}" style="background:#d4af37;color:#0a0a0a;text-decoration:none;font-weight:bold;padding:12px 28px;border-radius:8px;font-size:13px;letter-spacing:1px">ENTRAR</a></div>`
+    : "";
+  return {
+    subject: "Você já tem uma conta — Espaço Mix",
+    html: `
+      <div style="background:#0a0a0a;padding:40px;font-family:serif;max-width:480px;margin:0 auto;border-radius:12px">
+        <h2 style="color:#d4af37;text-align:center;letter-spacing:4px;font-size:18px;margin-bottom:8px">ESPAÇO MIX</h2>
+        <p style="color:#fff;text-align:center;font-size:14px;opacity:0.7;margin-bottom:28px">Acesso à sua conta</p>
+        <div style="background:#1a1a1a;border-radius:8px;padding:28px;border:1px solid #2a2a2a">
+          <p style="color:#ddd;font-size:14px;line-height:1.6;margin:0">Recebemos uma tentativa de cadastro com este e-mail, mas <strong>você já possui uma conta</strong> no Espaço Mix.</p>
+          <p style="color:#ddd;font-size:14px;line-height:1.6;margin:16px 0 0">${metodo}</p>
+          ${btn}
+        </div>
+        <p style="color:#666;text-align:center;font-size:11px;margin-top:24px">Se não foi você, pode ignorar este e-mail com segurança.</p>
+      </div>
+    `,
+  };
+}
+
 // ─── Hash de Senha (scrypt) ──────────────────────────────────────────────────
 
 async function hashPassword(password: string): Promise<string> {
@@ -3122,9 +3176,13 @@ export async function createExpressApp() {
       return;
     }
 
-    // ── Bloqueia cadastro com e-mail ou CPF já existentes (antes de criar a conta) ──
-    // Choke point dos dois fluxos de cadastro (AuthView e checkout): se barrarmos
-    // aqui, nenhuma conta duplicada chega a ser criada no Supabase Auth.
+    // ── Anti-enumeração de contas (padrão Google/Slack/Notion) ──────────────────
+    // NUNCA revelamos na resposta se o e-mail já existe. Se existir, respondemos
+    // de forma IDÊNTICA ao sucesso e enviamos (por e-mail, que só o dono recebe)
+    // a orientação para entrar com o método correto. O CPF duplicado continua
+    // sendo barrado de forma explícita (requisito de unicidade de CPF).
+    let emailExists = false;
+    let existingProviders: string[] = [];
     {
       const admin = await getAdminClient();
       if (admin) {
@@ -3135,20 +3193,21 @@ export async function createExpressApp() {
           .ilike("email", normalizedEmail)
           .maybeSingle();
         if (emailDupe) {
-          res.status(409).json({ error: "Este e-mail já está cadastrado. Faça login para continuar." });
-          return;
-        }
-
-        const cpfHash = cpf ? hashCpf(cpf) : null;
-        if (cpfHash) {
-          const { data: cpfDupe } = await admin
-            .from("profiles")
-            .select("id")
-            .eq("cpf_hash", cpfHash)
-            .maybeSingle();
-          if (cpfDupe) {
-            res.status(409).json({ error: "Este CPF já está cadastrado em outra conta." });
-            return;
+          emailExists = true;
+          existingProviders = await getAuthUserProviders(admin, normalizedEmail);
+        } else {
+          // E-mail novo: ainda barramos CPF já usado por outra conta.
+          const cpfHash = cpf ? hashCpf(cpf) : null;
+          if (cpfHash) {
+            const { data: cpfDupe } = await admin
+              .from("profiles")
+              .select("id")
+              .eq("cpf_hash", cpfHash)
+              .maybeSingle();
+            if (cpfDupe) {
+              res.status(409).json({ error: "Este CPF já está cadastrado em outra conta." });
+              return;
+            }
           }
         }
       }
@@ -3159,6 +3218,29 @@ export async function createExpressApp() {
     const ticket = signOtp(email, code, exp);
 
     const emailCfg = await resolveEmailConfig();
+
+    // E-mail já cadastrado → resposta idêntica à de sucesso, mas em vez do código
+    // enviamos o e-mail de "você já tem uma conta" (não vaza nada na tela).
+    if (emailExists) {
+      if (emailCfg.resendApiKey) {
+        try {
+          const { Resend } = await import("resend");
+          const resend = new Resend(emailCfg.resendApiKey);
+          const loginUrl = (process.env.APP_URL ?? "").trim();
+          const mail = buildAccountExistsEmail(existingProviders, loginUrl);
+          await resend.emails.send({
+            from: `${emailCfg.senderName} <${emailCfg.senderAddress}>`,
+            to: email,
+            subject: mail.subject,
+            html: mail.html,
+          });
+        } catch (e) {
+          console.error("[OTP] Falha ao enviar e-mail de conta existente:", (e as any)?.message);
+        }
+      }
+      res.json({ sent: true, ticket, exp });
+      return;
+    }
 
     if (!emailCfg.resendApiKey) {
       console.log(`\n[OTP DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

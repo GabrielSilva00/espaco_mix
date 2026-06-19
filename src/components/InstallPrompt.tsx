@@ -11,7 +11,7 @@ function isIOS() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent) && !(window as any).MSStream;
 }
 
-function isInStandaloneMode() {
+export function isInStandaloneMode() {
   return (window.navigator as any).standalone === true ||
     window.matchMedia('(display-mode: standalone)').matches;
 }
