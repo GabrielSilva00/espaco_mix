@@ -279,6 +279,8 @@ interface AppContextValue {
   confirmExitApp: () => void;
   needsProfileCompletion: boolean;
   setNeedsProfileCompletion: React.Dispatch<React.SetStateAction<boolean>>;
+  needsCodeVerification: boolean;
+  setNeedsCodeVerification: React.Dispatch<React.SetStateAction<boolean>>;
   pendingApprovalsCount: number;
   messageText: string;
   setMessageText: React.Dispatch<React.SetStateAction<string>>;
@@ -422,6 +424,22 @@ function profileNeedsCompletion(p: any): boolean {
   const has = (v: any) => typeof v === 'string' && v.trim() !== '';
   const hasIdDoc = has(p.cpf) || has(p.passport_doc);
   return !hasIdDoc || !has(p.phone) || !has(p.birth_date);
+}
+
+/** Provedores de auth vinculados à sessão (ex.: ['google'], ['email','google']). */
+function authProvidersOf(sessionUser: any): string[] {
+  const meta = sessionUser?.app_metadata ?? {};
+  return meta.providers ?? (meta.provider ? [meta.provider] : []);
+}
+
+/**
+ * Conta criada via Google que ainda não confirmou o código no site.
+ * `otp_verified_at` nulo + provedor google. Usuários de e-mail/senha já passam
+ * pelo OTP no cadastro, então não são pedidos aqui.
+ */
+function needsLoginCode(profile: any, sessionUser: any): boolean {
+  if (!profile || profile.otp_verified_at) return false;
+  return authProvidersOf(sessionUser).includes('google');
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -581,6 +599,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Perfil incompleto (ex.: login via Google não traz CPF/telefone/nascimento):
   // dispara um modal bloqueante para o cliente completar o cadastro.
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
+  // Conta criada via Google no 1º acesso: pede um código enviado ao e-mail. Não
+  // bloqueia (pode pular), mas reaparece até o usuário confirmar (otp_verified_at).
+  const [needsCodeVerification, setNeedsCodeVerification] = useState(false);
   const [cartOriginEventId, setCartOriginEventId] = useState<number | null>(null);
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [messageText, setMessageText] = useState('');
@@ -751,6 +772,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   avatarUrl: profile.avatar_url,
                 });
                 setNeedsProfileCompletion(profileNeedsCompletion(profile));
+                setNeedsCodeVerification(needsLoginCode(profile, session.user));
                 // Rebusca eventos com sessão restaurada (subscribeToEvents pode ter rodado sem auth)
                 getEvents()
                   .then(data => setEvents(data.map(mapDbEventToApp)))
@@ -833,6 +855,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 avatarUrl,
               });
               setNeedsProfileCompletion(profileNeedsCompletion(profile));
+              setNeedsCodeVerification(needsLoginCode(profile, session.user));
               // Rebusca eventos com o contexto de auth do usuário logado
               getEvents()
                 .then(data => setEvents(data.map(mapDbEventToApp)))
@@ -863,6 +886,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLoggedInUserId(null);
         setIsApprovedEventCreator(false);
         setNeedsProfileCompletion(false);
+        setNeedsCodeVerification(false);
         setSessionUser(null);
         setIsStaff(false);
         sessionStorage.removeItem('auth-cleared');
@@ -2757,6 +2781,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isLogsModalOpen, setIsLogsModalOpen,
     showExitConfirm, setShowExitConfirm, confirmExitApp,
     needsProfileCompletion, setNeedsProfileCompletion,
+    needsCodeVerification, setNeedsCodeVerification,
     pendingApprovalsCount,
     messageText, setMessageText,
     showDefaultCredentialsWarning, setShowDefaultCredentialsWarning,

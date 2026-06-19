@@ -23,6 +23,7 @@ import { LegalView } from './modules/legal/LegalView';
 import { InstallPrompt } from './components/InstallPrompt';
 import { AdminOnboarding } from './components/AdminOnboarding';
 import { CompleteProfileModal } from './components/CompleteProfileModal';
+import { EmailCodeModal } from './components/EmailCodeModal';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
 import { generateDefaultLayout } from './shared/utils/defaultLayout';
 import type { TableLayoutElement } from './components/TableLayoutEditor';
@@ -922,6 +923,7 @@ export function App() {
       <InstallPrompt />
       {showOnboarding && <AdminOnboarding />}
       <CompleteProfileModal />
+      <EmailCodeModal />
 
       {/* Confirmação de saída do app (voltar na home) */}
       <AnimatePresence>

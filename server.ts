@@ -3324,6 +3324,101 @@ export async function createExpressApp() {
     res.json({ valid: true });
   });
 
+  // ── Código de verificação para contas criadas via Google ───────────────────
+  // O login com Google não passa pelo OTP de cadastro. No 1º acesso, enviamos um
+  // código ao e-mail do usuário logado para ele confirmar no site. O e-mail vem
+  // SEMPRE do token (requireAuth) — nunca do corpo da requisição.
+  app.post("/api/auth/send-login-code", authLimiter, requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const email: string | undefined = user?.email;
+    if (!email) {
+      res.status(400).json({ error: "E-mail da conta indisponível." });
+      return;
+    }
+
+    const code = String(crypto.randomInt(100000, 1000000));
+    const exp = Date.now() + 10 * 60 * 1000;
+    const ticket = signOtp(email, code, exp);
+
+    const emailCfg = await resolveEmailConfig();
+
+    if (!emailCfg.resendApiKey) {
+      console.log(`\n[LOGIN CODE DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`[LOGIN CODE DEV]  E-mail : ${email}`);
+      console.log(`[LOGIN CODE DEV]  Código : ${code}`);
+      console.log(`[LOGIN CODE DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+      res.json({ sent: true, devMode: true, ticket, exp });
+      return;
+    }
+
+    try {
+      const { Resend } = await import("resend");
+      const resend = new Resend(emailCfg.resendApiKey);
+      const { error } = await resend.emails.send({
+        from: `${emailCfg.senderName} <${emailCfg.senderAddress}>`,
+        to: email,
+        subject: "Seu código de verificação — Espaço Mix",
+        html: `
+          <div style="background:#0a0a0a;padding:40px;font-family:serif;max-width:480px;margin:0 auto;border-radius:12px">
+            <h2 style="color:#d4af37;text-align:center;letter-spacing:4px;font-size:18px;margin-bottom:8px">ESPAÇO MIX</h2>
+            <p style="color:#fff;text-align:center;font-size:14px;opacity:0.7;margin-bottom:32px">Confirmação de Acesso</p>
+            <div style="background:#1a1a1a;border-radius:8px;padding:32px;text-align:center;border:1px solid #2a2a2a">
+              <p style="color:#aaa;font-size:13px;margin-bottom:16px">Seu código de verificação é:</p>
+              <div style="font-size:40px;font-weight:bold;color:#d4af37;letter-spacing:12px">${code}</div>
+              <p style="color:#666;font-size:11px;margin-top:16px">Válido por 10 minutos</p>
+            </div>
+            <p style="color:#666;text-align:center;font-size:11px;margin-top:24px">Se você não solicitou este código, ignore este e-mail.</p>
+          </div>
+        `,
+      });
+      if (error) {
+        console.error("[LOGIN CODE] Resend rejeitou o envio:", error);
+        res.status(502).json({ error: `Não foi possível enviar o e-mail: ${(error as any).message ?? (error as any).name ?? "erro do provedor"}` });
+        return;
+      }
+      res.json({ sent: true, ticket, exp });
+    } catch (err: any) {
+      console.error("[LOGIN CODE] Erro ao enviar código:", err.message);
+      res.status(500).json({ error: "Erro ao enviar e-mail de verificação." });
+    }
+  });
+
+  app.post("/api/auth/confirm-login-code", authLimiter, requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const email: string | undefined = user?.email;
+    const { code, ticket, exp } = req.body as { code?: string; ticket?: string; exp?: number };
+    if (!email || !code || !ticket || !exp) {
+      res.status(400).json({ valid: false, error: "Dados ausentes. Solicite um novo código." });
+      return;
+    }
+    if (Date.now() > Number(exp)) {
+      res.status(400).json({ valid: false, error: "Código expirado. Solicite um novo." });
+      return;
+    }
+
+    const admin = await getAdminClient();
+    if (admin && (await otpAttemptsExceeded(admin, email, "email_verify"))) {
+      res.status(429).json({ valid: false, error: "Muitas tentativas. Solicite um novo código e aguarde alguns minutos." });
+      return;
+    }
+
+    const expected = signOtp(email, String(code), Number(exp));
+    const ok =
+      ticket.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(ticket), Buffer.from(expected));
+    if (!ok) {
+      if (admin) await recordOtpFailure(admin, email, "email_verify");
+      res.status(400).json({ valid: false, error: "Código incorreto." });
+      return;
+    }
+
+    // Marca a conta como verificada por código (não pede de novo nos próximos acessos).
+    if (admin) {
+      await admin.from("profiles").update({ otp_verified_at: new Date().toISOString() }).eq("id", user.uid);
+    }
+    res.json({ valid: true });
+  });
+
   // ── Recuperação de senha (OTP stateless via HMAC) ─────────────────────────
   // Diferente do cadastro, aqui o e-mail PRECISA existir. Para não vazar quais
   // e-mails têm conta (enumeração), respondemos sempre 200 com ticket/exp, mas
