@@ -22,6 +22,7 @@ import { PrivacySettingsView } from './modules/profile/PrivacySettingsView';
 import { LegalView } from './modules/legal/LegalView';
 import { InstallPrompt } from './components/InstallPrompt';
 import { AdminOnboarding } from './components/AdminOnboarding';
+import { CompleteProfileModal } from './components/CompleteProfileModal';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
 import { generateDefaultLayout } from './shared/utils/defaultLayout';
 import type { TableLayoutElement } from './components/TableLayoutEditor';
@@ -920,6 +921,7 @@ export function App() {
       <Toast />
       <InstallPrompt />
       {showOnboarding && <AdminOnboarding />}
+      <CompleteProfileModal />
 
       {/* Confirmação de saída do app (voltar na home) */}
       <AnimatePresence>

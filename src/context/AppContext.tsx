@@ -276,6 +276,8 @@ interface AppContextValue {
   showExitConfirm: boolean;
   setShowExitConfirm: React.Dispatch<React.SetStateAction<boolean>>;
   confirmExitApp: () => void;
+  needsProfileCompletion: boolean;
+  setNeedsProfileCompletion: React.Dispatch<React.SetStateAction<boolean>>;
   pendingApprovalsCount: number;
   messageText: string;
   setMessageText: React.Dispatch<React.SetStateAction<string>>;
@@ -406,6 +408,20 @@ export function useApp(): AppContextValue {
 }
 
 // ─── Provider ────────────────────────────────────────────────────────────────
+
+/**
+ * Decide se um perfil de cliente está incompleto e precisa do modal de conclusão.
+ * Caso típico: login via Google, que não fornece CPF/telefone/nascimento.
+ * Critério baseado em ter documento (CPF ou passaporte) + telefone + nascimento —
+ * independe de `nationality` para não incomodar contas antigas com a flag nula.
+ * Valores cifrados ("enc:...") contam como preenchidos.
+ */
+function profileNeedsCompletion(p: any): boolean {
+  if (!p || p.role !== 'client') return false;
+  const has = (v: any) => typeof v === 'string' && v.trim() !== '';
+  const hasIdDoc = has(p.cpf) || has(p.passport_doc);
+  return !hasIdDoc || !has(p.phone) || !has(p.birth_date);
+}
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   // Site config
@@ -561,6 +577,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [isLogsModalOpen, setIsLogsModalOpen] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  // Perfil incompleto (ex.: login via Google não traz CPF/telefone/nascimento):
+  // dispara um modal bloqueante para o cliente completar o cadastro.
+  const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
   const [cartOriginEventId, setCartOriginEventId] = useState<number | null>(null);
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [messageText, setMessageText] = useState('');
@@ -730,6 +749,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   isApprovedEventCreator: profile.is_approved_event_creator,
                   avatarUrl: profile.avatar_url,
                 });
+                setNeedsProfileCompletion(profileNeedsCompletion(profile));
                 // Rebusca eventos com sessão restaurada (subscribeToEvents pode ter rodado sem auth)
                 getEvents()
                   .then(data => setEvents(data.map(mapDbEventToApp)))
@@ -789,6 +809,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
             if (profile) {
               const r = profile.role as UserRole;
+              // Login via Google não popula avatar: aproveita a foto do Google
+              // (user_metadata.picture/avatar_url) na 1ª vez, se ainda não houver.
+              let avatarUrl = profile.avatar_url;
+              if (!avatarUrl) {
+                const meta: any = session.user.user_metadata || {};
+                const googlePic = meta.avatar_url || meta.picture;
+                if (googlePic) {
+                  avatarUrl = googlePic;
+                  updateProfile(profile.id, { avatar_url: googlePic }).catch(() => { /* best-effort */ });
+                }
+              }
               setUserRole(r);
               setLoggedInUserId(profile.id);
               setIsApprovedEventCreator(profile.is_approved_event_creator);
@@ -798,8 +829,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 name: profile.name,
                 role: r,
                 isApprovedEventCreator: profile.is_approved_event_creator,
-                avatarUrl: profile.avatar_url,
+                avatarUrl,
               });
+              setNeedsProfileCompletion(profileNeedsCompletion(profile));
               // Rebusca eventos com o contexto de auth do usuário logado
               getEvents()
                 .then(data => setEvents(data.map(mapDbEventToApp)))
@@ -829,6 +861,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setUserRole(null);
         setLoggedInUserId(null);
         setIsApprovedEventCreator(false);
+        setNeedsProfileCompletion(false);
         setSessionUser(null);
         setIsStaff(false);
         sessionStorage.removeItem('auth-cleared');
@@ -2711,6 +2744,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isMessageModalOpen, setIsMessageModalOpen,
     isLogsModalOpen, setIsLogsModalOpen,
     showExitConfirm, setShowExitConfirm, confirmExitApp,
+    needsProfileCompletion, setNeedsProfileCompletion,
     pendingApprovalsCount,
     messageText, setMessageText,
     showDefaultCredentialsWarning, setShowDefaultCredentialsWarning,

@@ -563,7 +563,10 @@ export async function resetPassword(email: string) {
 // ═══════════════════════════════════════════════════════════════
 
 export async function updateProfile(userId: string, updates: Partial<Profile>) {
-  const SENSITIVE = ['cpf', 'phone', 'birth_date', 'passport_doc'] as const;
+  // Apenas cpf/phone/birth_date são criptografados pelo servidor. passport_doc é
+  // armazenado em plaintext (igual ao trigger handle_new_user) e gravado direto
+  // na tabela — o endpoint /api/profile/sensitive não o trata.
+  const SENSITIVE = ['cpf', 'phone', 'birth_date'] as const;
 
   const sensitive: Partial<Profile> = {};
   const regular: Partial<Profile> = {};
