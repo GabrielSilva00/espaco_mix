@@ -442,6 +442,40 @@ function needsLoginCode(profile: any, sessionUser: any): boolean {
   return authProvidersOf(sessionUser).includes('google');
 }
 
+// ─── Roteamento por hash (a URL reflete a página atual) ──────────────────────
+// O app usa roteamento por estado (currentView). Espelhamos isso no hash da URL
+// (ex.: #eventos) para que o endereço mostre em que página o usuário está.
+const VIEW_SLUGS: Record<CurrentView, string> = {
+  'home': '',
+  'booking': 'eventos',
+  'reservations': 'minhas-reservas',
+  'cart': 'carrinho',
+  'contact': 'contato',
+  'admin-login': 'entrar',
+  'staff-portal': 'portaria',
+  'dashboard': 'painel',
+  'profile': 'perfil',
+  'privacy': 'privacidade',
+  'terms': 'termos',
+  'profile-privacy': 'perfil-privacidade',
+};
+const SLUG_TO_VIEW: Record<string, CurrentView> = Object.fromEntries(
+  Object.entries(VIEW_SLUGS).filter(([, s]) => s).map(([v, s]) => [s, v as CurrentView]),
+) as Record<string, CurrentView>;
+// Views públicas que podem ser restauradas ao recarregar (sem expor área logada).
+const SAFE_RESTORE_VIEWS = new Set<CurrentView>(['home', 'booking', 'contact', 'terms', 'privacy']);
+
+function viewToUrl(view: CurrentView): string {
+  const slug = VIEW_SLUGS[view] ?? '';
+  return slug ? `#${slug}` : `${window.location.pathname}${window.location.search}`;
+}
+function viewFromHash(): CurrentView | null {
+  try {
+    const slug = window.location.hash.replace(/^#/, '');
+    return SLUG_TO_VIEW[slug] ?? null;
+  } catch { return null; }
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   // Site config
   const [siteConfig, setSiteConfig] = useState<SiteConfig>({ venueMaxCapacity: null, platformName: 'Espaço Mix', platformLogo: null });
@@ -475,7 +509,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [bookingType, setBookingType] = useState<'selection' | 'mesa' | 'ingresso'>('selection');
 
   // Navigation
-  const [currentView, setCurrentView] = useState<CurrentView>('home');
+  const [currentView, setCurrentView] = useState<CurrentView>(() => {
+    const v = viewFromHash();
+    return v && SAFE_RESTORE_VIEWS.has(v) ? v : 'home';
+  });
   const [dashboardMode, setDashboardMode] = useState<DashboardMode>('list');
   const [isPreviewingEvent, setIsPreviewingEvent] = useState(false);
   const [selectedDashboardEvent, setSelectedDashboardEvent] = useState<number | null>(null);
@@ -915,58 +952,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const TRANSIENT_VIEWS = useRef(new Set<CurrentView>(['admin-login', 'staff-portal'])).current;
 
   useEffect(() => {
-    // Só interceptamos o histórico no PWA instalado (standalone). No navegador
-    // web o "voltar" nativo deve funcionar normalmente — interceptar lá causava
-    // o card "Sair do aplicativo" aparecer indevidamente (ex.: ao voltar do
-    // redirect do login com Google).
-    if (!isStandaloneMode()) return;
-    if (!_historyInitialized.current) {
-      _historyInitialized.current = true;
-      navStackRef.current = [currentView];
-      window.history.replaceState({ view: currentView }, '');
-      return;
-    }
+    // Espelha a página atual no hash da URL (ex.: #eventos) em web E no PWA, para
+    // que o endereço mostre onde o usuário está. A pilha lógica é usada na
+    // confirmação de saída (só no PWA standalone — ver efeito de popstate).
+    const url = viewToUrl(currentView);
     if (_isPopState.current) {
       _isPopState.current = false;
       return;
     }
-    // Navegação para frente (clique/ação). A home é a raiz: zera a pilha.
+    if (!_historyInitialized.current) {
+      _historyInitialized.current = true;
+      navStackRef.current = [currentView];
+      window.history.replaceState({ view: currentView }, '', url);
+      return;
+    }
+    const prev = navStackRef.current[navStackRef.current.length - 1];
+    // Telas de login são transientes: ao sair delas (ex.: após autenticar),
+    // substituímos a entrada atual em vez de empilhar, para que o "voltar" não
+    // retorne à tela de login.
+    const isTransientLeave = TRANSIENT_VIEWS.has(prev) && !TRANSIENT_VIEWS.has(currentView);
     if (currentView === 'home') {
       navStackRef.current = ['home'];
-      window.history.pushState({ view: currentView }, '');
+    } else if (isTransientLeave) {
+      navStackRef.current[navStackRef.current.length - 1] = currentView;
     } else {
-      // Telas de login são transientes: ao sair delas (ex.: após autenticar),
-      // substituímos o topo da pilha em vez de empilhar, para que o "voltar"
-      // não retorne à tela de login.
-      const prev = navStackRef.current[navStackRef.current.length - 1];
-      if (TRANSIENT_VIEWS.has(prev) && !TRANSIENT_VIEWS.has(currentView)) {
-        navStackRef.current[navStackRef.current.length - 1] = currentView;
-        window.history.replaceState({ view: currentView }, '');
-      } else {
-        navStackRef.current.push(currentView);
-        window.history.pushState({ view: currentView }, '');
-      }
+      navStackRef.current.push(currentView);
     }
+    if (isTransientLeave) window.history.replaceState({ view: currentView }, '', url);
+    else window.history.pushState({ view: currentView }, '', url);
   }, [currentView]);
 
   useEffect(() => {
-    // Confirmação de saída só no PWA instalado (standalone) — ver comentário acima.
-    if (!isStandaloneMode()) return;
-    const handlePop = () => {
+    const standalone = isStandaloneMode();
+    const handlePop = (e: PopStateEvent) => {
       if (exitingRef.current) return; // saída em andamento — deixa o browser sair
       const stack = navStackRef.current;
-      if (stack.length > 1) {
-        // Volta percorrendo a pilha interna até a home
-        stack.pop();
-        const prev = stack[stack.length - 1];
-        _isPopState.current = true;
-        setCurrentView(prev);
-      } else {
-        // Estamos na home (raiz) e o usuário tentou voltar → confirmar saída.
-        // Re-arma o estado para não sair do app imediatamente.
-        window.history.pushState({ view: 'home' }, '');
+      // PWA instalado na raiz: confirma a saída em vez de fechar imediatamente.
+      if (standalone && stack.length <= 1) {
+        window.history.pushState({ view: 'home' }, '', viewToUrl('home'));
         setShowExitConfirm(true);
+        return;
       }
+      // Caso geral (web sempre; PWA fora da raiz): segue para o destino real do
+      // histórico (estado da entrada ou hash da URL). No web, na raiz, o segundo
+      // "voltar" sai do app naturalmente (não re-empilhamos).
+      if (stack.length > 1) stack.pop();
+      const stateView = (e.state && (e.state as any).view) as CurrentView | undefined;
+      const target = stateView ?? viewFromHash() ?? stack[stack.length - 1] ?? 'home';
+      _isPopState.current = true;
+      setCurrentView(target);
     };
     window.addEventListener('popstate', handlePop);
     return () => window.removeEventListener('popstate', handlePop);
@@ -1509,7 +1543,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSessionUser({ id: profile.id, email: profile.email, name: profile.name, role: r, isApprovedEventCreator: profile.is_approved_event_creator, avatarUrl: profile.avatar_url });
       if (r === 'admin' || r === 'developer') { setCurrentView('dashboard'); setDashboardMode('admin-overview'); }
       else if (profile.is_approved_event_creator) { setCurrentView('dashboard'); setDashboardMode('producer-dashboard'); }
-      else setCurrentView('booking');
+      else setCurrentView('home');
     } catch {
       // Mensagem SEMPRE genérica (anti-enumeração): não revela se o e-mail existe
       // nem qual provedor usa. O Supabase retorna o mesmo erro para senha errada e
