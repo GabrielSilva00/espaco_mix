@@ -215,8 +215,8 @@ export function BookingView() {
                   <h2 className="text-sm md:text-base tracking-[0.2em] uppercase text-white font-bold">Selecionar</h2>
                 </div>
 
-                {/* Cards Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                {/* Cards que expandem inline */}
+                <div className="flex flex-col gap-4 mb-6">
 
                   {/* Placeholder de carregamento dos ingressos (evita card sumir em rede lenta) */}
                   {loadingBatches && !hasTickets && (
@@ -226,105 +226,66 @@ export function BookingView() {
                     </div>
                   )}
 
-                  {/* Card Ingressos */}
+                  {/* Card Ingressos (expande inline) */}
                   {hasTickets && (
-                    <button
-                      onClick={() => togglePanel('tickets')}
-                      className={`group relative text-left rounded-2xl border p-3 transition-all duration-300 flex flex-col gap-1.5 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
+                    <div
+                      className={`relative rounded-2xl border transition-all duration-300 overflow-hidden focus-within:ring-2 focus-within:ring-[#d4af37]/50
                         ${activePanel === 'tickets'
                           ? 'border-[#d4af37]/60 bg-[#d4af37]/5 shadow-[0_0_24px_rgba(212,175,55,0.08)]'
                           : 'border-white/10 bg-[#111] hover:border-[#d4af37]/30 hover:bg-[#d4af37]/[0.02]'
                         }`}
                     >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${activePanel === 'tickets' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
-                        <Ticket className={`w-4 h-4 transition-colors ${activePanel === 'tickets' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
-                      </div>
-                      <div>
-                        <h3 className="text-base font-bold text-white tracking-wide mb-1">Ingressos</h3>
-                        <p className="text-xs text-white/40">
-                          {previewSectors.length} {previewSectors.length === 1 ? 'categoria disponível' : 'categorias disponíveis'}
-                        </p>
-                      </div>
-                      {ticketMinPrice > 0 && (
-                        <div className="mt-auto">
-                          <span className="text-[10px] uppercase tracking-widest text-white/30 block mb-0.5">A partir de</span>
-                          <span className="text-lg font-serif text-[#d4af37]">
-                            R$ {ticketMinPrice.toFixed(2)}
-                            {ticketMaxPrice > ticketMinPrice && (
-                              <span className="text-sm text-white/30"> – R$ {ticketMaxPrice.toFixed(2)}</span>
-                            )}
-                          </span>
+                      <button
+                        onClick={() => togglePanel('tickets')}
+                        className="w-full text-left p-3 flex flex-col gap-1.5 focus:outline-none group"
+                      >
+                        <div className="flex items-start justify-between w-full">
+                          <div className="flex items-start gap-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${activePanel === 'tickets' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
+                              <Ticket className={`w-4 h-4 transition-colors ${activePanel === 'tickets' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
+                            </div>
+                            <div>
+                              <h3 className="text-base font-bold text-white tracking-wide mb-1">Ingressos</h3>
+                              <p className="text-xs text-white/40">
+                                {previewSectors.length} {previewSectors.length === 1 ? 'categoria disponível' : 'categorias disponíveis'}
+                              </p>
+                            </div>
+                          </div>
+                          {totalTicketsSelected > 0 && (
+                            <div className="w-5 h-5 rounded-full bg-[#d4af37] text-[#0a0a0a] text-[9px] font-black flex items-center justify-center shrink-0">
+                              {totalTicketsSelected}
+                            </div>
+                          )}
                         </div>
-                      )}
-                      <div className={`flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold transition-colors ${activePanel === 'tickets' ? 'text-[#d4af37]' : 'text-white/30 group-hover:text-white/60'}`}>
-                        {activePanel === 'tickets' ? 'Fechar' : 'Ver ingressos'}
-                        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${activePanel === 'tickets' ? 'rotate-90' : ''}`} />
-                      </div>
-                      {totalTicketsSelected > 0 && (
-                        <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-[#d4af37] text-[#0a0a0a] text-[9px] font-black flex items-center justify-center">
-                          {totalTicketsSelected}
-                        </div>
-                      )}
-                    </button>
-                  )}
-
-                  {/* Card Mesas / Bistrô */}
-                  {hasTables && (
-                    <button
-                      onClick={() => togglePanel('tables')}
-                      className={`group relative text-left rounded-2xl border p-3 transition-all duration-300 flex flex-col gap-1.5 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50
-                        ${activePanel === 'tables'
-                          ? 'border-[#d4af37]/60 bg-[#d4af37]/5 shadow-[0_0_24px_rgba(212,175,55,0.08)]'
-                          : 'border-white/10 bg-[#111] hover:border-[#d4af37]/30 hover:bg-[#d4af37]/[0.02]'
-                        }`}
-                    >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${activePanel === 'tables' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
-                        {hasBistro ? (
-                          <Coffee className={`w-4 h-4 transition-colors ${activePanel === 'tables' ? 'text-amber-400' : 'text-white/50 group-hover:text-amber-400'}`} />
-                        ) : (
-                          <Armchair className={`w-4 h-4 transition-colors ${activePanel === 'tables' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
+                        {ticketMinPrice > 0 && (
+                          <div className="mt-1">
+                            <span className="text-[10px] uppercase tracking-widest text-white/30 block mb-0.5">A partir de</span>
+                            <span className="text-lg font-serif text-[#d4af37]">
+                              R$ {ticketMinPrice.toFixed(2)}
+                              {ticketMaxPrice > ticketMinPrice && (
+                                <span className="text-sm text-white/30"> – R$ {ticketMaxPrice.toFixed(2)}</span>
+                              )}
+                            </span>
+                          </div>
                         )}
-                      </div>
-                      <div>
-                        <h3 className="text-base font-bold text-white tracking-wide mb-1">
-                          Mesas{hasBistro ? ' / Bistrô' : ''}
-                        </h3>
-                        <p className="text-xs text-white/40">
-                          {derivedTables.filter(t => t.status !== 'reserved').length} disponíveis de {derivedTables.length}
-                        </p>
-                      </div>
-                      {tableMinPrice > 0 && (
-                        <div className="mt-auto">
-                          <span className="text-[10px] uppercase tracking-widest text-white/30 block mb-0.5">A partir de</span>
-                          <span className="text-lg font-serif text-[#d4af37]">R$ {tableMinPrice.toFixed(2)}</span>
+                        <div className={`flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold transition-colors ${activePanel === 'tickets' ? 'text-[#d4af37]' : 'text-white/30 group-hover:text-white/60'}`}>
+                          {activePanel === 'tickets' ? 'Fechar' : 'Ver ingressos'}
+                          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${activePanel === 'tickets' ? 'rotate-90' : ''}`} />
                         </div>
-                      )}
-                      <div className={`flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold transition-colors ${activePanel === 'tables' ? 'text-[#d4af37]' : 'text-white/30 group-hover:text-white/60'}`}>
-                        {activePanel === 'tables' ? 'Fechar' : 'Ver mapa'}
-                        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${activePanel === 'tables' ? 'rotate-90' : ''}`} />
-                      </div>
-                      {selectedTables.length > 0 && (
-                        <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-[#d4af37] text-[#0a0a0a] text-[9px] font-black flex items-center justify-center">
-                          {selectedTables.length}
-                        </div>
-                      )}
-                    </button>
-                  )}
-                </div>
+                      </button>
 
-                {/* Animated Panels */}
-                <AnimatePresence mode="wait">
-
-                  {/* Painel de Ingressos */}
-                  {activePanel === 'tickets' && hasTickets && (
-                    <motion.div
-                      key="tickets-panel"
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.25 }}
-                    >
-                      <div className="bg-[#111] border border-white/5 rounded-3xl p-6">
+                      {/* Painel de Ingressos inline */}
+                      <AnimatePresence>
+                        {activePanel === 'tickets' && (
+                          <motion.div
+                            key="tickets-panel-inline"
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                            className="overflow-hidden"
+                          >
+                            <div className="border-t border-white/10 p-4 pt-5">
                         {/* Lotes fechados */}
                         {activeEvent!.batches.filter(b => b.is_active === false).map((batch, bi) => (
                           <div key={batch.id ?? `closed-batch-${bi}`} className="mb-3 flex items-center gap-3 bg-[#0d0d0d] p-4 rounded-xl border border-white/5 opacity-50">
@@ -448,21 +409,74 @@ export function BookingView() {
                             );
                           })}
                         </div>
-                      </div>
-                    </motion.div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   )}
 
-                  {/* Painel de Mesas / Bistrô */}
-                  {activePanel === 'tables' && hasTables && (
-                    <motion.div
-                      key="tables-panel"
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.25 }}
+                  {/* Card Mesas / Bistrô (expande inline) */}
+                  {hasTables && (
+                    <div
+                      className={`relative rounded-2xl border transition-all duration-300 overflow-hidden focus-within:ring-2 focus-within:ring-[#d4af37]/50
+                        ${activePanel === 'tables'
+                          ? 'border-[#d4af37]/60 bg-[#d4af37]/5 shadow-[0_0_24px_rgba(212,175,55,0.08)]'
+                          : 'border-white/10 bg-[#111] hover:border-[#d4af37]/30 hover:bg-[#d4af37]/[0.02]'
+                        }`}
                     >
-                      <div className="space-y-6 flex flex-col p-1 border border-[#ffffff1a] bg-gradient-to-br from-[#0f0f0f] to-[#0a0a0a] rounded-[1.5rem] min-h-[480px] md:min-h-[720px]">
-                        <div className="p-2 md:p-4">
+                      <button
+                        onClick={() => togglePanel('tables')}
+                        className="w-full text-left p-3 flex flex-col gap-1.5 focus:outline-none group"
+                      >
+                        <div className="flex items-start justify-between w-full">
+                          <div className="flex items-start gap-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${activePanel === 'tables' ? 'bg-[#d4af37]/20' : 'bg-white/5 group-hover:bg-[#d4af37]/10'}`}>
+                              {hasBistro ? (
+                                <Coffee className={`w-4 h-4 transition-colors ${activePanel === 'tables' ? 'text-amber-400' : 'text-white/50 group-hover:text-amber-400'}`} />
+                              ) : (
+                                <Armchair className={`w-4 h-4 transition-colors ${activePanel === 'tables' ? 'text-[#d4af37]' : 'text-white/50 group-hover:text-[#d4af37]'}`} />
+                              )}
+                            </div>
+                            <div>
+                              <h3 className="text-base font-bold text-white tracking-wide mb-1">
+                                Mesas{hasBistro ? ' / Bistrô' : ''}
+                              </h3>
+                              <p className="text-xs text-white/40">
+                                {derivedTables.filter(t => t.status !== 'reserved').length} disponíveis de {derivedTables.length}
+                              </p>
+                            </div>
+                          </div>
+                          {selectedTables.length > 0 && (
+                            <div className="w-5 h-5 rounded-full bg-[#d4af37] text-[#0a0a0a] text-[9px] font-black flex items-center justify-center shrink-0">
+                              {selectedTables.length}
+                            </div>
+                          )}
+                        </div>
+                        {tableMinPrice > 0 && (
+                          <div className="mt-1">
+                            <span className="text-[10px] uppercase tracking-widest text-white/30 block mb-0.5">A partir de</span>
+                            <span className="text-lg font-serif text-[#d4af37]">R$ {tableMinPrice.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className={`flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold transition-colors ${activePanel === 'tables' ? 'text-[#d4af37]' : 'text-white/30 group-hover:text-white/60'}`}>
+                          {activePanel === 'tables' ? 'Fechar' : 'Ver mapa'}
+                          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${activePanel === 'tables' ? 'rotate-90' : ''}`} />
+                        </div>
+                      </button>
+
+                      {/* Painel de Mesas inline */}
+                      <AnimatePresence>
+                        {activePanel === 'tables' && (
+                          <motion.div
+                            key="tables-panel-inline"
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                            className="overflow-hidden"
+                          >
+                            <div className="border-t border-white/10 p-2 md:p-4">
                           <div className="flex flex-col gap-3 mb-3 md:mb-5">
                             <div>
                               <h2 className="text-xl font-serif text-[#d4af37] mb-2">Mapa do Evento</h2>
@@ -718,10 +732,13 @@ export function BookingView() {
                             </div>
                           )}
                         </div>
-                      </div>
-                    </motion.div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   )}
-                </AnimatePresence>
+
+                </div>
               </section>
             )}
 
