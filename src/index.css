@@ -77,6 +77,9 @@ html {
 }
 
 body {
+  /* Fundo escuro imediato — previne flash branco antes do React */
+  background: #0a0a0a;
+  color: #e5e5e5;
   /* Remove highlight azul/cinza ao tocar em elementos no iOS */
   -webkit-tap-highlight-color: transparent;
   /* Previne scroll horizontal global */

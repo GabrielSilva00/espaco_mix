@@ -110,11 +110,10 @@ export function App() {
   // Remove o splash HTML inline se a splash React não for exibida
   useEffect(() => {
     if (!showSplash) {
-      const htmlSplash = document.getElementById('html-splash');
-      if (htmlSplash) {
-        htmlSplash.style.opacity = '0';
-        setTimeout(() => htmlSplash.remove(), 300);
-      }
+      requestAnimationFrame(() => {
+        const el = document.getElementById('html-splash');
+        if (el) el.remove();
+      });
     }
   }, [showSplash]);
 

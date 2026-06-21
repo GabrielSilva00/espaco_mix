@@ -6,13 +6,15 @@ interface SplashScreenProps {
 }
 
 export function SplashScreen({ onComplete }: SplashScreenProps) {
-  // Remove o splash HTML inline (index.html) assim que o React monta
+  // Remove o splash HTML inline só DEPOIS que este componente pintou na tela
   useEffect(() => {
-    const htmlSplash = document.getElementById('html-splash');
-    if (htmlSplash) {
-      htmlSplash.style.opacity = '0';
-      setTimeout(() => htmlSplash.remove(), 400);
-    }
+    // Espera 2 frames para garantir que o React splash já está visível
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const htmlSplash = document.getElementById('html-splash');
+        if (htmlSplash) htmlSplash.remove();
+      });
+    });
   }, []);
   return (
     <motion.div
