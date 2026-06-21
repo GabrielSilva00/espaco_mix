@@ -105,16 +105,9 @@ export function BookingView() {
         >
           <div className="max-w-7xl mx-auto px-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {selectedTables.length > 0 && (
-                <span className="px-3 py-1 bg-[#d4af37]/20 text-[#d4af37] text-[11px] font-bold uppercase tracking-widest rounded-full">
-                  {selectedTables.length} Mesa{selectedTables.length > 1 ? 's' : ''}
-                </span>
-              )}
-              {totalTicketsSelected > 0 && (
-                <span className="px-3 py-1 bg-[#d4af37]/20 text-[#d4af37] text-[11px] font-bold uppercase tracking-widest rounded-full">
-                  {totalTicketsSelected} Ingresso{totalTicketsSelected > 1 ? 's' : ''}
-                </span>
-              )}
+              <span className="px-3 py-1 bg-[#d4af37]/20 text-[#d4af37] text-[11px] font-bold uppercase tracking-widest rounded-full">
+                {selectedTables.length + totalTicketsSelected} {selectedTables.length + totalTicketsSelected === 1 ? 'item' : 'itens'}
+              </span>
             </div>
             <button
               onClick={handleCheckout}
