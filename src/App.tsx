@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, X, Check, Smartphone, AlertTriangle,
@@ -12,6 +12,7 @@ import { Toast } from './shared/components/Toast';
 import { ConsentBanner } from './shared/components/ConsentBanner';
 import { Home } from './components/Home';
 import { Footer } from './components/Footer';
+import { SplashScreen } from './components/SplashScreen';
 import { BookingView } from './modules/booking/BookingView';
 import { ReservationsView } from './modules/reservations/ReservationsView';
 import { CartView } from './modules/cart/CartView';
@@ -95,6 +96,16 @@ export function App() {
 
   const [resendingEmail, setResendingEmail] = React.useState(false);
   const [cancellingTicket, setCancellingTicket] = React.useState(false);
+
+  // Splash screen — exibe apenas 1x por sessão
+  const [showSplash, setShowSplash] = useState(() => {
+    if (sessionStorage.getItem('splash-shown')) return false;
+    return true;
+  });
+  const handleSplashComplete = () => {
+    sessionStorage.setItem('splash-shown', '1');
+    setShowSplash(false);
+  };
 
   const handleCancelConfirm = async () => {
     if (!actionTicket || cancellingTicket) return;
@@ -284,6 +295,12 @@ export function App() {
   }
 
   return (
+    <>
+      {/* Splash Screen (intro) */}
+      <AnimatePresence>
+        {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
+      </AnimatePresence>
+
     <div className={`min-h-screen bg-[#0a0a0a] text-[#e5e5e5] font-sans selection:bg-[#d4af37]/30 overflow-x-hidden ${isAdminLayout ? 'flex' : ''}`}>
 
       {/* Skip link — acessibilidade para navegação por teclado */}
@@ -1049,5 +1066,6 @@ export function App() {
         )}
       </AnimatePresence>
     </div>
+    </>
   );
 }
