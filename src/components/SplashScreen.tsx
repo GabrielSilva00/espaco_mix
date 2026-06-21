@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { motion } from 'motion/react';
 
 interface SplashScreenProps {
@@ -5,6 +6,14 @@ interface SplashScreenProps {
 }
 
 export function SplashScreen({ onComplete }: SplashScreenProps) {
+  // Remove o splash HTML inline (index.html) assim que o React monta
+  useEffect(() => {
+    const htmlSplash = document.getElementById('html-splash');
+    if (htmlSplash) {
+      htmlSplash.style.opacity = '0';
+      setTimeout(() => htmlSplash.remove(), 400);
+    }
+  }, []);
   return (
     <motion.div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a0a0a]"

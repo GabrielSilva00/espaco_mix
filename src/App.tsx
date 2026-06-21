@@ -107,6 +107,17 @@ export function App() {
     setShowSplash(false);
   };
 
+  // Remove o splash HTML inline se a splash React não for exibida
+  useEffect(() => {
+    if (!showSplash) {
+      const htmlSplash = document.getElementById('html-splash');
+      if (htmlSplash) {
+        htmlSplash.style.opacity = '0';
+        setTimeout(() => htmlSplash.remove(), 300);
+      }
+    }
+  }, [showSplash]);
+
   const handleCancelConfirm = async () => {
     if (!actionTicket || cancellingTicket) return;
     setCancellingTicket(true);

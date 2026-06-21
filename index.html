@@ -27,6 +27,13 @@
     <meta name="mobile-web-app-capable" content="yes" />
   </head>
   <body>
+    <!-- Splash inline (aparece ANTES do React carregar, cobre qualquer flash) -->
+    <div id="html-splash" style="position:fixed;inset:0;z-index:99999;background:#0a0a0a;display:flex;align-items:center;justify-content:center;transition:opacity 0.4s ease-out;">
+      <img src="/logo-splash.png" alt="" width="200" height="200" style="object-fit:contain;opacity:0;animation:splashFadeIn 0.6s ease-out 0.1s forwards;filter:drop-shadow(0 0 30px rgba(212,175,55,0.25));" />
+    </div>
+    <style>
+      @keyframes splashFadeIn { from { opacity:0; transform:scale(0.85); } to { opacity:1; transform:scale(1); } }
+    </style>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
