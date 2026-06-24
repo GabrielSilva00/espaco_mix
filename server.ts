@@ -1793,6 +1793,7 @@ export async function createExpressApp() {
 
       if (rpcErr) {
         const msg = rpcErr.message || '';
+        console.error("[RESERVA-RPC] Erro:", JSON.stringify({ code: rpcErr.code, message: msg, details: rpcErr.details, hint: rpcErr.hint }));
         if (msg.includes('MESA_OCUPADA')) {
           res.status(409).json({ error: msg.split(':').slice(1).join(':').trim() });
           return;
