@@ -2688,13 +2688,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Guard contra double-click na criação de reserva
+  const reservationLockRef = useRef(false);
+
   const handleCreateReservation = async (
     reservationData: Parameters<typeof createReservationInDb>[0],
     ticketItems: Parameters<typeof createReservationInDb>[1]
   ) => {
-    const reservation = await createReservationInDb(reservationData, ticketItems);
-    setReservations(prev => [reservation as any, ...prev]);
-    return reservation;
+    if (reservationLockRef.current) {
+      throw new Error('Reserva já em andamento. Aguarde.');
+    }
+    reservationLockRef.current = true;
+    try {
+      const reservation = await createReservationInDb(reservationData, ticketItems);
+      setReservations(prev => [reservation as any, ...prev]);
+      return reservation;
+    } finally {
+      // Libera após 3s para cobrir latência de rede + animação
+      setTimeout(() => { reservationLockRef.current = false; }, 3000);
+    }
   };
 
   // Seleção local em andamento (ainda não virou reserva no banco). Exposta para

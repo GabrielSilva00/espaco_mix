@@ -969,6 +969,14 @@ export async function createExpressApp() {
     message: { error: "Muitas consultas de status. Aguarde alguns minutos." },
   });
 
+  const reservationLimiter = rateLimit({
+    windowMs: 10_000,        // janela de 10 segundos
+    max: 3,                  // máximo 3 tentativas por IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Muitas tentativas de reserva. Aguarde 10 segundos." },
+  });
+
   // Aplica o limite global APENAS às rotas de API. No dev o Express serve
   // todos os módulos/assets via Vite middleware; limitá-los derrubaria o app
   // (cada page load = dezenas de requisições). Em produção o Express só atende /api.
@@ -1681,7 +1689,7 @@ export async function createExpressApp() {
   // Roteada pelo servidor (service role) porque o cliente anônimo não tem
   // política de RLS para ler de volta a reserva criada (.select()) nem para
   // inserir ticket_items. O total é SEMPRE recalculado aqui (anti-fraude).
-  app.post("/api/reservations", async (req, res) => {
+  app.post("/api/reservations", reservationLimiter, async (req, res) => {
     const { reservation, ticketItems } = req.body as {
       reservation?: any;
       ticketItems?: any[];
@@ -1754,52 +1762,68 @@ export async function createExpressApp() {
       : Math.round(grandTotal * platformRate * 100) / 100;
     const netAmount = Math.round((grandTotal - platformFee) * 100) / 100;
 
-    // Bloqueia dupla reserva: rejeita se alguma mesa pedida já está ocupada.
+    // ── Reserva atômica via RPC (anti double-selling) ──────────────────
+    // Toda verificação de disponibilidade (mesas + ingressos) e inserção
+    // acontece dentro de uma ÚNICA transação PL/pgSQL com pessimistic lock.
     const requestedTables = Array.isArray(reservation.tables) ? reservation.tables.map(Number) : [];
-    if (requestedTables.length > 0) {
-      try {
-        const occupied = new Set(await getOccupiedTables(admin, reservation.event_id));
-        const conflict = requestedTables.filter((t: number) => occupied.has(t));
-        if (conflict.length > 0) {
-          res.status(409).json({ error: `Mesa(s) já reservada(s): ${conflict.join(", ")}. Atualize o mapa e escolha outra.` });
-          return;
-        }
-      } catch (e: any) {
-        console.error("[RESERVA] Falha ao checar mesas ocupadas:", e?.message);
-      }
-    }
+    const singleTickets = Math.max(0, Math.floor(Number(reservation.single_tickets) || 0));
+    const maleTickets = Math.max(0, Math.floor(Number(reservation.male_tickets) || 0));
+    const femaleTickets = Math.max(0, Math.floor(Number(reservation.female_tickets) || 0));
+    const ticketLines = Array.isArray(reservation.ticket_lines) ? reservation.ticket_lines : null;
 
     try {
-      const { data: res1, error: resErr } = await admin
+      const { data: rpcResult, error: rpcErr } = await admin.rpc('reserve_tickets', {
+        p_event_id: Number(reservation.event_id),
+        p_user_id: userId,
+        p_buyer_name: buyerName,
+        p_buyer_email: buyerEmail,
+        p_buyer_cpf: buyerCpf,
+        p_buyer_phone: buyerPhone || null,
+        p_tables: requestedTables,
+        p_single_tickets: singleTickets,
+        p_male_tickets: maleTickets,
+        p_female_tickets: femaleTickets,
+        p_ticket_lines: ticketLines,
+        p_sector_id: reservation.sector_id ?? null,
+        p_payment_method: reservation.payment_method ?? null,
+        p_total: grandTotal,
+        p_platform_fee: platformFee,
+        p_net_amount: netAmount,
+      });
+
+      if (rpcErr) {
+        const msg = rpcErr.message || '';
+        if (msg.includes('MESA_OCUPADA')) {
+          res.status(409).json({ error: msg.split(':').slice(1).join(':').trim() });
+          return;
+        }
+        if (msg.includes('ESGOTADO')) {
+          res.status(409).json({ error: msg.split(':').slice(1).join(':').trim() });
+          return;
+        }
+        if (msg.includes('SETOR_INVALIDO')) {
+          res.status(400).json({ error: msg.split(':').slice(1).join(':').trim() });
+          return;
+        }
+        throw rpcErr;
+      }
+
+      const reservationId = rpcResult?.reservation_id;
+      if (!reservationId) throw new Error('RPC não retornou reservation_id.');
+
+      // Busca a reserva recém-criada para retornar ao frontend
+      const { data: res1 } = await admin
         .from("reservations")
-        .insert({
-          event_id: reservation.event_id,
-          user_id: userId,
-          buyer_name: buyerName,
-          buyer_email: buyerEmail,
-          buyer_cpf: buyerCpf,
-          buyer_phone: buyerPhone || null,
-          tables: Array.isArray(reservation.tables) ? reservation.tables : [],
-          single_tickets: Math.max(0, Math.floor(Number(reservation.single_tickets) || 0)),
-          male_tickets: Math.max(0, Math.floor(Number(reservation.male_tickets) || 0)),
-          female_tickets: Math.max(0, Math.floor(Number(reservation.female_tickets) || 0)),
-          ticket_lines: Array.isArray(reservation.ticket_lines) ? reservation.ticket_lines : null,
-          total: grandTotal,
-          platform_fee: platformFee,
-          net_amount: netAmount,
-          payment_status: "pending",
-          payment_method: reservation.payment_method ?? null,
-        })
-        .select()
+        .select("*")
+        .eq("id", reservationId)
         .single();
-      if (resErr) throw resErr;
 
       // ticket_items: sanitiza e força reservation_id/event_id no servidor.
       const items = Array.isArray(ticketItems) ? ticketItems.slice(0, 500) : [];
       let insertedItems: any[] = [];
       if (items.length > 0) {
         const toInsert = items.map((t) => ({
-          reservation_id: res1.id,
+          reservation_id: reservationId,
           event_id: reservation.event_id,
           name: sanitizeName(t?.name ?? "Ingresso", 80),
           is_table: Boolean(t?.is_table),
@@ -1810,8 +1834,6 @@ export async function createExpressApp() {
           owner_email: t?.owner_email ?? null,
           status: String(t?.status ?? "active"),
         }));
-        // .select() retorna os ids reais (gerados no banco) — usados no QR Code
-        // para que o check-in encontre o ingresso.
         const { data: ins, error: tiErr } = await admin.from("ticket_items").insert(toInsert).select();
         if (tiErr) throw tiErr;
         insertedItems = ins ?? [];
