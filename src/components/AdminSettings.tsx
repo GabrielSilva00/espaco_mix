@@ -1012,7 +1012,8 @@ export function AdminSettings({
         ) : activeTab === 'payments' ? (
           // ABA DE PAGAMENTOS
           <div className="space-y-6">
-            <MercadoPagoSettings />
+            <MercadoPagoSettings userRole={userRole} />
+            {userRole === 'developer' && (
             <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8">
               <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] mb-2 flex items-center gap-3">
                 <span className="p-2 bg-[#d4af37]/10 rounded-lg"><Shield className="w-4 h-4" /></span>
@@ -1026,6 +1027,7 @@ export function AdminSettings({
                 <EnvStatusBadge configured={envStatus?.APP_URL} label="App URL" />
               </div>
             </section>
+            )}
           </div>
         ) : (
           // ABA MINHA CONTA

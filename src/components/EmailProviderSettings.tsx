@@ -46,8 +46,19 @@ export function EmailProviderSettings() {
     if (!ok) { setTestStatus('err'); setTestMsg('Erro ao salvar.'); return; }
     const r = await authed('/api/admin/test-email', {});
     if (r.ok) { setTestStatus('ok'); setTestMsg(r.data.message || 'E-mail de teste enviado!'); }
-    else { setTestStatus('err'); setTestMsg(r.data.error || 'Falha no teste.'); }
-    setTimeout(() => setTestStatus('idle'), 6000);
+    else {
+      const msg = r.data.error || 'Falha no teste.';
+      // Traduz erros comuns do Resend
+      if (/only send.*testing.*emails.*your own/i.test(msg) || /verify a domain/i.test(msg)) {
+        setTestMsg('Para enviar e-mails, verifique seu domínio em resend.com/domains e altere o remetente para um e-mail do domínio verificado.');
+      } else if (/api key/i.test(msg)) {
+        setTestMsg('Chave da API do Resend inválida ou ausente. Verifique a variável RESEND_API_KEY no Vercel.');
+      } else {
+        setTestMsg(msg);
+      }
+      setTestStatus('err');
+    }
+    setTimeout(() => setTestStatus('idle'), 10000);
   };
 
   const inputCls = 'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20';

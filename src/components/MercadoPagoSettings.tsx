@@ -13,7 +13,8 @@ interface PaymentStatus {
   webhookConfigured: boolean;
 }
 
-export function MercadoPagoSettings() {
+export function MercadoPagoSettings({ userRole }: { userRole?: string | null }) {
+  const isDev = userRole === 'developer';
   const [status, setStatus] = useState<PaymentStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
@@ -93,7 +94,8 @@ export function MercadoPagoSettings() {
         </div>
       </div>
 
-      {/* Explicação: credenciais ficam na Vercel */}
+      {/* Explicação: credenciais ficam na Vercel — só developer */}
+      {isDev && (
       <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 flex gap-3">
         <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
         <p className="text-xs text-blue-400/90 leading-relaxed">
@@ -103,6 +105,7 @@ export function MercadoPagoSettings() {
           alterar as credenciais, consulte o documento <code className="bg-black/40 px-1 rounded">ENTREGA.md</code>.
         </p>
       </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -140,7 +143,8 @@ export function MercadoPagoSettings() {
             <StatusItem label="Webhook (assinatura)" value={status?.webhookConfigured ? 'configurado' : 'ausente'} ok={!!status?.webhookConfigured} />
           </div>
 
-          {/* Instrução para configurar no Vercel */}
+          {/* Instrução para configurar no Vercel — só developer */}
+          {isDev && (
           <div className="bg-white/5 border border-white/10 rounded-xl p-5 flex items-start gap-3">
             <Key className="w-4 h-4 text-[#d4af37] shrink-0 mt-0.5" />
             <div>
@@ -150,8 +154,10 @@ export function MercadoPagoSettings() {
               </p>
             </div>
           </div>
+          )}
 
-          {/* Webhook URL (apenas leitura, para registrar no MP) */}
+          {/* Webhook URL — só developer */}
+          {isDev && (
           <div className="bg-white/5 border border-white/10 rounded-xl p-6">
             <label className="block text-sm font-bold uppercase tracking-widest mb-3">
               <span className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-[#d4af37]" /> URL do Webhook</span>
@@ -174,8 +180,10 @@ export function MercadoPagoSettings() {
               <code className="bg-black/40 px-1 rounded mx-1">ENTREGA.md</code>.
             </p>
           </div>
+          )}
 
-          {/* Testar conexão (usa credenciais do servidor) */}
+          {/* Testar conexão — só developer */}
+          {isDev && (
           <div className="bg-white/5 border border-white/10 rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -205,7 +213,9 @@ export function MercadoPagoSettings() {
               </div>
             )}
           </div>
+          )}
 
+          {isDev && (
           <a
             href="https://www.mercadopago.com.br/developers/panel"
             target="_blank" rel="noopener noreferrer"
@@ -213,6 +223,7 @@ export function MercadoPagoSettings() {
           >
             <ExternalLink className="w-3.5 h-3.5" /> Painel de Desenvolvedor do Mercado Pago
           </a>
+          )}
         </>
       )}
     </div>
