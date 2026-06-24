@@ -901,18 +901,6 @@ export function AdminSettings({
 
         <EmailProviderSettings />
 
-        <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6">
-          <p className="text-[10px] uppercase tracking-widest font-bold text-white/40 mb-3 flex items-center gap-2">
-            <Shield className="w-3.5 h-3.5" />
-            Chaves de Infraestrutura (Vercel)
-          </p>
-          <p className="text-[11px] text-white/30 mb-4">Configuradas no painel do Vercel — o sistema nunca exibe nem salva os valores.</p>
-          <div className="flex flex-wrap gap-2">
-            <EnvStatusBadge configured={envStatus?.RESEND_API_KEY} label="Resend API Key" />
-            <EnvStatusBadge configured={envStatus?.CRON_SECRET} label="Cron Secret" />
-          </div>
-        </section>
-
         {/* 9. Templates de Email */}
         <section className="bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8">
           <h3 className="text-sm uppercase tracking-widest font-bold text-[#d4af37] mb-8 flex items-center gap-3">
@@ -940,20 +928,10 @@ export function AdminSettings({
                 name="emailSenderAddress"
                 value={settings.emailSenderAddress}
                 onChange={handleChange}
-                placeholder="onboarding@resend.dev (padrão dev)"
+                placeholder="noreply@seudominio.com.br"
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
               />
-              <p className="text-[11px] text-white/30 mt-1.5">Para produção, verifique seu domínio em resend.com.</p>
-            </div>
-          </div>
-
-          {/* Variáveis disponíveis */}
-          <div className="mb-8 p-4 bg-white/5 rounded-xl border border-white/10">
-            <p className="text-[10px] uppercase tracking-widest font-bold text-white/40 mb-3">Variáveis disponíveis nos templates</p>
-            <div className="flex flex-wrap gap-2">
-              {['{{buyer_name}}','{{event_title}}','{{event_date}}','{{event_time}}','{{event_location}}','{{reservation_id}}','{{total}}','{{payment_method}}'].map(v => (
-                <code key={v} className="text-[11px] bg-white/10 text-[#d4af37] px-2 py-1 rounded-md font-mono">{v}</code>
-              ))}
+              <p className="text-[11px] text-white/30 mt-1.5">Verifique seu domínio em resend.com para usar e-mail personalizado.</p>
             </div>
           </div>
 

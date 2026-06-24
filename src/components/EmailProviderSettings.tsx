@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Mail, Eye, EyeOff, Save, Check, Send, Loader2, Key } from 'lucide-react';
+import { Mail, Save, Check, Send, Loader2, Key } from 'lucide-react';
 import { getAccessTokenSafe } from '../lib/supabase';
 
 async function authed(path: string, body?: any, method = 'POST') {
@@ -13,17 +13,8 @@ async function authed(path: string, body?: any, method = 'POST') {
   return { ok: res.ok, data };
 }
 
-/** Provedor de e-mail (Resend ou SMTP) editável nas Configurações. Segredos vão
- *  criptografados no servidor; nunca voltam para a tela. */
 export function EmailProviderSettings() {
-  const [provider, setProvider] = useState<'resend' | 'smtp'>('resend');
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState('587');
-  const [smtpUser, setSmtpUser] = useState('');
-  const [smtpPassword, setSmtpPassword] = useState('');
-  const [smtpSecure, setSmtpSecure] = useState(true);
   const [notifyWebhook, setNotifyWebhook] = useState('');
-  const [show, setShow] = useState(false);
   const [configured, setConfigured] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -33,12 +24,7 @@ export function EmailProviderSettings() {
   useEffect(() => {
     authed('/api/admin/email-status', undefined, 'GET').then(r => {
       if (!r.ok) return;
-      setProvider(r.data.provider === 'smtp' ? 'smtp' : 'resend');
       setConfigured(!!r.data.configured);
-      setSmtpHost(r.data.smtpHost || '');
-      setSmtpPort(r.data.smtpPort ? String(r.data.smtpPort) : '587');
-      setSmtpUser(r.data.smtpUser || '');
-      setSmtpSecure(r.data.smtpSecure ?? true);
       setNotifyWebhook(r.data.notifyWebhookUrl || '');
     }).catch(() => {});
   }, []);
@@ -46,19 +32,18 @@ export function EmailProviderSettings() {
   const save = async () => {
     setSaving(true);
     const r = await authed('/api/admin/email-config', {
-      provider,
-      smtp: provider === 'smtp' ? { host: smtpHost, port: Number(smtpPort) || 587, user: smtpUser, password: smtpPassword || undefined, secure: smtpSecure } : undefined,
+      provider: 'resend',
       notifyWebhookUrl: notifyWebhook.trim() || undefined,
     });
     setSaving(false);
-    if (r.ok) { setSmtpPassword(''); setConfigured(true); setSaved(true); setTimeout(() => setSaved(false), 2500); }
+    if (r.ok) { setConfigured(true); setSaved(true); setTimeout(() => setSaved(false), 2500); }
     return r.ok;
   };
 
   const test = async () => {
     setTestStatus('sending'); setTestMsg('');
     const ok = await save();
-    if (!ok) { setTestStatus('err'); setTestMsg('Salve antes de testar.'); return; }
+    if (!ok) { setTestStatus('err'); setTestMsg('Erro ao salvar.'); return; }
     const r = await authed('/api/admin/test-email', {});
     if (r.ok) { setTestStatus('ok'); setTestMsg(r.data.message || 'E-mail de teste enviado!'); }
     else { setTestStatus('err'); setTestMsg(r.data.error || 'Falha no teste.'); }
@@ -75,41 +60,16 @@ export function EmailProviderSettings() {
       </h3>
 
       <div className="space-y-4 max-w-2xl">
-        <div className="flex gap-2">
-          {(['resend', 'smtp'] as const).map(p => (
-            <button key={p} type="button" onClick={() => setProvider(p)} className={`flex-1 py-2.5 rounded-xl text-[10px] uppercase tracking-widest font-bold border transition ${provider === p ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37]' : 'bg-white/5 border-white/10 text-white/40'}`}>{p === 'resend' ? 'Resend' : 'SMTP'}</button>
-          ))}
-        </div>
-        {configured && <p className="text-[11px] text-green-400">✓ E-mail configurado. Preencha os segredos de novo só para trocar.</p>}
-
-        {provider === 'resend' ? (
-          <div className="flex items-start gap-3 bg-white/5 border border-white/10 rounded-xl p-4">
-            <Key className="w-4 h-4 text-[#d4af37] shrink-0 mt-0.5" />
-            <div>
-              <p className="text-xs font-bold text-white/80 mb-1">Resend API Key</p>
-              <p className="text-[11px] text-white/40 leading-relaxed">
-                Configure a chave diretamente nas variáveis de ambiente do Vercel (<code className="bg-black/40 px-1 rounded">RESEND_API_KEY</code>). Passo a passo no <code className="bg-black/40 px-1 rounded">ENTREGA.md</code>.
-              </p>
-            </div>
+        <div className="flex items-start gap-3 bg-white/5 border border-white/10 rounded-xl p-4">
+          <Key className="w-4 h-4 text-[#d4af37] shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-bold text-white/80 mb-1">Resend API Key</p>
+            <p className="text-[11px] text-white/40 leading-relaxed">
+              Configure a chave nas variáveis de ambiente do Vercel (<code className="bg-black/40 px-1 rounded">RESEND_API_KEY</code>).
+            </p>
+            {configured && <p className="text-[11px] text-green-400 mt-2">✓ E-mail configurado e funcionando.</p>}
           </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div><label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Host</label><input value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="smtp.gmail.com" className={inputCls} /></div>
-              <div><label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Porta</label><input value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="587" className={inputCls} /></div>
-              <div><label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">TLS/SSL</label><button type="button" onClick={() => setSmtpSecure(v => !v)} className={`w-full py-3 rounded-xl text-[10px] uppercase tracking-widest font-bold border ${smtpSecure ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37]' : 'bg-white/5 border-white/10 text-white/40'}`}>{smtpSecure ? 'Ativado' : 'Desativado'}</button></div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Usuário</label><input value={smtpUser} onChange={e => setSmtpUser(e.target.value)} className={inputCls} /></div>
-              <div><label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Senha</label>
-                <div className="relative">
-                  <input type={show ? 'text' : 'password'} value={smtpPassword} onChange={e => setSmtpPassword(e.target.value)} className={inputCls + ' pr-10'} />
-                  <button onClick={() => setShow(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">{show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
+        </div>
 
         <div>
           <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Webhook de notificações (Slack/Discord — opcional)</label>
@@ -118,7 +78,7 @@ export function EmailProviderSettings() {
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <button onClick={save} disabled={saving} className={`px-5 py-2.5 rounded-xl text-[10px] uppercase tracking-widest font-bold flex items-center gap-2 ${saved ? 'bg-green-500/20 text-green-400' : 'bg-[#d4af37] text-black hover:brightness-110 disabled:opacity-50'}`}>
-            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />} {saved ? 'Salvo' : 'Salvar e-mail'}
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />} {saved ? 'Salvo' : 'Salvar'}
           </button>
           <button onClick={test} disabled={testStatus === 'sending'} className="px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-[10px] uppercase tracking-widest font-bold text-white/70 hover:bg-white/10 flex items-center gap-2 disabled:opacity-50">
             {testStatus === 'sending' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Testar envio
