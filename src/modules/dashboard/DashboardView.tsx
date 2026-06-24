@@ -111,7 +111,7 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
 
   return (
     <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+      <div className="flex flex-col items-center gap-4 mb-2">
         <div className="flex items-center gap-3">
           <BarChart3 className="w-6 h-6 text-[#d4af37]" />
           <h1 className="text-2xl font-serif text-[#d4af37]">Painel de Controle</h1>
@@ -119,7 +119,7 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
         <div className="flex bg-white/5 border border-white/8 rounded-xl p-1 gap-1">
           {(['day', 'week', 'month'] as const).map(p => (
             <button key={p} onClick={() => setPeriod(p)}
-              className={`px-3 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-widest transition ${period === p ? 'bg-[#d4af37] text-black' : 'text-white/40 hover:text-white'}`}>
+              className={`px-5 py-2 rounded-lg text-[10px] uppercase font-bold tracking-widest transition ${period === p ? 'bg-[#d4af37] text-black' : 'text-white/40 hover:text-white'}`}>
               {p === 'day' ? 'Hoje' : p === 'week' ? 'Semana' : 'Mês'}
             </button>
           ))}
@@ -233,59 +233,56 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
       {/* Página de Compradores Cadastrados */}
       {showCustomers && (
         <div className="fixed inset-0 z-50 bg-[#0a0a0a] flex flex-col">
-          <div className="px-5 md:px-8 py-5 border-b border-white/8 flex items-center gap-4 shrink-0">
+          <div className="px-4 md:px-8 py-4 border-b border-white/8 flex items-center gap-3 shrink-0">
             <button onClick={() => { setShowCustomers(false); setCustomerSearch(''); }} className="p-2 -ml-2 rounded-lg text-white/40 hover:text-white hover:bg-white/5"><ArrowLeft className="w-5 h-5" /></button>
-            <div className="flex items-center gap-3">
-              <Users className="w-5 h-5 text-[#d4af37]" />
-              <h1 className="text-lg font-serif text-[#d4af37]">Compradores Cadastrados</h1>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Users className="w-4 h-4 text-[#d4af37] shrink-0" />
+              <h1 className="text-sm font-bold text-[#d4af37] uppercase tracking-widest truncate">Compradores</h1>
             </div>
+            {!loadingCustomers && (
+              <span className="ml-auto text-[10px] text-white/30 font-bold tabular-nums shrink-0">{filteredCustomers.length}/{customers.length}</span>
+            )}
           </div>
 
-          {/* Barra de pesquisa */}
-          <div className="px-5 md:px-8 py-4 border-b border-white/5 shrink-0">
-            <div className="relative max-w-md">
+          <div className="px-4 md:px-8 py-3 shrink-0">
+            <div className="relative max-w-lg">
               <Search className="w-4 h-4 text-white/30 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 value={customerSearch}
                 onChange={e => setCustomerSearch(e.target.value)}
-                placeholder="Pesquisar por nome ou e-mail…"
+                placeholder="Buscar nome ou e-mail\u2026"
                 className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#d4af37]/50"
               />
             </div>
-            {!loadingCustomers && customers.length > 0 && (
-              <p className="text-[11px] text-white/30 mt-2">{filteredCustomers.length} de {customers.length} compradores</p>
-            )}
           </div>
 
-          <div className="overflow-y-auto flex-1 max-w-4xl w-full mx-auto">
+          <div className="overflow-y-auto flex-1 px-4 md:px-8 pb-8">
+            <div className="max-w-lg mx-auto">
             {loadingCustomers ? (
               <div className="py-20 flex justify-center"><div className="w-8 h-8 border-2 border-[#d4af37]/30 border-t-[#d4af37] rounded-full animate-spin" /></div>
             ) : customers.length === 0 ? (
               <div className="py-20 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum comprador encontrado</div>
             ) : filteredCustomers.length === 0 ? (
-              <div className="py-20 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum resultado para “{customerSearch}”</div>
+              <div className="py-20 text-center text-[10px] uppercase tracking-widest text-white/20">Nenhum resultado para \"{customerSearch}\"</div>
             ) : (
-              <div className="overflow-x-auto">
-              <table className="w-full min-w-[420px]">
-                <thead className="border-b border-white/5 sticky top-0 bg-[#0a0a0a]">
-                  <tr>
-                    <th className="px-4 md:px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">Nome</th>
-                    <th className="px-4 md:px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30">E-mail</th>
-                    <th className="px-4 md:px-6 py-3 text-left text-[9px] uppercase tracking-widest text-white/30 hidden sm:table-cell">Cadastro</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {filteredCustomers.map(c => (
-                    <tr key={c.id} className="hover:bg-white/[0.02]">
-                      <td className="px-6 py-4 text-sm text-white/90">{c.name || '—'}</td>
-                      <td className="px-6 py-4 text-sm text-white/60 font-mono text-xs">{c.email}</td>
-                      <td className="px-6 py-4 text-[11px] text-white/30 hidden sm:table-cell">{c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="space-y-2">
+                {filteredCustomers.map(c => (
+                  <div key={c.id} className="bg-white/[0.03] border border-white/5 rounded-xl px-4 py-3 flex items-center gap-3 hover:bg-white/[0.05] transition">
+                    <div className="w-9 h-9 rounded-full bg-[#d4af37]/10 flex items-center justify-center shrink-0">
+                      <span className="text-[#d4af37] text-xs font-bold uppercase">{(c.name || '?')[0]}</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-white truncate">{c.name || '\u2014'}</p>
+                      <p className="text-[11px] text-white/35 truncate">{c.email}</p>
+                    </div>
+                    {c.created_at && (
+                      <span className="text-[10px] text-white/20 shrink-0 hidden sm:block">{new Date(c.created_at).toLocaleDateString('pt-BR')}</span>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
