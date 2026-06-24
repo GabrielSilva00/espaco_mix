@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, User, Check, X, ShieldCheck, Clock, Ticket } from 'lucide-react';
 import { getAccessTokenSafe } from '../../lib/supabase';
@@ -69,9 +69,8 @@ export function CpfSearch({ eventId, onCheckIn }: Props) {
 
   const handleTicketCheckIn = async (ticketId: string) => {
     setCheckingIn(ticketId);
-    await onCheckIn(ticketId);
-    // Refresh search to update checked-in status
-    setTimeout(() => {
+    try {
+      await onCheckIn(ticketId);
       setResult(prev => {
         if (!prev?.tickets) return prev;
         return {
@@ -81,8 +80,9 @@ export function CpfSearch({ eventId, onCheckIn }: Props) {
           ),
         };
       });
+    } finally {
       setCheckingIn(null);
-    }, 500);
+    }
   };
 
   const handleClear = () => {

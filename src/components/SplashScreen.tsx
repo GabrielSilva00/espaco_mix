@@ -5,6 +5,8 @@ interface SplashScreenProps {
   onComplete: () => void;
 }
 
+const SPLASH_LINGER_MS = 1200;
+
 export function SplashScreen({ onComplete }: SplashScreenProps) {
   // Remove o splash HTML inline só DEPOIS que este componente pintou na tela
   useEffect(() => {
@@ -19,8 +21,6 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
   return (
     <motion.div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a0a0a]"
-      initial={{ opacity: 1 }}
-      animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5, ease: 'easeInOut' }}
     >
@@ -45,8 +45,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
           ease: [0.16, 1, 0.3, 1], // spring-like
         }}
         onAnimationComplete={() => {
-          // Aguarda um momento após a animação finalizar antes de sair
-          setTimeout(onComplete, 1200);
+          setTimeout(onComplete, SPLASH_LINGER_MS);
         }}
       >
         {/* Logo */}

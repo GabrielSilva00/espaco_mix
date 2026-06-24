@@ -143,8 +143,9 @@ export function MercadoPagoSettings({ userRole }: { userRole?: string | null }) 
             <StatusItem label="Webhook (assinatura)" value={status?.webhookConfigured ? 'configurado' : 'ausente'} ok={!!status?.webhookConfigured} />
           </div>
 
-          {/* Instrução para configurar no Vercel — só developer */}
+          {/* Seções técnicas — visíveis apenas para developer */}
           {isDev && (
+          <>
           <div className="bg-white/5 border border-white/10 rounded-xl p-5 flex items-start gap-3">
             <Key className="w-4 h-4 text-[#d4af37] shrink-0 mt-0.5" />
             <div>
@@ -154,10 +155,7 @@ export function MercadoPagoSettings({ userRole }: { userRole?: string | null }) 
               </p>
             </div>
           </div>
-          )}
 
-          {/* Webhook URL — só developer */}
-          {isDev && (
           <div className="bg-white/5 border border-white/10 rounded-xl p-6">
             <label className="block text-sm font-bold uppercase tracking-widest mb-3">
               <span className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-[#d4af37]" /> URL do Webhook</span>
@@ -180,10 +178,7 @@ export function MercadoPagoSettings({ userRole }: { userRole?: string | null }) 
               <code className="bg-black/40 px-1 rounded mx-1">ENTREGA.md</code>.
             </p>
           </div>
-          )}
 
-          {/* Testar conexão — só developer */}
-          {isDev && (
           <div className="bg-white/5 border border-white/10 rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -213,9 +208,7 @@ export function MercadoPagoSettings({ userRole }: { userRole?: string | null }) 
               </div>
             )}
           </div>
-          )}
 
-          {isDev && (
           <a
             href="https://www.mercadopago.com.br/developers/panel"
             target="_blank" rel="noopener noreferrer"
@@ -223,6 +216,7 @@ export function MercadoPagoSettings({ userRole }: { userRole?: string | null }) 
           >
             <ExternalLink className="w-3.5 h-3.5" /> Painel de Desenvolvedor do Mercado Pago
           </a>
+          </>
           )}
         </>
       )}

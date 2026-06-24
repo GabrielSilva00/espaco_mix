@@ -285,13 +285,18 @@ export function AdminSidebar() {
           </button>
 
           {/* Eventos */}
+          {(() => {
+            const isEventActive = currentView === 'dashboard' && (dashboardMode === 'list' || dashboardMode === 'details' || dashboardMode === 'edit' || dashboardMode === 'check-in');
+            return (
           <button
             onClick={() => { setCurrentView('dashboard'); setDashboardMode('list'); }}
             className="flex-1 flex flex-col items-center justify-center gap-1 transition-colors active:scale-95"
           >
-            <CalendarIcon className={`w-5 h-5 transition-colors ${currentView === 'dashboard' && (dashboardMode === 'list' || dashboardMode === 'details' || dashboardMode === 'edit' || dashboardMode === 'check-in') ? 'text-[#d4af37]' : 'text-white/35'}`} />
-            <span className={`text-[9px] font-bold uppercase tracking-wider transition-colors ${currentView === 'dashboard' && (dashboardMode === 'list' || dashboardMode === 'details' || dashboardMode === 'edit' || dashboardMode === 'check-in') ? 'text-[#d4af37]' : 'text-white/35'}`}>Eventos</span>
+            <CalendarIcon className={`w-5 h-5 transition-colors ${isEventActive ? 'text-[#d4af37]' : 'text-white/35'}`} />
+            <span className={`text-[9px] font-bold uppercase tracking-wider transition-colors ${isEventActive ? 'text-[#d4af37]' : 'text-white/35'}`}>Eventos</span>
           </button>
+            );
+          })()}
 
           {/* Criar Evento — botão central destacado */}
           <button
