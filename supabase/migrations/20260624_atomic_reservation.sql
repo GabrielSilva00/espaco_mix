@@ -1,28 +1,39 @@
 -- ============================================================
--- Migração: Reserva Atômica (anti double-selling)
--- v2: compatível com coluna tables como JSONB
+-- Migração: Reserva Atômica (anti double-selling) v3
+-- Tipos corrigidos: tables=integer[], sectors.id=text
 -- ============================================================
 
--- 1. Índice parcial para reservas ativas por evento
+-- 1. Índice parcial para reservas ativas
 CREATE INDEX IF NOT EXISTS idx_reservations_active_event
   ON reservations (event_id)
   WHERE payment_status IN ('approved', 'pending');
 
--- 2. Adicionar sector_id se não existir
+-- 2. Drop TODAS as versões anteriores (assinaturas diferentes)
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'reservations' AND column_name = 'sector_id'
-  ) THEN
-    ALTER TABLE reservations ADD COLUMN sector_id UUID;
-  END IF;
+  -- Tenta dropar com assinatura JSONB (v2)
+  BEGIN
+    DROP FUNCTION IF EXISTS reserve_tickets(BIGINT, UUID, TEXT, TEXT, TEXT, TEXT, JSONB, INTEGER, INTEGER, INTEGER, JSONB, UUID, TEXT, NUMERIC, NUMERIC, NUMERIC);
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
+  -- Tenta dropar com assinatura INTEGER[] + UUID (v1)
+  BEGIN
+    DROP FUNCTION IF EXISTS reserve_tickets(BIGINT, UUID, TEXT, TEXT, TEXT, TEXT, INTEGER[], INTEGER, INTEGER, INTEGER, JSONB, UUID, TEXT, NUMERIC, NUMERIC, NUMERIC);
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
+  -- Tenta dropar com assinatura INTEGER[] + TEXT (v3)
+  BEGIN
+    DROP FUNCTION IF EXISTS reserve_tickets(BIGINT, UUID, TEXT, TEXT, TEXT, TEXT, INTEGER[], INTEGER, INTEGER, INTEGER, JSONB, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC);
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
+  -- Fallback genérico
+  BEGIN
+    DROP FUNCTION IF EXISTS reserve_tickets;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
 END $$;
 
--- 3. Drop da versão anterior se existir
-DROP FUNCTION IF EXISTS reserve_tickets;
-
--- 4. Função atômica de reserva (JSONB-compatible)
+-- 3. Função atômica
 CREATE OR REPLACE FUNCTION reserve_tickets(
   p_event_id       BIGINT,
   p_user_id        UUID       DEFAULT NULL,
@@ -30,12 +41,12 @@ CREATE OR REPLACE FUNCTION reserve_tickets(
   p_buyer_email    TEXT       DEFAULT '',
   p_buyer_cpf      TEXT       DEFAULT '',
   p_buyer_phone    TEXT       DEFAULT NULL,
-  p_tables         JSONB      DEFAULT '[]',
+  p_tables         INTEGER[]  DEFAULT '{}',
   p_single_tickets INTEGER    DEFAULT 0,
   p_male_tickets   INTEGER    DEFAULT 0,
   p_female_tickets INTEGER    DEFAULT 0,
   p_ticket_lines   JSONB      DEFAULT NULL,
-  p_sector_id      UUID       DEFAULT NULL,
+  p_sector_id      TEXT       DEFAULT NULL,
   p_payment_method TEXT       DEFAULT NULL,
   p_total          NUMERIC    DEFAULT 0,
   p_platform_fee   NUMERIC    DEFAULT 0,
@@ -54,11 +65,8 @@ DECLARE
   v_sector          RECORD;
   v_sold_count      BIGINT;
   v_requested       INTEGER;
-  v_tables_arr      JSONB;
+  v_sector_id_text  TEXT;
 BEGIN
-
-  -- Normaliza tables
-  v_tables_arr := COALESCE(p_tables, '[]'::jsonb);
 
   -- ═══════════════════════════════════════════════════════════════
   -- 0. LIMPAR CARRINHOS EXPIRADOS
@@ -76,29 +84,18 @@ BEGIN
      AND created_at < NOW() - (v_cart_expiry_min || ' minutes')::INTERVAL;
 
   -- ═══════════════════════════════════════════════════════════════
-  -- 1. VALIDAÇÃO DE MESAS
+  -- 1. VALIDAÇÃO DE MESAS (Advisory Lock + Array Overlap)
   -- ═══════════════════════════════════════════════════════════════
-  IF jsonb_array_length(v_tables_arr) > 0 THEN
+  IF p_tables IS NOT NULL AND array_length(p_tables, 1) > 0 THEN
 
-    -- Advisory lock serializa reservas de mesas por evento
     PERFORM pg_advisory_xact_lock(p_event_id);
 
-    -- Verifica conflitos: mesas já ocupadas por reservas ativas
-    -- Usa JSONB overlap: checa se algum elemento de v_tables_arr
-    -- existe no array tables da reserva existente
     SELECT COUNT(*) INTO v_conflict_count
       FROM reservations r
      WHERE r.event_id = p_event_id
        AND r.payment_status IN ('approved', 'pending')
        AND r.tables IS NOT NULL
-       AND jsonb_typeof(r.tables) = 'array'
-       AND jsonb_array_length(r.tables) > 0
-       AND EXISTS (
-         SELECT 1
-           FROM jsonb_array_elements_text(r.tables) AS existing_table
-           JOIN jsonb_array_elements_text(v_tables_arr) AS requested_table
-             ON existing_table.value = requested_table.value
-       );
+       AND r.tables && p_tables;
 
     IF v_conflict_count > 0 THEN
       RAISE EXCEPTION 'MESA_OCUPADA:Uma ou mais mesas já estão reservadas. Atualize o mapa.'
@@ -109,22 +106,23 @@ BEGIN
   -- ═══════════════════════════════════════════════════════════════
   -- 2. VALIDAÇÃO DE INGRESSOS (SELECT FOR UPDATE)
   -- ═══════════════════════════════════════════════════════════════
-
-  -- 2a. Multi-setor (ticket_lines)
   IF p_ticket_lines IS NOT NULL
      AND jsonb_typeof(p_ticket_lines) = 'array'
      AND jsonb_array_length(p_ticket_lines) > 0 THEN
 
     FOR v_line IN SELECT * FROM jsonb_array_elements(p_ticket_lines) LOOP
 
+      v_sector_id_text := v_line->>'sectorId';
+
+      -- sectors.id é TEXT, não UUID
       SELECT id, name, quantity, event_id INTO v_sector
         FROM sectors
-       WHERE id = (v_line->>'sectorId')::UUID
+       WHERE id = v_sector_id_text
          AND event_id = p_event_id
        FOR UPDATE;
 
       IF NOT FOUND THEN
-        RAISE EXCEPTION 'SETOR_INVALIDO:Setor não encontrado.'
+        RAISE EXCEPTION 'SETOR_INVALIDO:Setor "%" não encontrado.', v_sector_id_text
           USING ERRCODE = 'P0001';
       END IF;
 
@@ -138,7 +136,7 @@ BEGIN
              jsonb_array_elements(r.ticket_lines) AS tl
         WHERE r.event_id = p_event_id
           AND r.payment_status IN ('approved', 'pending')
-          AND (tl->>'sectorId') = (v_line->>'sectorId');
+          AND (tl->>'sectorId') = v_sector_id_text;
 
         v_requested := COALESCE((v_line->>'single')::INT, 0)
                      + COALESCE((v_line->>'male')::INT, 0)
@@ -166,8 +164,8 @@ BEGIN
     payment_status, payment_method
   ) VALUES (
     p_event_id, p_user_id, p_buyer_name, p_buyer_email, p_buyer_cpf, p_buyer_phone,
-    v_tables_arr, p_single_tickets, p_male_tickets, p_female_tickets,
-    p_ticket_lines, p_sector_id,
+    p_tables, p_single_tickets, p_male_tickets, p_female_tickets,
+    p_ticket_lines, p_sector_id::UUID,
     p_total, p_platform_fee, p_net_amount,
     'pending', p_payment_method
   )
@@ -181,7 +179,7 @@ EXCEPTION
 END;
 $$;
 
--- 5. Permissões
+-- 4. Permissões
 REVOKE ALL ON FUNCTION reserve_tickets FROM PUBLIC;
 REVOKE ALL ON FUNCTION reserve_tickets FROM anon;
 REVOKE ALL ON FUNCTION reserve_tickets FROM authenticated;
