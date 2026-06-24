@@ -26,6 +26,7 @@ import { generateDefaultLayout, getLayoutViewBox } from '../../shared/utils/defa
 import { ReportsPanel } from './ReportsPanel';
 import ImageCropModal from './ImageCropModal';
 import { FocusPointPicker } from './FocusPointPicker';
+import { CpfSearch } from './CpfSearch';
 import { uploadEventImage } from '../../lib/supabase';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { isEventPast } from '../../shared/utils/eventMapper';
@@ -1452,11 +1453,11 @@ export function DashboardView() {
                     </div>
 
                     <div className="bg-[#0d0d0d] border border-white/10 rounded-2xl p-6">
-                       <h3 className="text-xs font-serif text-[#d4af37] mb-4 uppercase tracking-widest leading-none">Busca Rápida</h3>
+                       <h3 className="text-xs font-serif text-[#d4af37] mb-4 uppercase tracking-widest leading-none">Busca por ID / QR</h3>
                        <div className="flex flex-col sm:flex-row gap-3">
                          <input 
                            type="text" 
-                           placeholder="Digite o CPF (000.000.000-00) ou ID..."
+                           placeholder="Digite o ID do ingresso..."
                            value={checkInInput}
                            onChange={(e) => setCheckInInput(e.target.value)}
                            onKeyPress={(e) => e.key === 'Enter' && handleCheckIn(checkInInput)}
@@ -1470,6 +1471,9 @@ export function DashboardView() {
                          </button>
                        </div>
                     </div>
+
+                    {/* Busca por CPF */}
+                    <CpfSearch eventId={selectedDashboardEvent ?? undefined} onCheckIn={handleCheckIn} />
                   </div>
                 )}
 

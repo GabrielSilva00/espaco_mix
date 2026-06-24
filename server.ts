@@ -1913,6 +1913,109 @@ export async function createExpressApp() {
     }
   });
 
+  // ── Buscar ingressos por CPF (portaria) ────────────────────────────────────
+  app.post("/api/checkin/search-cpf", requireAuthOrStaff, async (req, res) => {
+    const user = (req as any).user;
+    const staff = (req as any).staff as StaffTokenPayload | undefined;
+    const { cpf, eventId } = req.body as { cpf?: string; eventId?: number };
+    if (!cpf || typeof cpf !== "string") {
+      res.status(400).json({ error: "CPF é obrigatório." });
+      return;
+    }
+    const digits = cpf.replace(/\D/g, "");
+    if (digits.length !== 11) {
+      res.status(400).json({ error: "CPF deve ter 11 dígitos." });
+      return;
+    }
+    const admin = await getAdminClient();
+    if (!admin) {
+      res.status(503).json({ error: "Serviço não configurado." });
+      return;
+    }
+    try {
+      // Busca o perfil pelo hash do CPF
+      const cpfH = hashCpf(digits);
+      if (!cpfH) {
+        res.status(500).json({ error: "Erro ao processar CPF." });
+        return;
+      }
+      const { data: profile } = await admin
+        .from("profiles")
+        .select("id, name, email")
+        .eq("cpf_hash", cpfH)
+        .maybeSingle();
+      if (!profile) {
+        res.json({ found: false, message: "Nenhum cadastro encontrado com este CPF." });
+        return;
+      }
+
+      // Busca reservas pagas deste usuário
+      let query = admin
+        .from("reservations")
+        .select("id, event_id, buyer_name, payment_status, total, created_at")
+        .eq("user_id", profile.id)
+        .eq("payment_status", "approved");
+      if (eventId) query = query.eq("event_id", eventId);
+      const { data: reservations } = await query;
+
+      if (!reservations || reservations.length === 0) {
+        res.json({
+          found: true,
+          customer: { name: profile.name, email: profile.email },
+          tickets: [],
+          message: "Cliente encontrado, mas sem ingressos pagos" + (eventId ? " para este evento." : "."),
+        });
+        return;
+      }
+
+      // Autorização: staff só vê eventos vinculados
+      const resIds = reservations.map(r => r.id);
+      if (staff) {
+        const allowedEventIds = (staff.eventIds || []).map(String);
+        const filtered = reservations.filter(r => allowedEventIds.includes(String(r.event_id)));
+        if (filtered.length === 0) {
+          res.status(403).json({ error: "Sem permissão para este evento." });
+          return;
+        }
+      }
+
+      // Busca ingressos dessas reservas
+      const { data: tickets } = await admin
+        .from("ticket_items")
+        .select("id, name, status, checked_in_at, event_id, owner_name, reservation_id")
+        .in("reservation_id", resIds);
+
+      // Busca nomes dos eventos
+      const eventIds = [...new Set((tickets || []).map(t => t.event_id))];
+      const { data: eventsData } = await admin
+        .from("events")
+        .select("id, title, date")
+        .in("id", eventIds);
+      const eventsMap = Object.fromEntries((eventsData || []).map(e => [e.id, e]));
+
+      const ticketList = (tickets || []).map(t => ({
+        id: t.id,
+        name: t.name,
+        ownerName: t.owner_name,
+        status: t.status,
+        checkedIn: !!t.checked_in_at,
+        checkedInAt: t.checked_in_at,
+        eventId: t.event_id,
+        eventTitle: eventsMap[t.event_id]?.title || "Evento",
+        eventDate: eventsMap[t.event_id]?.date || "",
+      }));
+
+      res.json({
+        found: true,
+        customer: { name: profile.name, email: profile.email },
+        tickets: ticketList,
+      });
+    } catch (err: any) {
+      console.error("[SEARCH-CPF] Erro:", err?.message ?? err);
+      res.status(500).json({ error: "Erro ao buscar por CPF." });
+    }
+  });
+
   // ── Desfazer check-in (restaura QR para ser bipado novamente) ────────────
   app.post("/api/checkin/undo", requireAuthOrStaff, async (req, res) => {
     const user = (req as any).user;
