@@ -71,7 +71,8 @@ npm run dev
 - **Payment Methods:** PIX, Credit Card, Debit Card
 - **`payment_id` na reserva = ORDER id** (`data.id` da Orders API), usado para re-consultar `/v1/orders/{id}`
 - **Sandbox:** Orders API NÃO aceita credenciais `TEST-`; use credenciais `APP_USR-` de um vendedor de teste + comprador com e-mail `@testuser.com`
-- **Restrição MP:** `application_fee` NÃO é suportado pela Orders API — exclusivo do Checkout Pro (Preferences API). Nunca incluir esse campo no payload de `/v1/orders`
+- **Restrição MP:** `application_fee` NÃO é suportado pela Orders API — exclusivo do Checkout transparente/Bricks (`/v1/payments`). Nunca incluir esse campo no payload de `/v1/orders`
+- **Split de pagamentos (marketplace):** a Orders API ACEITA o campo `marketplace_fee` (string, nível raiz da order) — é o campo correto de split (não confundir com `application_fee`). O **desenvolvedor é o marketplace** (recebe a comissão) e o **dono do site é o vendedor**; a order é criada com o **access_token do vendedor obtido via OAuth** (`getSellerCredentials()` em `server.ts`) + `marketplace_fee`. Sem a conta do vendedor conectada, o pagamento cai no token único e NÃO envia `marketplace_fee` (sem split, mas o checkout continua funcionando). A comissão é controlada pelas envs `MARKETPLACE_FEE_TYPE`/`MARKETPLACE_FEE_VALUE` (o dono não altera pelo painel)
 
 ### Payment Flow (server-side como fonte de verdade)
 1. Frontend cria a reserva (`pending`) e chama `/api/payment/pix` ou `/api/payment/mercadopago`
@@ -109,8 +110,13 @@ NODE_ENV                     # "development" or "production"
 PORT                         # Default: 3000
 APP_URL                      # Required in production (CORS)
 PAYMENT_PROVIDER             # "mercadopago" | "disabled"
-MERCADOPAGO_ACCESS_TOKEN     # APP_USR-... (vendedor de teste em sandbox)
+MERCADOPAGO_ACCESS_TOKEN     # APP_USR-... (token único; fallback quando não há split)
 MERCADOPAGO_WEBHOOK_SECRET   # Assinatura secreta do webhook (painel MP)
+MP_MARKETPLACE_CLIENT_ID     # Split: client_id da aplicação marketplace (desenvolvedor)
+MP_MARKETPLACE_CLIENT_SECRET # Split: client_secret da aplicação marketplace
+MP_OAUTH_REDIRECT_URI        # Split: https://<domínio>/api/mp/oauth/callback (cadastrar igual no painel MP)
+MARKETPLACE_FEE_TYPE         # Split: 'percentage' | 'fixed' (comissão do desenvolvedor)
+MARKETPLACE_FEE_VALUE        # Split: ex. 10 (=10%) ou 2.00 (=R$ fixo)
 SUPABASE_SERVICE_ROLE_KEY    # Service role (bypassa RLS) — NUNCA no frontend
 SUPABASE_DB_URL              # Postgres via transaction pooler :6543 (migrações)
 ENCRYPTION_KEY               # 64 hex chars — descriptografa segredos do painel (app_secrets)
@@ -125,6 +131,7 @@ Frontend (`VITE_` = exposto): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VI
 2. No painel do Mercado Pago: Suas integrações → Webhooks → cadastrar `https://<domínio>/api/webhook/mercadopago` (evento: Pagamentos) e copiar a **assinatura secreta** para `MERCADOPAGO_WEBHOOK_SECRET`
 3. Aplicar migrações pendentes: `npx tsx scripts/run-migration.ts supabase/migrations/<file>.sql` (após o deploy do código)
 4. Conferir com `npx tsx scripts/check-schema.ts`
+5. **Split:** criar a aplicação marketplace no painel MP do desenvolvedor, cadastrar `MP_OAUTH_REDIRECT_URI` IGUAL lá, setar `MP_MARKETPLACE_CLIENT_ID/SECRET` e `MARKETPLACE_FEE_TYPE/VALUE` na Vercel; depois o dono conecta a conta dele no painel admin ("Conectar Mercado Pago")
 
 ## Key Implementation Details
 
@@ -215,8 +222,15 @@ espaco_mix/
 - Run `npm run lint` to see all type issues
 
 **Erro 'unsupported_properties' no Mercado Pago?**
-- A Orders API (`/v1/orders`) não aceita `application_fee` — esse campo é exclusivo do Checkout Pro (Preferences API)
-- Verificar se nenhum campo extra foi adicionado ao payload de `/v1/orders`
+- A Orders API (`/v1/orders`) não aceita `application_fee` — esse campo é exclusivo do Checkout transparente/Bricks (`/v1/payments`)
+- Para split na Orders API o campo correto é `marketplace_fee` (string, nível raiz da order)
+- Verificar se nenhum campo extra/inválido foi adicionado ao payload de `/v1/orders`
+
+**Split não está repartindo / `marketplace_fee` rejeitado?**
+- O `marketplace_fee` só é aceito quando a order é criada com o **token OAuth do vendedor** (não com um token comum). Confirmar no painel admin que a conta do dono está conectada ("Conectar Mercado Pago" → status conectado)
+- Conferir `MP_MARKETPLACE_CLIENT_ID/SECRET` e `MP_OAUTH_REDIRECT_URI` (igual ao cadastrado no painel MP) na Vercel
+- Logs `[MERCADOPAGO]` mostram `split: marketplace_fee=...` (conectado) ou `split: off (token único)` (sem OAuth)
+- Token do vendedor expira em ~6h e é renovado automaticamente (`getSellerCredentials` → refresh); falhas aparecem como `[MP-OAUTH]` nos logs
 
 **Rate limiter lançando ERR_ERL_FORWARDED_HEADER na Vercel?**
 - Confirmar que `app.set('trust proxy', 1)` está logo após `const app = express()` em `server.ts`

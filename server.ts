@@ -266,6 +266,103 @@ async function getMpCredentials(): Promise<{ accessToken: string; publicKey: str
 }
 async function getMpAccessToken(): Promise<string> { return (await getMpCredentials()).accessToken; }
 
+// ─── Split de pagamentos: token OAuth do VENDEDOR (dono do site) ─────────────
+// O desenvolvedor é o marketplace; o dono conecta a conta dele via OAuth. As
+// orders são criadas com o access_token DELE + marketplace_fee (nossa comissão).
+// Sem conexão (sellerConnected=false), cai no token único e NÃO envia
+// marketplace_fee — o checkout continua funcionando, porém sem split.
+interface SellerToken { accessToken: string; sellerConnected: boolean }
+
+// Grava os tokens retornados pelo MP (authorization_code ou refresh) — o refresh
+// rotaciona ambos os tokens, então persistimos os dois sempre. expires_in (~6h).
+async function persistSellerTokens(admin: any, data: any): Promise<void> {
+  const expiresIn = Number(data?.expires_in ?? 21600);
+  const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+  await admin.from("app_secrets").upsert({
+    id: "main",
+    mp_seller_access_token: encryptData(String(data.access_token)),
+    mp_seller_refresh_token: encryptData(String(data.refresh_token)),
+    updated_at: new Date().toISOString(),
+  });
+  const cfgUpdate: Record<string, any> = { mp_seller_token_expires_at: expiresAt };
+  if (data?.user_id != null) cfgUpdate.mp_seller_user_id = String(data.user_id);
+  await admin.from("system_config").update(cfgUpdate).eq("id", "main");
+}
+
+async function refreshSellerToken(admin: any, refreshToken: string): Promise<string | null> {
+  const clientId = process.env.MP_MARKETPLACE_CLIENT_ID;
+  const clientSecret = process.env.MP_MARKETPLACE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    console.error("[MP-OAUTH] MP_MARKETPLACE_CLIENT_ID/SECRET ausentes — não é possível renovar o token do vendedor.");
+    return null;
+  }
+  try {
+    const r = await fetch("https://api.mercadopago.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ grant_type: "refresh_token", client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data?.access_token) {
+      console.error("[MP-OAUTH] Falha ao renovar token do vendedor:", JSON.stringify(data));
+      return null;
+    }
+    await persistSellerTokens(admin, data);
+    return String(data.access_token);
+  } catch (e: any) {
+    console.error("[MP-OAUTH] Erro ao renovar token do vendedor:", e?.message ?? e);
+    return null;
+  }
+}
+
+async function getSellerCredentials(): Promise<SellerToken> {
+  try {
+    const admin = await getAdminClient();
+    if (!admin) return { accessToken: await getMpAccessToken(), sellerConnected: false };
+    const [{ data: sec }, { data: cfg }] = await Promise.all([
+      admin.from("app_secrets").select("mp_seller_access_token, mp_seller_refresh_token").eq("id", "main").maybeSingle(),
+      admin.from("system_config").select("mp_seller_token_expires_at").eq("id", "main").maybeSingle(),
+    ]);
+    let access = sec?.mp_seller_access_token ? (safeDecrypt(sec.mp_seller_access_token) || "") : "";
+    const refresh = sec?.mp_seller_refresh_token ? (safeDecrypt(sec.mp_seller_refresh_token) || "") : "";
+    if (!access || !refresh) return { accessToken: await getMpAccessToken(), sellerConnected: false };
+    // Renova quando faltam < 10 min para expirar (tokens MP duram ~6h).
+    const expiresAt = cfg?.mp_seller_token_expires_at ? new Date(cfg.mp_seller_token_expires_at).getTime() : 0;
+    if (Date.now() > expiresAt - 10 * 60 * 1000) {
+      const refreshed = await refreshSellerToken(admin, refresh);
+      if (!refreshed) return { accessToken: await getMpAccessToken(), sellerConnected: false };
+      access = refreshed;
+    }
+    return { accessToken: access, sellerConnected: true };
+  } catch (e: any) {
+    console.error("[MP-OAUTH] Erro ao obter token do vendedor:", e?.message ?? e);
+    return { accessToken: await getMpAccessToken(), sellerConnected: false };
+  }
+}
+
+// State CSRF do OAuth assinado por HMAC (sem armazenamento — serverless-safe).
+function makeOAuthState(): string {
+  const payload = `${crypto.randomBytes(16).toString("hex")}.${Date.now()}`;
+  const sig = crypto.createHmac("sha256", getEncKey()).update(payload).digest("hex");
+  return `${payload}.${sig}`;
+}
+function verifyOAuthState(state: string): boolean {
+  const parts = (state || "").split(".");
+  if (parts.length !== 3) return false;
+  const [nonce, ts, sig] = parts;
+  const expected = crypto.createHmac("sha256", getEncKey()).update(`${nonce}.${ts}`).digest("hex");
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return false;
+  return Date.now() - Number(ts) < 10 * 60 * 1000; // expira em 10 min
+}
+
+// Comissão do marketplace (desenvolvedor) sobre o valor de uma order, em reais.
+// Espelha o cálculo de platform_fee da criação da reserva (server.ts ~1751).
+async function computeMarketplaceFee(amount: number): Promise<number> {
+  const { platformRate, feeType, feeRaw } = await getPlatformFeeRates();
+  const fee = feeType === "fixed" ? Math.min(feeRaw, amount) : amount * platformRate;
+  return Math.round(fee * 100) / 100;
+}
+
 // ─── Cliente Supabase com service role (admin) ───────────────────────────────
 async function getAdminClient() {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -600,20 +697,37 @@ const PLATFORM_FEE_RATE = 0.10; // fallback quando system_config não está disp
 const DEFAULT_TICKET_PRICE = 50; // EVENT_TICKET_PRICE (fallback sem setor)
 
 async function getPlatformFeeRates(): Promise<{ platformRate: number; gatewayRate: number; feeType: 'percentage' | 'fixed'; feeRaw: number }> {
+  // A comissão do desenvolvedor (marketplace) é controlada por ENV — tem
+  // prioridade sobre o painel admin, para que o dono do site NÃO consiga
+  // alterar a comissão. Só o gateway_fee continua vindo do system_config.
+  const envType = process.env.MARKETPLACE_FEE_TYPE;
+  const envValRaw = process.env.MARKETPLACE_FEE_VALUE;
+  const envVal = envValRaw != null && envValRaw.trim() !== "" ? Number(envValRaw) : NaN;
+  const envOverride = (envType === 'percentage' || envType === 'fixed') && Number.isFinite(envVal);
+  const fromEnv = (gatewayRate: number) => ({
+    platformRate: envType === 'percentage' ? (envVal as number) / 100 : PLATFORM_FEE_RATE,
+    gatewayRate,
+    feeType: envType as 'percentage' | 'fixed',
+    feeRaw: envVal as number,
+  });
   try {
     const admin = await getAdminClient();
-    if (!admin) return { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0, feeType: 'percentage', feeRaw: PLATFORM_FEE_RATE * 100 };
+    if (!admin) {
+      return envOverride ? fromEnv(0) : { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0, feeType: 'percentage', feeRaw: PLATFORM_FEE_RATE * 100 };
+    }
     const { data } = await admin.from("system_config").select("platform_fee_percent, gateway_fee_percent, platform_fee_type").eq("id", "main").maybeSingle();
+    const gatewayRate = typeof data?.gateway_fee_percent === "number" ? data.gateway_fee_percent / 100 : 0;
+    if (envOverride) return fromEnv(gatewayRate);
     const feeRaw = typeof data?.platform_fee_percent === "number" ? data.platform_fee_percent : PLATFORM_FEE_RATE * 100;
     const feeType: 'percentage' | 'fixed' = data?.platform_fee_type === 'fixed' ? 'fixed' : 'percentage';
     return {
       platformRate: feeType === 'percentage' ? feeRaw / 100 : PLATFORM_FEE_RATE,
-      gatewayRate: typeof data?.gateway_fee_percent === "number" ? data.gateway_fee_percent / 100 : 0,
+      gatewayRate,
       feeType,
       feeRaw,
     };
   } catch {
-    return { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0, feeType: 'percentage', feeRaw: PLATFORM_FEE_RATE * 100 };
+    return envOverride ? fromEnv(0) : { platformRate: PLATFORM_FEE_RATE, gatewayRate: 0, feeType: 'percentage', feeRaw: PLATFORM_FEE_RATE * 100 };
   }
 }
 
@@ -1593,6 +1707,99 @@ export async function createExpressApp() {
     }
   });
 
+  // ── Split de pagamentos: OAuth do vendedor (dono do site) ─────────────────
+  // Fluxo: o dono clica em "Conectar Mercado Pago" → o front navega para a URL
+  // de autorização do MP → o MP redireciona para /api/mp/oauth/callback com o
+  // code → trocamos por access/refresh token e guardamos criptografado.
+
+  // Monta a URL de autorização (requer admin; o front faz window.location = url).
+  app.get("/api/admin/mp/oauth/url", requireAuth, requireAdmin, (_req, res) => {
+    const clientId = process.env.MP_MARKETPLACE_CLIENT_ID;
+    const redirectUri = process.env.MP_OAUTH_REDIRECT_URI;
+    if (!clientId || !redirectUri) {
+      res.status(503).json({ error: "OAuth do Mercado Pago não configurado (defina MP_MARKETPLACE_CLIENT_ID e MP_OAUTH_REDIRECT_URI)." });
+      return;
+    }
+    const state = makeOAuthState();
+    const url = `https://auth.mercadopago.com.br/authorization?client_id=${encodeURIComponent(clientId)}&response_type=code&platform_id=mp&state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    res.json({ url });
+  });
+
+  // Callback do MP (navegação do browser, sem Bearer — protegido pelo state HMAC).
+  app.get("/api/mp/oauth/callback", async (req, res) => {
+    const code = String(req.query.code ?? "");
+    const state = String(req.query.state ?? "");
+    const appUrl = process.env.APP_URL || "";
+    const fail = (reason: string) => res.redirect(`${appUrl}/?mp=error&reason=${encodeURIComponent(reason)}`);
+    if (!code || !verifyOAuthState(state)) { fail("estado_invalido"); return; }
+    const clientId = process.env.MP_MARKETPLACE_CLIENT_ID;
+    const clientSecret = process.env.MP_MARKETPLACE_CLIENT_SECRET;
+    const redirectUri = process.env.MP_OAUTH_REDIRECT_URI;
+    if (!clientId || !clientSecret || !redirectUri) { fail("oauth_nao_configurado"); return; }
+    try {
+      const r = await fetch("https://api.mercadopago.com/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ grant_type: "authorization_code", client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.access_token) {
+        console.error("[MP-OAUTH] Troca de code falhou:", JSON.stringify(data));
+        fail("troca_falhou"); return;
+      }
+      const admin = await getAdminClient();
+      if (!admin) { fail("banco_indisponivel"); return; }
+      await persistSellerTokens(admin, data);
+      // Nickname da conta conectada (melhor-esforço, só informativo).
+      let nickname: string | null = null;
+      try {
+        const me = await fetch("https://api.mercadopago.com/users/me", { headers: { Authorization: `Bearer ${data.access_token}` } });
+        const meJson = await me.json();
+        nickname = meJson?.nickname ?? null;
+      } catch { /* best-effort */ }
+      await admin.from("system_config").update({ mp_seller_nickname: nickname, mp_seller_connected_at: new Date().toISOString() }).eq("id", "main");
+      console.log(`[MP-OAUTH] Conta do vendedor conectada (user_id=${data.user_id ?? "?"}, nickname=${nickname ?? "?"}).`);
+      res.redirect(`${appUrl}/?mp=connected`);
+    } catch (e: any) {
+      console.error("[MP-OAUTH] Erro no callback:", e?.message ?? e);
+      fail("erro_interno");
+    }
+  });
+
+  // Status da conexão do vendedor (para o painel admin).
+  app.get("/api/admin/mp/connection-status", requireAuth, requireAdmin, async (_req, res) => {
+    const admin = await getAdminClient();
+    if (!admin) { res.json({ connected: false, oauthConfigured: false }); return; }
+    const [{ data: sec }, { data: cfg }] = await Promise.all([
+      admin.from("app_secrets").select("mp_seller_access_token").eq("id", "main").maybeSingle(),
+      admin.from("system_config").select("mp_seller_nickname, mp_seller_user_id, mp_seller_connected_at, mp_seller_token_expires_at").eq("id", "main").maybeSingle(),
+    ]);
+    const feeType = process.env.MARKETPLACE_FEE_TYPE;
+    const feeValue = process.env.MARKETPLACE_FEE_VALUE;
+    const feeManagedByEnv = (feeType === 'percentage' || feeType === 'fixed') && feeValue != null && feeValue.trim() !== "";
+    res.json({
+      connected: Boolean(sec?.mp_seller_access_token),
+      oauthConfigured: Boolean(process.env.MP_MARKETPLACE_CLIENT_ID && process.env.MP_OAUTH_REDIRECT_URI),
+      nickname: cfg?.mp_seller_nickname ?? null,
+      userId: cfg?.mp_seller_user_id ?? null,
+      connectedAt: cfg?.mp_seller_connected_at ?? null,
+      expiresAt: cfg?.mp_seller_token_expires_at ?? null,
+      feeManagedByEnv,
+      feeType: feeManagedByEnv ? feeType : null,
+      feeValue: feeManagedByEnv ? Number(feeValue) : null,
+    });
+  });
+
+  // Desconectar a conta do vendedor (limpa tokens e metadados).
+  app.post("/api/admin/mp/disconnect", requireAuth, requireAdmin, async (_req, res) => {
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    await admin.from("app_secrets").update({ mp_seller_access_token: null, mp_seller_refresh_token: null, updated_at: new Date().toISOString() }).eq("id", "main");
+    await admin.from("system_config").update({ mp_seller_nickname: null, mp_seller_user_id: null, mp_seller_connected_at: null, mp_seller_token_expires_at: null }).eq("id", "main");
+    console.log("[MP-OAUTH] Conta do vendedor desconectada.");
+    res.json({ success: true });
+  });
+
   // ── Salvar configuração de e-mail (Resend ou SMTP) ───────────────────────
   app.post("/api/admin/email-config", requireAuth, requireAdmin, async (req, res) => {
     const { provider, resendApiKey, smtp, senderName, senderAddress, notifyWebhookUrl } = req.body as {
@@ -2157,7 +2364,8 @@ export async function createExpressApp() {
           refundStatus = "not_applicable";
         } else {
           try {
-            const mpToken = await getMpAccessToken();
+            // Estorno na order do vendedor — usa o token dele (split).
+            const mpToken = (await getSellerCredentials()).accessToken;
             const info = await resolveMpPayment(String(orderId), mpToken);
             const innerPaymentId = info?.innerPaymentId ?? String(orderId);
             const result = await refundMpOrder(
@@ -2493,7 +2701,10 @@ export async function createExpressApp() {
       reservationId?: string;
     };
 
-    const accessToken = await getMpAccessToken();
+    // Split: usa o token do VENDEDOR (dono) quando conectado, para cobrar
+    // marketplace_fee. Sem conexão, cai no token único (sem split).
+    const seller = await getSellerCredentials();
+    const accessToken = seller.accessToken;
 
     if (!accessToken) {
       console.error("[MERCADOPAGO] Access Token não configurado");
@@ -2563,6 +2774,13 @@ export async function createExpressApp() {
       }
       const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
 
+      // Split: comissão do marketplace (desenvolvedor). Só enviada quando a conta
+      // do vendedor está conectada via OAuth — um token comum rejeita o campo.
+      const marketplaceFee = seller.sellerConnected ? await computeMarketplaceFee(amount) : 0;
+      const splitField = seller.sellerConnected && marketplaceFee > 0
+        ? { marketplace_fee: marketplaceFee.toFixed(2) }
+        : {};
+
       // Orders API (/v1/orders) — o /v1/payments legado foi descontinuado para
       // novas integrações (retornava internal_error). Em sandbox usa-se a
       // credencial APP_USR de um vendedor de teste.
@@ -2570,6 +2788,7 @@ export async function createExpressApp() {
         type: "online",
         processing_mode: "automatic",
         total_amount: amountStr,
+        ...splitField,
         ...(reservationId ? { external_reference: reservationId } : {}),
         payer: {
           // Nunca usar domínio @mercadopago.com (proibido pelo MP → erro 4390).
@@ -2599,7 +2818,7 @@ export async function createExpressApp() {
         },
       };
 
-      console.log(`[MERCADOPAGO] Processando pagamento (orders): R$ ${amount} | Método: ${paymentMethod} | payment_method.id: ${brandId} (front: ${paymentMethodId ?? '—'}, fallback: ${fallbackBrandId}, conta débito: [${account.debit.join(',')}]) | payer.email: ${payload.payer.email}`);
+      console.log(`[MERCADOPAGO] Processando pagamento (orders): R$ ${amount} | Método: ${paymentMethod} | payment_method.id: ${brandId} (front: ${paymentMethodId ?? '—'}, fallback: ${fallbackBrandId}, conta débito: [${account.debit.join(',')}]) | payer.email: ${payload.payer.email} | split: ${seller.sellerConnected ? `marketplace_fee=R$ ${marketplaceFee.toFixed(2)}` : "off (token único)"}`);
 
       const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
@@ -2693,7 +2912,9 @@ export async function createExpressApp() {
       console.warn(`[SECURITY] Divergência de valor (PIX): cliente=${clientAmount} servidor=${amount}`);
     }
 
-    const accessToken = await getMpAccessToken();
+    // Split: usa o token do VENDEDOR (dono) quando conectado.
+    const seller = await getSellerCredentials();
+    const accessToken = seller.accessToken;
     if (!accessToken) {
       res.status(503).json({ error: "Mercado Pago não configurado. Configure as credenciais no painel admin." });
       return;
@@ -2705,6 +2926,10 @@ export async function createExpressApp() {
     const pixTimeout = setTimeout(() => pixController.abort(), 8000);
     try {
       const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
+      const marketplaceFee = seller.sellerConnected ? await computeMarketplaceFee(amount) : 0;
+      const splitField = seller.sellerConnected && marketplaceFee > 0
+        ? { marketplace_fee: marketplaceFee.toFixed(2) }
+        : {};
       const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
         signal: pixController.signal,
@@ -2717,6 +2942,7 @@ export async function createExpressApp() {
           type: "online",
           processing_mode: "automatic",
           total_amount: amountStr,
+          ...splitField,
           ...(reservationId ? { external_reference: reservationId } : {}),
           payer: {
             email: payerEmailForEnv(guestData?.email),
@@ -2797,7 +3023,8 @@ export async function createExpressApp() {
     if (!reservationId) { res.status(400).json({ error: "reservationId obrigatório." }); return; }
     const admin = await getAdminClient();
     if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
-    const accessToken = await getMpAccessToken();
+    const seller = await getSellerCredentials();
+    const accessToken = seller.accessToken;
     if (!accessToken) { res.status(503).json({ error: "Mercado Pago não configurado." }); return; }
 
     const { data: reservation } = await admin
@@ -2817,6 +3044,10 @@ export async function createExpressApp() {
     const pixTimeout = setTimeout(() => pixController.abort(), 8000);
     try {
       const amountStr = (Math.round(Number((reservation as any).total) * 100) / 100).toFixed(2);
+      const marketplaceFee = seller.sellerConnected ? await computeMarketplaceFee(Number((reservation as any).total)) : 0;
+      const splitField = seller.sellerConnected && marketplaceFee > 0
+        ? { marketplace_fee: marketplaceFee.toFixed(2) }
+        : {};
       const response = await fetch("https://api.mercadopago.com/v1/orders", {
         method: "POST",
         signal: pixController.signal,
@@ -2829,6 +3060,7 @@ export async function createExpressApp() {
           type: "online",
           processing_mode: "automatic",
           total_amount: amountStr,
+          ...splitField,
           external_reference: reservationId,
           payer: {
             email: payerEmailForEnv((reservation as any).buyer_email),
@@ -2928,7 +3160,8 @@ export async function createExpressApp() {
 
       let paymentStatus: string = reservation.payment_status;
       if (req.query.refresh === "1" && paymentStatus === "pending" && reservation.payment_id) {
-        const accessToken = await getMpAccessToken();
+        // A order pertence à conta do vendedor — consulta com o token dele.
+        const accessToken = (await getSellerCredentials()).accessToken;
         if (accessToken) {
           const info = await resolveMpPayment(String(reservation.payment_id), accessToken);
           if (info) {
@@ -3024,7 +3257,8 @@ export async function createExpressApp() {
       }
 
       // 3. Confirma o status REAL consultando a API do MP (não confia no corpo).
-      const accessToken = await getMpAccessToken();
+      //    A order pertence à conta do vendedor — consulta com o token dele.
+      const accessToken = (await getSellerCredentials()).accessToken;
       if (!accessToken) {
         console.error("[WEBHOOK] Access Token não configurado — impossível confirmar pagamento.");
         res.status(500).json({ error: "Pagamento não configurado." });
@@ -3910,7 +4144,8 @@ export async function createExpressApp() {
       }
 
       // 4. Estorno pela Orders API (paymentId = id da ORDER salvo na reserva).
-      const refundToken = await getMpAccessToken();
+      //    A order pertence à conta do vendedor — usa o token dele (split).
+      const refundToken = (await getSellerCredentials()).accessToken;
       const info = await resolveMpPayment(String(paymentId), refundToken);
       const innerPaymentId = info?.innerPaymentId ?? String(paymentId);
       const result = await refundMpOrder(

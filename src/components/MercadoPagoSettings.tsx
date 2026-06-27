@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   AlertCircle, TestTube, CheckCircle2, AlertTriangle, Info, Key,
-  RefreshCcw, ShieldCheck, Copy, ExternalLink
+  RefreshCcw, ShieldCheck, Copy, ExternalLink, Link2, Unlink, Percent
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -93,6 +93,9 @@ export function MercadoPagoSettings({ userRole }: { userRole?: string | null }) 
           <p className="text-xs uppercase tracking-widest opacity-40">Status da integração de pagamentos</p>
         </div>
       </div>
+
+      {/* Split de pagamentos — conexão da conta do organizador (vendedor) */}
+      <SplitConnection authHeader={authHeader} serverUrl={serverUrl} />
 
       {/* Explicação: credenciais ficam na Vercel — só developer */}
       {isDev && (
@@ -220,6 +223,166 @@ export function MercadoPagoSettings({ userRole }: { userRole?: string | null }) 
           )}
         </>
       )}
+    </div>
+  );
+}
+
+interface SplitStatus {
+  connected: boolean;
+  oauthConfigured: boolean;
+  nickname: string | null;
+  userId: string | null;
+  connectedAt: string | null;
+  expiresAt: string | null;
+  feeManagedByEnv: boolean;
+  feeType: 'percentage' | 'fixed' | null;
+  feeValue: number | null;
+}
+
+function SplitConnection({
+  authHeader,
+  serverUrl,
+}: {
+  authHeader: () => Promise<{ Authorization: string } | null>;
+  serverUrl: string;
+}) {
+  const [status, setStatus] = useState<SplitStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  // Banner pós-redirect do OAuth (?mp=connected | ?mp=error)
+  const [flash, setFlash] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const headers = await authHeader();
+      if (!headers) { setLoading(false); return; }
+      const res = await fetch(`${serverUrl}/api/admin/mp/connection-status`, { headers, signal: AbortSignal.timeout(12000) });
+      if (res.ok) setStatus(await res.json());
+    } catch (e) {
+      console.warn('[Split] Falha ao carregar status:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [authHeader, serverUrl]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Lê o retorno do OAuth na URL e limpa os parâmetros.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mp = params.get('mp');
+    if (mp === 'connected') setFlash({ kind: 'ok', msg: 'Conta do Mercado Pago conectada com sucesso.' });
+    else if (mp === 'error') setFlash({ kind: 'err', msg: `Falha ao conectar (${params.get('reason') || 'erro'}).` });
+    if (mp) {
+      params.delete('mp'); params.delete('reason');
+      const qs = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    }
+  }, []);
+
+  const connect = async () => {
+    setBusy(true); setError('');
+    try {
+      const headers = await authHeader();
+      if (!headers) { setError('Sessão expirada. Faça login novamente.'); setBusy(false); return; }
+      const res = await fetch(`${serverUrl}/api/admin/mp/oauth/url`, { headers });
+      const data = await res.json();
+      if (res.ok && data.url) { window.location.href = data.url; return; }
+      setError(data.error || 'Não foi possível iniciar a conexão.');
+    } catch {
+      setError('Erro ao iniciar a conexão com o Mercado Pago.');
+    }
+    setBusy(false);
+  };
+
+  const disconnect = async () => {
+    if (!window.confirm('Desconectar a conta do Mercado Pago? Os pagamentos voltam a usar o token único (sem split).')) return;
+    setBusy(true); setError('');
+    try {
+      const headers = await authHeader();
+      if (!headers) { setError('Sessão expirada. Faça login novamente.'); setBusy(false); return; }
+      const res = await fetch(`${serverUrl}/api/admin/mp/disconnect`, { method: 'POST', headers });
+      if (res.ok) await load();
+      else setError('Não foi possível desconectar.');
+    } catch {
+      setError('Erro ao desconectar.');
+    }
+    setBusy(false);
+  };
+
+  const feeLabel = status?.feeManagedByEnv
+    ? (status.feeType === 'fixed' ? `R$ ${Number(status.feeValue).toFixed(2)} por compra` : `${status.feeValue}% por compra`)
+    : null;
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-4">
+      <div className="flex items-center gap-2">
+        <Link2 className="w-4 h-4 text-[#d4af37]" />
+        <label className="text-sm font-bold uppercase tracking-widest">Split de Pagamentos — Conta do Organizador</label>
+      </div>
+      <p className="text-[11px] text-white/40 leading-relaxed">
+        Conecte a conta Mercado Pago do organizador (vendedor). Os pagamentos passam a cair direto
+        na conta dele e a comissão do desenvolvedor é repartida automaticamente (marketplace_fee).
+      </p>
+
+      {flash && (
+        <div className={`p-3 rounded-lg text-xs ${flash.kind === 'ok' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+          {flash.msg}
+        </div>
+      )}
+
+      {feeLabel && (
+        <div className="bg-[#d4af37]/5 border border-[#d4af37]/20 rounded-lg p-3 flex items-center gap-2 text-xs text-[#d4af37]/90">
+          <Percent className="w-3.5 h-3.5 shrink-0" />
+          Comissão do desenvolvedor: <strong>{feeLabel}</strong> (definida pelo servidor — não editável no painel).
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-white/40 text-xs py-2"><RefreshCcw className="w-4 h-4 animate-spin" /> Carregando…</div>
+      ) : !status?.oauthConfigured ? (
+        <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-3 flex gap-2 text-xs text-yellow-400/90">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          OAuth não configurado no servidor. Defina <code className="bg-black/40 px-1 rounded">MP_MARKETPLACE_CLIENT_ID</code>,
+          <code className="bg-black/40 px-1 rounded mx-1">MP_MARKETPLACE_CLIENT_SECRET</code> e
+          <code className="bg-black/40 px-1 rounded ml-1">MP_OAUTH_REDIRECT_URI</code> (ver <code className="bg-black/40 px-1 rounded">.env.example</code>).
+        </div>
+      ) : status.connected ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm text-green-400">
+            <CheckCircle2 className="w-4 h-4" /> Conectado
+            {status.nickname && <span className="text-white/60 font-mono text-xs">({status.nickname})</span>}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-white/40">
+            {status.userId && <div>Conta MP: <span className="text-white/60 font-mono">{status.userId}</span></div>}
+            {status.connectedAt && <div>Conectado em: <span className="text-white/60">{new Date(status.connectedAt).toLocaleString('pt-BR')}</span></div>}
+          </div>
+          <button
+            onClick={disconnect}
+            disabled={busy}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase bg-red-500/10 hover:bg-red-500/20 text-red-400 transition disabled:opacity-50"
+          >
+            <Unlink className="w-4 h-4" /> Desconectar
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm text-white/50">
+            <AlertCircle className="w-4 h-4" /> Não conectado — pagamentos usam o token único (sem split).
+          </div>
+          <button
+            onClick={connect}
+            disabled={busy}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase bg-[#d4af37]/10 hover:bg-[#d4af37]/20 text-[#d4af37] transition disabled:opacity-50"
+          >
+            {busy ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} Conectar Mercado Pago
+          </button>
+        </div>
+      )}
+
+      {error && <div className="p-3 rounded-lg text-xs bg-red-500/10 text-red-400">{error}</div>}
     </div>
   );
 }

@@ -701,6 +701,14 @@ export function AdminSettings({
               <div className="space-y-6">
                 <h4 className="text-[11px] uppercase tracking-widest font-bold opacity-60 border-b border-white/10 pb-2">Taxação da Plataforma</h4>
 
+                <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 flex gap-2 text-[11px] text-blue-400/90 leading-relaxed">
+                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  Quando o split está ativo, a comissão do desenvolvedor é definida no servidor
+                  (variáveis <code className="bg-black/40 px-1 rounded">MARKETPLACE_FEE_TYPE/VALUE</code>) e
+                  <strong> prevalece sobre este campo</strong>. Veja a comissão vigente na aba de pagamentos
+                  (Split de Pagamentos).
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Tipo de Taxa</label>
