@@ -27,7 +27,7 @@
 --      quanto o login (auth.users).
 --
 --  O QUE É PRESERVADO:
---    • A conta admin (acesso@admin.com) — usada pelo dono no "Acesso Master"
+--    • A(s) conta(s) admin (role = 'admin') — usada pelo dono no "Acesso Master"
 --    • app_secrets (tokens do Mercado Pago, SMTP, etc.) — INTACTO
 --    • A conexão OAuth do vendedor MP (mp_seller_* em system_config) — INTACTA
 --    • O schema (tabelas, policies, triggers) — nada é dropado
@@ -66,12 +66,13 @@ DELETE FROM banking_details;      -- FK → usuários
 DELETE FROM audit_logs;           -- logs
 DELETE FROM otp_attempts;         -- tentativas de OTP
 
--- ── 3. Contas: remove TUDO, exceto a conta admin ────────────────────────────
---  Apaga as contas fantasmas (developer, test user MP), staff e clientes —
---  tanto o perfil quanto o login. Ajuste o e-mail abaixo se o admin já tiver
---  sido trocado.
-DELETE FROM public.profiles WHERE lower(email) <> 'acesso@admin.com';
-DELETE FROM auth.users      WHERE lower(email) <> 'acesso@admin.com';
+-- ── 3. Contas: remove TUDO, exceto a(s) conta(s) admin ──────────────────────
+--  Preserva pela ROLE (não por e-mail fixo), então funciona mesmo que o e-mail
+--  do admin tenha sido trocado (ex.: acesso@admin.com). Apaga as contas
+--  fantasmas (developer, test user MP), staff e clientes — perfil + login.
+DELETE FROM public.profiles WHERE role <> 'admin';
+DELETE FROM auth.users
+ WHERE id NOT IN (SELECT id FROM public.profiles WHERE role = 'admin');
 --  (deletar auth.users cascateia identities/sessions/refresh_tokens do schema auth)
 
 -- ── 4. Reabre o onboarding e zera o branding de teste ───────────────────────
