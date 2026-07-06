@@ -226,6 +226,8 @@ export interface SystemConfig {
   dpo_name?: string;
   dpo_email?: string;
   legal_city?: string;
+  // Crédito "Desenvolvido por" exibido no rodapé (configurável no painel do developer)
+  developed_by?: string;
   // Email
   email_sender_name?: string;
   email_sender_address?: string;

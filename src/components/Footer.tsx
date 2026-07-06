@@ -90,11 +90,12 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
   }, []);
 
   const isCompany = config.person_type === 'pj';
-  const siteName = isCompany
-    ? (config.company_name || config.site_name || 'Espaço Mix')
-    : (config.trade_name || config.site_name || 'Espaço Mix');
-  const legalName = isCompany ? config.company_name : config.trade_name;
+  // Exibe sempre o nome fantasia (trade_name) como identidade do site; cai para
+  // razão social / site_name quando o fantasia não estiver preenchido.
+  const siteName = config.trade_name || config.company_name || config.site_name || 'Espaço Mix';
+  const legalName = config.trade_name || config.company_name;
   const docLabel = isCompany ? 'CNPJ' : 'CPF';
+  const developedBy = (config.developed_by || '').trim() || 'Nexo Soluções Digitais';
   // Aceita handle ("@perfil", "perfil") ou URL completa e normaliza para um link válido.
   const instagram = (config.social_instagram || '')
     .trim()
@@ -264,14 +265,9 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
             <span className="w-px h-3 bg-white/10 hidden sm:block" />
             <p className="text-[9px] text-white/20 uppercase tracking-widest whitespace-nowrap shrink-0">
               Desenvolvido por{' '}
-              <a
-                href="https://nexosolucoes.com.br"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[#B5E254]/40 hover:text-[#B5E254]/70 transition-colors duration-200 font-bold"
-              >
-                Nexo Soluções Digitais
-              </a>
+              <span className="text-[#B5E254]/40 font-bold">
+                {developedBy}
+              </span>
             </p>
             </div>
 

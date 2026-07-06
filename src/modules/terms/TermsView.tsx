@@ -1,18 +1,45 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { getSystemConfig, SystemConfig } from '../../lib/supabase';
 
 const LAST_UPDATED = '26 de maio de 2026';
 const VERSION = '1.0';
+const PLACEHOLDER = '[A PREENCHER]';
 
-const SECTIONS = [
+// Dados institucionais para os textos legais, resolvidos a partir do
+// system_config (painel do admin) com fallback para placeholders/valores padrão.
+interface OrgData {
+  siteName: string;   // nome fantasia (identidade do site)
+  legalName: string;  // razão social
+  tradeName: string;  // nome fantasia
+  docLabel: string;   // 'CNPJ' | 'CPF'
+  document: string;
+  address: string;
+  legalCity: string;
+  supportEmail: string;
+}
+
+function buildSections(org: OrgData) {
+  return [
+  {
+    id: 'identificacao',
+    title: 'Identificação da Plataforma',
+    content: `Estes Termos regem o uso da plataforma operada por:
+
+• Razão Social: ${org.legalName}
+• Nome Fantasia: ${org.tradeName}
+• ${org.docLabel}: ${org.document}
+• Endereço: ${org.address}
+• Contato: ${org.supportEmail}`,
+  },
   {
     id: 'aceitacao',
     title: '1. Aceitação dos Termos',
-    content: `Ao acessar e usar a plataforma Espaço Mix Eventos, você ("Usuário") confirma que leu, compreendeu e concorda com estes Termos de Uso e com nossa Política de Privacidade. Se você não concorda com qualquer disposição destes termos, não utilize a plataforma.
+    content: `Ao acessar e usar a plataforma ${org.siteName}, você ("Usuário") confirma que leu, compreendeu e concorda com estes Termos de Uso e com nossa Política de Privacidade. Se você não concorda com qualquer disposição destes termos, não utilize a plataforma.
 
-A Espaço Mix Eventos se reserva o direito de modificar estes Termos a qualquer momento. Mudanças relevantes serão comunicadas com antecedência mínima de 10 dias por e-mail ou aviso na plataforma. O uso continuado após a publicação das alterações constitui aceitação das novas condições.`,
+A ${org.siteName} se reserva o direito de modificar estes Termos a qualquer momento. Mudanças relevantes serão comunicadas com antecedência mínima de 10 dias por e-mail ou aviso na plataforma. O uso continuado após a publicação das alterações constitui aceitação das novas condições.`,
   },
   {
     id: 'cadastro',
@@ -68,7 +95,7 @@ Para criar e vender ingressos, o usuário deve solicitar acesso como produtor e 
 O produtor é inteiramente responsável pela realização do evento conforme divulgado, pela veracidade das informações cadastradas, pelo cumprimento das leis de segurança e capacidade do local, e pelo atendimento ao público.
 
 5.3 REPASSES FINANCEIROS
-Os valores arrecadados, descontadas taxas da plataforma e do gateway de pagamento, são repassados ao produtor conforme cronograma configurado. A Espaço Mix atua como intermediária — não garante a realização do evento.
+Os valores arrecadados, descontadas taxas da plataforma e do gateway de pagamento, são repassados ao produtor conforme cronograma configurado. A ${org.siteName} atua como intermediária — não garante a realização do evento.
 
 5.4 CONFORMIDADE FISCAL
 O produtor é responsável pelo recolhimento dos tributos incidentes sobre as receitas de bilheteria.`,
@@ -91,7 +118,7 @@ A violação destas regras pode resultar em suspensão imediata da conta, cancel
   {
     id: 'propriedade',
     title: '7. Propriedade Intelectual',
-    content: `Todo o conteúdo da plataforma — incluindo código-fonte, design, logotipos, textos, imagens institucionais e funcionalidades — é propriedade da Espaço Mix Eventos ou de seus licenciantes, protegidos pela Lei 9.610/98.
+    content: `Todo o conteúdo da plataforma — incluindo código-fonte, design, logotipos, textos, imagens institucionais e funcionalidades — é propriedade da ${org.legalName} ou de seus licenciantes, protegidos pela Lei 9.610/98.
 
 Produtores concedem à plataforma licença não exclusiva para exibir informações, imagens e descrições dos eventos cadastrados enquanto estes estiverem publicados.
 
@@ -100,7 +127,7 @@ Produtores concedem à plataforma licença não exclusiva para exibir informaç�
   {
     id: 'responsabilidade',
     title: '8. Limitação de Responsabilidade',
-    content: `A Espaço Mix Eventos atua como plataforma intermediária de venda de ingressos. Não somos organizadores dos eventos listados e não nos responsabilizamos por:
+    content: `A ${org.siteName} atua como plataforma intermediária de venda de ingressos. Não somos organizadores dos eventos listados e não nos responsabilizamos por:
 
 • Cancelamento, alteração ou descumprimento do evento pelo produtor;
 • Danos ou lesões sofridos no local do evento;
@@ -118,22 +145,40 @@ A plataforma emprega medidas de segurança padrão do mercado, mas não garante 
 
 O usuário pode encerrar sua conta a qualquer momento através de Perfil → Privacidade → Excluir Conta. Após a exclusão, dados que precisam ser mantidos por obrigação legal serão conservados pelo prazo previsto na Política de Privacidade.
 
-A Espaço Mix Eventos pode suspender ou encerrar contas que violem estes Termos, com ou sem aviso prévio, a critério da plataforma.`,
+A ${org.siteName} pode suspender ou encerrar contas que violem estes Termos, com ou sem aviso prévio, a critério da plataforma.`,
   },
   {
     id: 'legislacao',
     title: '10. Lei Aplicável e Foro',
     content: `Estes Termos são regidos pelas leis da República Federativa do Brasil, incluindo o Código de Defesa do Consumidor (Lei 8.078/90), a LGPD (Lei 13.709/18), o Marco Civil da Internet (Lei 12.965/14) e demais normas aplicáveis.
 
-Fica eleito o foro da Comarca de São Paulo – SP para dirimir quaisquer controvérsias oriundas destes Termos, ressalvado o direito do consumidor de optar pelo foro de seu domicílio.
+Fica eleito o foro da Comarca de ${org.legalCity} para dirimir quaisquer controvérsias oriundas destes Termos, ressalvado o direito do consumidor de optar pelo foro de seu domicílio.
 
-Para suporte e resolução amigável de conflitos: suporte@espacomix.com.br`,
+Para suporte e resolução amigável de conflitos: ${org.supportEmail}`,
   },
-] as const;
+  ];
+}
 
 export function TermsView() {
   const { setCurrentView } = useApp();
-  const [openSection, setOpenSection] = useState<string | null>('aceitacao');
+  const [openSection, setOpenSection] = useState<string | null>('identificacao');
+  const [config, setConfig] = useState<Partial<SystemConfig>>({});
+
+  useEffect(() => {
+    getSystemConfig().then(setConfig).catch(() => {});
+  }, []);
+
+  const org: OrgData = {
+    siteName:     config.trade_name || config.company_name || 'Espaço Mix Eventos',
+    legalName:    config.company_name || config.trade_name || PLACEHOLDER,
+    tradeName:    config.trade_name || config.company_name || PLACEHOLDER,
+    docLabel:     config.person_type === 'pj' ? 'CNPJ' : 'CPF',
+    document:     config.document || PLACEHOLDER,
+    address:      config.address || PLACEHOLDER,
+    legalCity:    config.legal_city || 'São Paulo – SP',
+    supportEmail: config.contact_email || config.support_email || 'suporte@espacomix.com.br',
+  };
+  const SECTIONS = buildSections(org);
 
   const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
 
@@ -155,7 +200,7 @@ export function TermsView() {
             </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-serif text-white">Termos de Uso</h1>
-              <p className="text-[10px] uppercase tracking-widest text-white/30">Espaço Mix Eventos</p>
+              <p className="text-[10px] uppercase tracking-widest text-white/30">{org.siteName}</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-3">

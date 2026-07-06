@@ -694,6 +694,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const lenisRef = useRef<Lenis | null>(null);
   const paymentAbortRef = useRef<AbortController | null>(null);
+  // Ativo durante o cadastro por e-mail+OTP: o signIn dispara SIGNED_IN e avalia
+  // profileNeedsCompletion ANTES dos dados sensíveis (cpf/telefone/nascimento)
+  // serem gravados. Enquanto verdadeiro, suprime o modal "Complete seu cadastro".
+  const registrationInProgressRef = useRef(false);
+  // URL personalizada do evento: captura o slug do path no primeiro carregamento
+  // (ex.: domain.com/reveillon-2025) para abrir a página do evento correspondente
+  // assim que os eventos carregarem. O roteamento normal usa apenas o hash.
+  const pendingCustomUrlRef = useRef<string | null>((() => {
+    try {
+      const slug = decodeURIComponent(window.location.pathname || '')
+        .replace(/^\/+|\/+$/g, '')
+        .replace(/^e\//, '') // aceita tanto /slug quanto /e/slug
+        .trim()
+        .toLowerCase();
+      return slug || null;
+    } catch { return null; }
+  })());
 
   // ─── Computed values ─────────────────────────────────────────────────────
 
@@ -891,7 +908,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 isApprovedEventCreator: profile.is_approved_event_creator,
                 avatarUrl,
               });
-              setNeedsProfileCompletion(profileNeedsCompletion(profile));
+              // Durante o cadastro por OTP, os dados sensíveis ainda não foram
+              // gravados quando este callback roda — não exibir "Complete seu
+              // cadastro" (o próprio handleVerifyCode reavalia ao final).
+              setNeedsProfileCompletion(registrationInProgressRef.current ? false : profileNeedsCompletion(profile));
               setNeedsCodeVerification(needsLoginCode(profile, session.user));
               // Rebusca eventos com o contexto de auth do usuário logado
               getEvents()
@@ -981,6 +1001,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isTransientLeave) window.history.replaceState({ view: currentView }, '', url);
     else window.history.pushState({ view: currentView }, '', url);
   }, [currentView]);
+
+  // Resolve a URL personalizada (path) → abre a página do evento correspondente.
+  // Roda uma única vez, quando os eventos já foram carregados.
+  useEffect(() => {
+    const slug = pendingCustomUrlRef.current;
+    if (!slug || events.length === 0) return;
+    pendingCustomUrlRef.current = null; // resolve apenas uma vez
+    const match = events.find(e => (e.customUrl || '').trim().toLowerCase() === slug);
+    if (match) {
+      setSelectedDashboardEvent(match.id);
+      setIsPreviewingEvent(false);
+      setFormEvent({ ...match });
+      setCurrentView('booking');
+    }
+  }, [events]);
 
   useEffect(() => {
     const standalone = isStandaloneMode();
@@ -1677,6 +1712,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       // Inicia sessão para (a) manter o usuário logado e (b) gravar os dados sensíveis
       // (cpf/phone/birth_date) criptografados pelo servidor em /api/profile/sensitive.
+      // O guard suprime o modal "Complete seu cadastro" que o SIGNED_IN dispararia
+      // antes dos dados sensíveis serem persistidos.
+      registrationInProgressRef.current = true;
       let sessUserId: string | null = null;
       try {
         const signInRes = await signIn(registerForm.email, registerForm.password);
@@ -1699,7 +1737,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             showToast('Conta criada, mas não foi possível salvar CPF/telefone/nascimento. Atualize no seu perfil.', 'error');
           }
         }
+        // Dados sensíveis já persistidos: o cadastro está completo, não exibir o modal.
+        setNeedsProfileCompletion(false);
       }
+      // Libera o guard após o SIGNED_IN (setTimeout 0) já ter processado.
+      setTimeout(() => { registrationInProgressRef.current = false; }, 4000);
 
       setVerificationStep(false);
       setVerifyTicket(null);

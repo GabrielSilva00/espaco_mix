@@ -239,8 +239,12 @@ export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
   };
 }
 
-/** Envia um e-mail pelo provedor configurado (Resend ou SMTP). */
-export async function sendMail(cfg: ResolvedEmailConfig, to: string, subject: string, html: string): Promise<void> {
+/**
+ * Envia um e-mail pelo provedor configurado (Resend ou SMTP).
+ * `replyTo` (opcional) define o endereço de resposta — usado, por exemplo, no
+ * formulário de contato para que o atendente responda direto ao visitante.
+ */
+export async function sendMail(cfg: ResolvedEmailConfig, to: string, subject: string, html: string, replyTo?: string): Promise<void> {
   const from = `${cfg.senderName} <${cfg.senderAddress}>`;
   if (cfg.provider === 'smtp' && cfg.smtp.host) {
     const transporter = nodemailer.createTransport({
@@ -249,12 +253,12 @@ export async function sendMail(cfg: ResolvedEmailConfig, to: string, subject: st
       secure: !!cfg.smtp.secure,
       auth: cfg.smtp.user ? { user: cfg.smtp.user, pass: cfg.smtp.password } : undefined,
     });
-    await transporter.sendMail({ from, to, subject, html });
+    await transporter.sendMail({ from, to, subject, html, replyTo });
     return;
   }
   if (!cfg.resendApiKey) throw new Error('Provedor de e-mail não configurado.');
   const resend = new Resend(cfg.resendApiKey);
-  const { error } = await resend.emails.send({ from, to, subject, html });
+  const { error } = await resend.emails.send({ from, to, subject, html, ...(replyTo ? { replyTo } : {}) });
   if (error) throw new Error((error as any).message || 'Falha no envio (Resend).');
 }
 
@@ -315,7 +319,10 @@ export async function sendContactMessage(params: {
   </div>`;
 
   const cfg = await resolveEmailConfig();
-  await sendMail(cfg, to, `Contato: ${esc(params.nome)} — ${esc(siteName)}`, html);
+  // Reply-To = e-mail do visitante, para que a resposta vá direto a ele
+  // (o From continua o do sistema, exigência dos provedores de e-mail).
+  const replyTo = /.+@.+\..+/.test(params.email) ? params.email : undefined;
+  await sendMail(cfg, to, `Contato: ${esc(params.nome)} — ${esc(siteName)}`, html, replyTo);
 }
 
 /** Convite de transferência de ingresso enviado ao destinatário. */

@@ -1268,14 +1268,21 @@ export async function createExpressApp() {
         for (const batch of batches) {
           const { sectors, id, name, startDate, endDate, sort_order } = batch as any;
 
+          // Datas do lote são NOT NULL no banco. A UI nem sempre expõe esses
+          // campos, então coagimos valores ausentes/vazios para a data do evento
+          // (ou hoje) — senão o upsert falha e o evento fica salvo SEM ingressos.
+          const eventDate = (savedEvent as any).date || new Date().toISOString().split("T")[0];
+          const start = (startDate ?? batch.start_date) || eventDate;
+          const end = (endDate ?? batch.end_date) || start;
+
           // 2. Upsert do lote (camelCase → snake_case)
           const { data: savedBatch, error: bErr } = await admin
             .from("batches")
             .upsert({
               id,
               name,
-              start_date: startDate ?? batch.start_date,
-              end_date: endDate ?? batch.end_date,
+              start_date: start,
+              end_date: end,
               sort_order,
               event_id: savedEvent.id,
             })

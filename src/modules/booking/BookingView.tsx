@@ -14,6 +14,7 @@ import {
   X,
   Info,
   Coffee,
+  Instagram,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useApp } from '../../context/AppContext';
@@ -93,6 +94,16 @@ export function BookingView() {
 
   const hasSelectedItems = totalTicketsSelected > 0 || selectedTables.length > 0;
 
+  // Instagram do evento (aceita handle "@perfil", "perfil" ou URL completa).
+  const eventInstagramHandle = (activeEvent?.socialLinks?.instagram || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^(www\.)?instagram\.com\//i, '')
+    .replace(/^@/, '')
+    .replace(/\/+$/, '')
+    .trim();
+  const eventInstagramLink = eventInstagramHandle ? `https://instagram.com/${eventInstagramHandle}` : null;
+
   return (
     <>
       {/* Mobile Bottom Indicator Bar */}
@@ -167,6 +178,17 @@ export function BookingView() {
                 {activeEvent?.location || 'Villa dEste, S.P.'}
               </div>
             </div>
+            {eventInstagramLink && (
+              <a
+                href={eventInstagramLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 inline-flex w-fit items-center gap-2 border border-[#d4af37]/40 text-[#d4af37] text-[10px] font-bold uppercase tracking-widest rounded-full px-4 py-2 hover:bg-[#d4af37]/10 hover:border-[#d4af37]/70 transition-all"
+              >
+                <Instagram className="w-4 h-4" />
+                @{eventInstagramHandle}
+              </a>
+            )}
           </motion.div>
         </div>
       </section>
@@ -969,8 +991,10 @@ export function BookingView() {
                 Qual a política de cancelamento?
                 <ChevronRight className="w-5 h-5 text-white/30 group-open:rotate-90 transition-transform" />
               </summary>
-              <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3">
-                Conforme o CDC, você pode cancelar a compra em até 7 dias após o pedido, desde que falte mais de 48h para o evento.
+              <div className="px-5 pb-5 text-xs text-white/40 leading-relaxed border-t border-white/5 pt-3 whitespace-pre-wrap">
+                {activeEvent?.refundPolicy?.trim()
+                  ? activeEvent.refundPolicy
+                  : 'Conforme o CDC, você pode cancelar a compra em até 7 dias após o pedido, desde que falte mais de 48h para o evento.'}
               </div>
             </details>
           </div>

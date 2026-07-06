@@ -386,7 +386,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
                     <div>
                       <label className="block text-[9px] uppercase tracking-[2px] opacity-50 mb-1.5 ml-1">Sexo</label>
                       <div className="flex gap-2">
-                        {[{ v: 'M', l: 'Masculino' }, { v: 'F', l: 'Feminino' }, { v: 'O', l: 'Outro' }].map(opt => (
+                        {[{ v: 'M', l: 'Masculino' }, { v: 'F', l: 'Feminino' }].map(opt => (
                           <button
                             key={opt.v}
                             type="button"

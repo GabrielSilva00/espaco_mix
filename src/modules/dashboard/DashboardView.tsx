@@ -2025,21 +2025,6 @@ export function DashboardView() {
                                     </div>
 
                                     <div className="md:col-span-2">
-                                      <label className="block text-[9px] uppercase opacity-40 mb-2 font-bold tracking-widest">Taxa Conv. (R$)</label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        value={sector.convenienceFee ?? ''}
-                                        onChange={(e) => {
-                                          setFormEvent({ ...formEvent, batches: formEvent.batches.map((b, bi) => bi === batchIndex ? { ...b, sectors: b.sectors.map((s, si) => si === sectorIndex ? { ...s, convenienceFee: e.target.value === '' ? undefined : Number(e.target.value) } : s) } : b) });
-                                        }}
-                                        placeholder="0,00"
-                                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none"
-                                      />
-                                    </div>
-
-                                    <div className="md:col-span-2">
                                       {(() => {
                                         const cap = formEvent.capacity ?? 0;
                                         const totalOthers = formEvent.batches.reduce((sum, b, bi) =>

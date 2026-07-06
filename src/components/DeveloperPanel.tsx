@@ -75,12 +75,32 @@ export function DeveloperPanel() {
   // TODOS os clientes, diferente das feature flags acima (localStorage local).
   const [allowTransfer, setAllowTransfer] = useState<boolean | null>(null);
   const [savingTransfer, setSavingTransfer] = useState(false);
+  // Crédito "Desenvolvido por" exibido no rodapé (persistido em system_config).
+  const [developedBy, setDevelopedBy] = useState<string>('');
+  const [developedBySaved, setDevelopedBySaved] = useState(false);
+  const [savingDevelopedBy, setSavingDevelopedBy] = useState(false);
 
   useEffect(() => {
     getSystemConfigAdmin()
-      .then(cfg => setAllowTransfer(cfg.allow_transfer ?? false))
+      .then(cfg => {
+        setAllowTransfer(cfg.allow_transfer ?? false);
+        setDevelopedBy(cfg.developed_by ?? '');
+      })
       .catch(() => setAllowTransfer(false));
   }, []);
+
+  const handleSaveDevelopedBy = async () => {
+    setSavingDevelopedBy(true);
+    try {
+      await updateSystemConfig({ developed_by: developedBy.trim() || undefined });
+      setDevelopedBySaved(true);
+      setTimeout(() => setDevelopedBySaved(false), 2500);
+    } catch {
+      alert('Não foi possível salvar o crédito "Desenvolvido por". Tente novamente.');
+    } finally {
+      setSavingDevelopedBy(false);
+    }
+  };
 
   const handleToggleTransfer = async (value: boolean) => {
     setAllowTransfer(value);
@@ -212,6 +232,37 @@ export function DeveloperPanel() {
             value={allowTransfer ?? false}
             onChange={v => { if (!savingTransfer && allowTransfer !== null) handleToggleTransfer(v); }}
           />
+
+          {/* Crédito "Desenvolvido por" exibido no rodapé */}
+          <div className="pt-4 mt-2 border-t border-white/5">
+            <label className="block text-xs font-bold text-white/80 normal-case tracking-normal mb-1">
+              Desenvolvido por
+            </label>
+            <p className="text-[10px] text-white/30 normal-case tracking-normal font-normal mb-2">
+              Texto exibido no rodapé do site após "Desenvolvido por". Deixe em branco para usar o padrão.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={developedBy}
+                onChange={e => setDevelopedBy(e.target.value)}
+                placeholder="Ex: Nexo Soluções Digitais"
+                className="flex-1 bg-[#1a1a1a] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white/80 normal-case tracking-normal focus:border-[#d4af37] outline-none"
+              />
+              <button
+                onClick={handleSaveDevelopedBy}
+                disabled={savingDevelopedBy}
+                className={`flex items-center gap-2 px-5 py-2.5 text-[10px] uppercase tracking-widest font-bold rounded-xl transition disabled:opacity-50 ${
+                  developedBySaved
+                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                    : 'bg-[#d4af37] text-black hover:brightness-110'
+                }`}
+              >
+                {developedBySaved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                {developedBySaved ? 'Salvo!' : 'Salvar'}
+              </button>
+            </div>
+          </div>
         </Section>
 
         {/* Acesso a páginas do admin */}
