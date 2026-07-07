@@ -46,6 +46,7 @@ export function CheckoutModal() {
     guestData, setGuestData,
     selectedTables, selectedTicketLines,
     grandTotal, ticketsTotal, tablesTotal,
+    subTotal, feeAmount, showFeeSeparately,
     previewSectors,
     derivedTables,
     activeEvent,
@@ -199,6 +200,19 @@ export function CheckoutModal() {
                         </div>
                       ) : null;
                     })}
+
+                    {showFeeSeparately && (
+                      <div className="pt-2 mt-2 border-t border-white/5 space-y-1.5">
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="opacity-60 uppercase text-[10px] tracking-widest">Subtotal</span>
+                          <span className="text-white/80 font-serif whitespace-nowrap ml-4">R$ {subTotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="opacity-60 uppercase text-[10px] tracking-widest">+ Taxa de conveniência</span>
+                          <span className="text-white/80 font-serif whitespace-nowrap ml-4">R$ {feeAmount.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="pt-2 mt-2 border-t border-white/5 flex justify-between items-center">
                       <span className="text-[11px] uppercase opacity-80 tracking-[0.2em] font-bold text-[#d4af37]">Total</span>

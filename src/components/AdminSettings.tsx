@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Settings, Image as ImageIcon, Save, Check, Filter,
-  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, Trash2, RefreshCcw, CreditCard, Mail, Loader2
+  Settings, Save, Check, Filter,
+  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, RefreshCcw, CreditCard, Mail, Loader2
 } from 'lucide-react';
 import { getSystemConfigAdmin, updateSystemConfig, updateMyCredentials, getMyFullProfile, updateProfile } from '../lib/supabase';
 import { User, Phone, FileText } from 'lucide-react';
@@ -23,7 +23,6 @@ export function AdminSettings({
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'payments' | 'conta'>('general');
   const [credForm, setCredForm] = useState({ username: '', password: '', confirmPassword: '' });
   const [credStatus, setCredStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -97,14 +96,14 @@ export function AdminSettings({
     socialInstagram: '',
 
     // Payment
-    paymentMode: 'split',
     paymentGateway: 'mercadopago',
-    gatewayFee: '4.99',
-    gatewayFeeType: 'percentage',
-    feePayer: 'buyer',
     feeType: 'percentage',
     platformFee: '10',
-    showFeeToBuyer: true,
+    // Tarifas fixas do gateway (só relatório) + modo de recebimento
+    gatewaySettlementMode: 'instant' as 'instant' | 'd30',
+    gatewayFeeCreditInstant: 4.99,
+    gatewayFeeCredit30d: 3.99,
+    gatewayFeePix: 0.99,
 
     // Security
     requireCPF: true,
@@ -174,9 +173,10 @@ export function AdminSettings({
           venueMaxCapacity:     c.venue_max_capacity     ?? prev.venueMaxCapacity,
           platformFee:          String(c.platform_fee_percent    ?? prev.platformFee),
           feeType:              (c as any).platform_fee_type  ?? prev.feeType,
-          gatewayFee:           String(c.gateway_fee_percent     ?? prev.gatewayFee),
-          feePayer:             c.fee_payer              ?? prev.feePayer,
-          showFeeToBuyer:       c.show_fee_to_buyer      ?? prev.showFeeToBuyer,
+          gatewaySettlementMode: (c.gateway_settlement_mode === 'd30' ? 'd30' : 'instant'),
+          gatewayFeeCreditInstant: c.gateway_fee_credit_instant ?? prev.gatewayFeeCreditInstant,
+          gatewayFeeCredit30d:  c.gateway_fee_credit_30d ?? prev.gatewayFeeCredit30d,
+          gatewayFeePix:        c.gateway_fee_pix        ?? prev.gatewayFeePix,
           paymentGateway:       c.payment_provider       ?? prev.paymentGateway,
           maxTicketsPerPurchase: String(c.max_tickets_per_purchase ?? prev.maxTicketsPerPurchase),
           cartExpirationTime:   String(c.cart_expiration_minutes  ?? prev.cartExpirationTime),
@@ -259,10 +259,15 @@ export function AdminSettings({
         // Pagamento
         platform_fee_percent:    numOrUndef(settings.platformFee),
         platform_fee_type:       settings.feeType as 'percentage' | 'fixed',
-        gateway_fee_percent:     numOrUndef(settings.gatewayFee),
-        fee_payer:               settings.feePayer as 'buyer' | 'seller',
-        show_fee_to_buyer:       settings.showFeeToBuyer,
+        // "Quem paga a taxa do gateway" é fixo = Comprador.
+        fee_payer:               'buyer',
         payment_provider:        settings.paymentGateway as any,
+        // Tarifas fixas do gateway (só relatório): grava o modo de recebimento e
+        // mantém gateway_fee_percent = tarifa de crédito efetiva (compat. legada).
+        gateway_settlement_mode: settings.gatewaySettlementMode,
+        gateway_fee_percent:     settings.gatewaySettlementMode === 'd30'
+                                   ? settings.gatewayFeeCredit30d
+                                   : settings.gatewayFeeCreditInstant,
         // Segurança
         require_cpf:             settings.requireCPF,
         block_simultaneous:      settings.blockSimultaneous,
@@ -320,7 +325,7 @@ export function AdminSettings({
       ]);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-      onSettingsSaved?.(settings.platformName, logoPreview, settings);
+      onSettingsSaved?.(settings.platformName, null, settings);
     } catch (err) {
       setSaveError((err as Error)?.message || 'Erro ao salvar configurações.');
     } finally {
@@ -334,19 +339,7 @@ export function AdminSettings({
     }
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setLogoPreview(url);
-    }
-  };
-
-  const handleLogoRemove = () => {
-    setLogoPreview(null);
-  };
-
-  const renderToggle = (name: keyof typeof settings, label: string, description?: string) => (
+  const renderToggle =(name: keyof typeof settings, label: string, description?: string) => (
     <label className="flex items-start gap-4 cursor-pointer group w-full p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition">
       <div className="flex-1">
          <span className="text-xs uppercase tracking-widest font-bold block mb-1">{label}</span>
@@ -620,30 +613,6 @@ export function AdminSettings({
                 <p className="text-[9px] opacity-30 mt-1.5">Será exibido no rodapé do site. Use o formato @usuario ou o handle completo.</p>
               </div>
             </div>
-
-            <div className="mt-8 border-t border-white/5 pt-8">
-              <label className="block text-[10px] uppercase opacity-40 mb-4 font-bold tracking-[0.2em]">Logo da Plataforma</label>
-              <div className="flex items-center gap-6">
-                <div className="w-20 h-20 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center overflow-hidden relative group">
-                  {logoPreview ? (
-                    <img src={logoPreview} alt="Logo Preview" className="w-full h-full object-contain p-2" />
-                  ) : (
-                    <ImageIcon className="w-8 h-8 opacity-20" />
-                  )}
-                </div>
-                <div className="flex flex-col gap-3">
-                  <label className="px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs transition uppercase tracking-widest cursor-pointer text-center font-bold">
-                     Fazer Upload
-                     <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
-                  </label>
-                  {logoPreview && (
-                    <button onClick={handleLogoRemove} className="flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest text-red-400 hover:text-red-300 transition">
-                      <Trash2 className="w-3 h-3" /> Remover imagem
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -661,40 +630,37 @@ export function AdminSettings({
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
               <div className="space-y-6">
-                <h4 className="text-[11px] uppercase tracking-widest font-bold opacity-60 border-b border-white/10 pb-2">Processamento</h4>
+                <h4 className="text-[11px] uppercase tracking-widest font-bold opacity-60 border-b border-white/10 pb-2">Tarifas do Gateway (Mercado Pago)</h4>
+
+                <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 flex gap-2 text-[11px] text-blue-400/90 leading-relaxed">
+                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  O Mercado Pago cobra a tarifa dele automaticamente sobre cada venda. Estes valores são
+                  <strong> fixos</strong> e servem apenas para as estimativas dos relatórios do site — não alteram a
+                  cobrança real do MP. Você só escolhe o prazo de recebimento abaixo.
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                    <p className="text-[9px] uppercase tracking-[0.2em] opacity-40 mb-1">Crédito (na hora)</p>
+                    <p className="text-sm font-mono text-white">{settings.gatewayFeeCreditInstant.toFixed(2)}%</p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                    <p className="text-[9px] uppercase tracking-[0.2em] opacity-40 mb-1">Crédito (30 dias)</p>
+                    <p className="text-sm font-mono text-white">{settings.gatewayFeeCredit30d.toFixed(2)}%</p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                    <p className="text-[9px] uppercase tracking-[0.2em] opacity-40 mb-1">Pix (na hora)</p>
+                    <p className="text-sm font-mono text-white">{settings.gatewayFeePix.toFixed(2)}%</p>
+                  </div>
+                </div>
 
                 <div>
-                  <label className="flex items-center gap-2 text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">
-                    Modo de Recebimento
-                    <span title="Split Automático envia o valor direto para o organizador. Retenção mantém na plataforma até liberação manual."><Info className="w-3 h-3 cursor-help" /></span>
-                  </label>
-                  <select name="paymentMode" value={settings.paymentMode} onChange={handleChange} className="w-full select-field">
-                    <option value="split">Split Automático (Recomendado)</option>
-                    <option value="retained">Retenção pela Plataforma</option>
+                  <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Prazo de Recebimento (Cartão)</label>
+                  <select name="gatewaySettlementMode" value={settings.gatewaySettlementMode} onChange={handleChange} className="w-full select-field">
+                    <option value="instant">Na hora ({settings.gatewayFeeCreditInstant.toFixed(2)}%)</option>
+                    <option value="d30">Em 30 dias ({settings.gatewayFeeCredit30d.toFixed(2)}%)</option>
                   </select>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                   <div>
-                    <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Gateway</label>
-                    <select name="paymentGateway" value={settings.paymentGateway} onChange={handleChange} className="w-full select-field">
-                      <option value="mercadopago">Mercado Pago</option>
-                      <option value="pagarme">Pagar.me</option>
-                      <option value="stripe">Stripe</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Taxa do Gateway</label>
-                    <input type="number" min="0" step="0.01" name="gatewayFee" value={settings.gatewayFee} onChange={handleChange} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white font-mono focus:outline-none focus:border-[#d4af37]/50 transition" />
-                  </div>
-                </div>
-
-                <div>
-                   <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Quem Paga a Taxa do Gateway?</label>
-                   <select name="feePayer" value={settings.feePayer} onChange={handleChange} className="w-full select-field">
-                     <option value="buyer">Comprador (Add ao valor do ingresso)</option>
-                     <option value="seller">Organizador (Descontado no split)</option>
-                   </select>
+                  <p className="text-[9px] opacity-30 mt-1.5">Define qual tarifa de cartão é usada nas estimativas de relatório. Pix é sempre {settings.gatewayFeePix.toFixed(2)}%.</p>
                 </div>
               </div>
 
@@ -703,9 +669,8 @@ export function AdminSettings({
 
                 <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 flex gap-2 text-[11px] text-blue-400/90 leading-relaxed">
                   <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  Quando o split está ativo, a comissão do desenvolvedor é definida no servidor
-                  (variáveis <code className="bg-black/40 px-1 rounded">MARKETPLACE_FEE_TYPE/VALUE</code>) e
-                  <strong> prevalece sobre este campo</strong>. Veja a comissão vigente na aba de pagamentos
+                  A comissão da plataforma é definida pelo desenvolvedor no servidor. O valor abaixo é usado
+                  apenas quando o desenvolvedor não a fixa. Veja a comissão vigente na aba de pagamentos
                   (Split de Pagamentos).
                 </div>
 
@@ -725,9 +690,6 @@ export function AdminSettings({
                     </div>
                   </div>
                 </div>
-
-                {renderToggle('showFeeToBuyer', 'Mostrar taxas separadas no checkout (Exibir "+ Taxa")', 'Ocultar esta opção embutirá as taxas no preço final visível.')}
-
               </div>
             </div>
           </div>

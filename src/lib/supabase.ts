@@ -207,6 +207,12 @@ export interface SystemConfig {
   // Gateway de pagamento
   gateway_fee_percent?: number;
   fee_payer?: 'buyer' | 'seller';
+  // Tarifas FIXAS do gateway por método (apenas estimativa de relatório — o
+  // Mercado Pago cobra a tarifa real dele). O dono alterna o modo de recebimento.
+  gateway_fee_credit_instant?: number;   // Cartão, recebendo na hora (ex.: 4.99)
+  gateway_fee_credit_30d?: number;       // Cartão, recebendo em 30 dias (ex.: 3.99)
+  gateway_fee_pix?: number;              // Pix (ex.: 0.99)
+  gateway_settlement_mode?: 'instant' | 'd30';
   // Relatórios e suporte
   enable_reports?: boolean;
   allow_export?: boolean;
@@ -676,6 +682,7 @@ export async function getEvents(): Promise<Event[]> {
       pos_locations,
       category,
       capacity,
+      show_fee_to_buyer,
       is_recurring,
       custom_url,
       refund_policy,
@@ -724,7 +731,7 @@ export async function getMyEvents(userId: string): Promise<Event[]> {
       id, title, description, date, end_date, time, end_time,
       location, status, img, price_type, has_tables, age_rating,
       important_notes, entry_rules, additional_info, pos_locations,
-      category, capacity, is_recurring, custom_url, refund_policy,
+      category, capacity, show_fee_to_buyer, is_recurring, custom_url, refund_policy,
       social_instagram, social_spotify, table_total, table_seats,
       table_rows, table_cols, table_layout, created_by, assigned_staff,
       updated_at
@@ -1190,7 +1197,7 @@ export function subscribeToEvents(callback: (events: Event[]) => void) {
               id, title, description, date, end_date, time, end_time,
               location, status, img, price_type, has_tables, age_rating,
               important_notes, entry_rules, additional_info, pos_locations,
-              category, capacity, is_recurring, custom_url, refund_policy,
+              category, capacity, show_fee_to_buyer, is_recurring, custom_url, refund_policy,
               social_instagram, social_spotify, table_total, table_seats,
               table_rows, table_cols, total_bistros, table_price, bistro_price,
               table_icon_size, table_layout, created_by, assigned_staff,

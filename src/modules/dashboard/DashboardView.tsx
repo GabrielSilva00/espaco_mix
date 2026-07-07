@@ -293,16 +293,25 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
 // ─── Dev Overview ──────────────────────────────────────────────
 const LOG_LEVEL_COLORS = { error: 'text-red-400 border-red-500/20 bg-red-500/5', warn: 'text-amber-400 border-amber-500/20 bg-amber-500/5', info: 'text-blue-400 border-blue-500/20 bg-blue-500/5' };
 
-function DevOverviewPanel({ events, buyers, reservations, systemLogs, clearSystemLogs }: {
+function DevOverviewPanel({ events, buyers, reservations, systemLogs, clearSystemLogs, platformFeePercent, platformFeeType }: {
   events: Event[]; buyers: Buyer[]; reservations: Reservation[];
   systemLogs: { id: string; level: 'error' | 'warn' | 'info'; message: string; time: Date }[];
   clearSystemLogs: () => void;
+  platformFeePercent: number;
+  platformFeeType: 'percentage' | 'fixed';
 }) {
   const [logFilter, setLogFilter] = React.useState<'all' | 'error' | 'warn' | 'info'>('all');
   const [logSearch, setLogSearch] = React.useState('');
 
+  const approvedCount = reservations.filter(r => r.paymentStatus === 'approved').length;
   const totalRevenue = reservations.reduce((s, r) => s + (r.total || 0), 0);
-  const devFee = totalRevenue * 0.05;
+  // A "Taxa Dev" reflete a taxa da plataforma configurada em Configurações.
+  const devFee = platformFeeType === 'fixed'
+    ? platformFeePercent * approvedCount
+    : totalRevenue * (platformFeePercent / 100);
+  const devFeeLabel = platformFeeType === 'fixed'
+    ? `R$ ${platformFeePercent.toFixed(2)}/venda`
+    : `${platformFeePercent}%`;
   const activeEvents = events.filter(e => e.status === 'Ativo' || e.status === 'Vendas liberadas').length;
 
   const filteredLogs = systemLogs
@@ -343,7 +352,7 @@ function DevOverviewPanel({ events, buyers, reservations, systemLogs, clearSyste
         <div className="bg-[#0d0d0d] border border-[#d4af37]/20 rounded-2xl p-6">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="w-4 h-4 text-[#d4af37]" />
-            <span className="text-[10px] uppercase tracking-widest text-white/40">Taxa Dev (5%)</span>
+            <span className="text-[10px] uppercase tracking-widest text-white/40">Taxa Dev ({devFeeLabel})</span>
           </div>
           <p className="text-3xl font-bold text-[#d4af37]">{devFee.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
         </div>
@@ -1724,7 +1733,7 @@ export function DashboardView() {
 
                         <div>
                           <label className="block text-[9px] md:text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em] ml-1">Descrição Completa</label>
-                          <textarea 
+                          <textarea
                             value={formEvent.description}
                             onChange={(e) => setFormEvent({ ...formEvent, description: e.target.value })}
                             placeholder="Descreva a experiência que o público terá..."
@@ -1732,6 +1741,24 @@ export function DashboardView() {
                             className="w-full bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl px-5 py-4 text-sm focus:border-[#d4af37] outline-none transition-all resize-none"
                           ></textarea>
                         </div>
+
+                        {/* Exibição da taxa de conveniência no checkout (por evento) */}
+                        <label className="flex items-start gap-4 cursor-pointer p-4 bg-white/[0.03] border border-white/10 rounded-xl md:rounded-2xl hover:bg-white/[0.05] transition">
+                          <div className="flex-1">
+                            <span className="text-[11px] uppercase tracking-widest font-bold block mb-1">Mostrar taxa separada no checkout</span>
+                            <span className="text-[10px] text-white/50 block leading-relaxed">Ligado: a taxa de conveniência aparece como "+ Taxa" e é somada ao total. Desligado: a taxa fica embutida no preço exibido.</span>
+                          </div>
+                          <div className="relative shrink-0 mt-1">
+                            <input
+                              type="checkbox"
+                              checked={!!formEvent.showFeeToBuyer}
+                              onChange={(e) => setFormEvent({ ...formEvent, showFeeToBuyer: e.target.checked })}
+                              className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-white/10 rounded-full peer peer-checked:bg-[#d4af37] transition-colors" />
+                            <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5" />
+                          </div>
+                        </label>
                       </div>
                     </div>
 
@@ -2714,9 +2741,19 @@ export function DashboardView() {
                 gatewayFeePercent={siteConfig.gatewayFeePercent ?? 0}
               />
             ) : dashboardMode === 'dev-overview' && userRole === 'developer' ? (
-              <DevOverviewPanel events={events} buyers={buyers} reservations={reservations} systemLogs={systemLogs} clearSystemLogs={clearSystemLogs} />
+              <DevOverviewPanel events={events} buyers={buyers} reservations={reservations} systemLogs={systemLogs} clearSystemLogs={clearSystemLogs} platformFeePercent={siteConfig.platformFeePercent ?? 10} platformFeeType={siteConfig.platformFeeType ?? 'percentage'} />
             ) : dashboardMode === 'reports' && isAtLeast('admin') ? (
-              <ReportsPanel events={events} reservations={reservations} gatewayFeePercent={siteConfig.gatewayFeePercent ?? 0} platformFeePercent={siteConfig.platformFeePercent ?? 10} platformFeeType={siteConfig.platformFeeType ?? 'percentage'} />
+              <ReportsPanel
+                events={events}
+                reservations={reservations}
+                gatewayFeePercent={siteConfig.gatewayFeePercent ?? 0}
+                platformFeePercent={siteConfig.platformFeePercent ?? 10}
+                platformFeeType={siteConfig.platformFeeType ?? 'percentage'}
+                gatewayFeeCreditInstant={siteConfig.gatewayFeeCreditInstant ?? 4.99}
+                gatewayFeeCredit30d={siteConfig.gatewayFeeCredit30d ?? 3.99}
+                gatewayFeePix={siteConfig.gatewayFeePix ?? 0.99}
+                gatewaySettlementMode={siteConfig.gatewaySettlementMode ?? 'instant'}
+              />
             ) : null}
             </>
           )}

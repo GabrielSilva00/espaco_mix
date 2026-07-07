@@ -153,6 +153,9 @@ export interface Event {
   posLocations?: string;
   category?: string;
   capacity?: number;
+  // Se true, a taxa de conveniência aparece separada ("+ Taxa") e somada ao total no checkout.
+  // Se false (padrão), a taxa fica embutida no preço exibido.
+  showFeeToBuyer?: boolean;
   isRecurring?: boolean;
   customUrl?: string;
   refundPolicy?: string;
@@ -184,6 +187,11 @@ export interface SiteConfig {
   platformFeePercent?: number;
   platformFeeType?: 'percentage' | 'fixed';
   gatewayFeePercent?: number;
+  // Tarifas fixas do gateway por método (estimativa de relatório) + modo de recebimento
+  gatewayFeeCreditInstant?: number;
+  gatewayFeeCredit30d?: number;
+  gatewayFeePix?: number;
+  gatewaySettlementMode?: 'instant' | 'd30';
   cartExpirationMinutes?: number;
   allowTransfer?: boolean;
   address?: string;

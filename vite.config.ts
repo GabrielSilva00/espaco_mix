@@ -23,7 +23,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png'],
       manifest: {
-        name: 'Espaço Mix — Ingressos e Reservas',
+        name: 'Espaço Mix – Recepção e Eventos',
         short_name: 'Espaço Mix',
         description: 'Plataforma premium de compra de ingressos e reserva de mesas para eventos exclusivos.',
         theme_color: '#0a0a0a',

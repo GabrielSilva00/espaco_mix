@@ -72,7 +72,6 @@ export function ContactView() {
 
   const contactEmail  = config.contact_email  || config.support_email || PLACEHOLDER;
   const contactPhone  = config.contact_phone  || PLACEHOLDER;
-  const supportPhone  = config.support_phone  || PLACEHOLDER;
   const contactAddr   = config.address        || PLACEHOLDER;
   const whatsappRaw   = config.contact_phone?.replace(/\D/g, '');
   const whatsappLink  = whatsappRaw ? `https://wa.me/55${whatsappRaw}` : null;
@@ -132,9 +131,6 @@ export function ContactView() {
       content: (
         <div className="flex flex-col gap-1">
           <span className="text-sm text-white/60">{contactPhone}</span>
-          {supportPhone !== PLACEHOLDER && (
-            <span className="text-sm text-white/60">{supportPhone}</span>
-          )}
         </div>
       ),
     },

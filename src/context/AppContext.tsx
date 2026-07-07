@@ -363,6 +363,8 @@ interface AppContextValue {
   grandTotal: number;
   subTotal: number;
   taxAmount: number;
+  feeAmount: number;
+  showFeeSeparately: boolean;
   tablesTotal: number;
   ticketsTotal: number;
   totalTicketsSelected: number;
@@ -792,7 +794,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const taxAmount = siteConfig.platformFeeType === 'fixed'
     ? (siteConfig.platformFeePercent ?? 0)
     : subTotal * ((siteConfig.platformFeePercent ?? 10) / 100);
-  const grandTotal = subTotal;
+  // Taxa de conveniência separada ("+ Taxa"): controlada por evento (activeEvent.showFeeToBuyer).
+  // Quando ligada, soma ao total; quando desligada, fica embutida (total = subtotal).
+  const showFeeSeparately = !!activeEvent?.showFeeToBuyer && subTotal > 0;
+  const feeAmount = showFeeSeparately ? Math.round(taxAmount * 100) / 100 : 0;
+  const grandTotal = Math.round((subTotal + feeAmount) * 100) / 100;
 
   const isAdminLayout = (userRole === 'admin' || userRole === 'developer' || userRole === 'staff') && !isPreviewingEvent;
 
@@ -1257,6 +1263,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           platformFeePercent: cfg.platform_fee_percent ?? 10,
           platformFeeType: (cfg as any).platform_fee_type === 'fixed' ? 'fixed' : 'percentage',
           gatewayFeePercent: cfg.gateway_fee_percent ?? 0,
+          gatewayFeeCreditInstant: cfg.gateway_fee_credit_instant ?? 4.99,
+          gatewayFeeCredit30d: cfg.gateway_fee_credit_30d ?? 3.99,
+          gatewayFeePix: cfg.gateway_fee_pix ?? 0.99,
+          gatewaySettlementMode: cfg.gateway_settlement_mode === 'd30' ? 'd30' : 'instant',
           cartExpirationMinutes: cfg.cart_expiration_minutes ?? undefined,
           allowTransfer: cfg.allow_transfer ?? false,
           address: cfg.address ?? prev.address,
@@ -2904,7 +2914,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isAdminLayout,
     activeEvent,
     derivedTables,
-    grandTotal, subTotal, taxAmount, tablesTotal, ticketsTotal,
+    grandTotal, subTotal, taxAmount, feeAmount, showFeeSeparately, tablesTotal, ticketsTotal,
     totalTicketsSelected,
     previewSectors, expandedSector,
     showToastFn: showToast,

@@ -5,6 +5,8 @@ import { useApp } from '../../context/AppContext';
 import { getSystemConfig, SystemConfig } from '../../lib/supabase';
 
 const PLACEHOLDER = '[A PREENCHER]';
+// Canal de privacidade padrão (usado quando o dono ainda não cadastrou um DPO no painel).
+const PRIVACY_EMAIL = 'contato@espacomix.com.br';
 
 interface LegalData {
   companyName: string;
@@ -14,13 +16,15 @@ interface LegalData {
   legalCity: string;
 }
 
+// Campos legais vazios caem para string vazia (ocultados na renderização) em vez de
+// "[A PREENCHER]"; o dono preenche depois em Configurações → Dados da empresa.
 function buildLegalData(c: Partial<SystemConfig>): LegalData {
   return {
-    companyName: c.company_name || PLACEHOLDER,
-    cnpj:        c.document     || PLACEHOLDER,
-    dpoName:     c.dpo_name     || PLACEHOLDER,
-    dpoEmail:    c.dpo_email    || PLACEHOLDER,
-    legalCity:   c.legal_city   || PLACEHOLDER,
+    companyName: c.company_name || 'Espaço Mix',
+    cnpj:        c.document     || '',
+    dpoName:     c.dpo_name     || '',
+    dpoEmail:    c.dpo_email    || PRIVACY_EMAIL,
+    legalCity:   c.legal_city   || '',
   };
 }
 
@@ -135,8 +139,8 @@ function PrivacySections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalDa
     <>
       <SectionBlock id="pp-01" number={1} title="Introdução">
         <p>
-          A <T>{ld.companyName}</T>, inscrita no CNPJ sob o nº{' '}
-          <T>{ld.cnpj}</T>, opera a plataforma <T>Espaço Mix</T> e está comprometida
+          A <T>{ld.companyName}</T>{ld.cnpj && <>, inscrita no CNPJ sob o nº <T>{ld.cnpj}</T></>} opera
+          a plataforma <T>Espaço Mix</T> e está comprometida
           com a proteção dos dados pessoais de seus usuários, em conformidade com a{' '}
           <T>Lei Geral de Proteção de Dados Pessoais (LGPD — Lei nº 13.709/2018)</T> e demais
           legislações aplicáveis.
@@ -151,9 +155,9 @@ function PrivacySections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalDa
           contida, recomendamos que não utilize a Plataforma.
         </p>
         <InfoBox>
-          Nosso Encarregado pelo Tratamento de Dados (DPO) é{' '}
-          <T>{ld.dpoName}</T>, acessível pelo e-mail{' '}
-          <a href={ld.dpoEmail !== PLACEHOLDER ? `mailto:${ld.dpoEmail}` : undefined} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
+          Caso deseje exercer seus direitos de acesso, retificação ou exclusão de dados,
+          entre em contato com nosso canal de privacidade através do e-mail:{' '}
+          <a href={`mailto:${ld.dpoEmail}`} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
             {ld.dpoEmail}
           </a>.
         </InfoBox>
@@ -173,7 +177,7 @@ function PrivacySections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalDa
           <GlossaryItem term="Titularidade">Qualidade de titular de um ingresso, conferindo direito de acesso ao evento correspondente.</GlossaryItem>
           <GlossaryItem term="Controlador">A {ld.companyName}, que determina as finalidades e meios do tratamento dos dados pessoais.</GlossaryItem>
           <GlossaryItem term="Operador">Pessoa natural ou jurídica que realiza o tratamento de dados em nome do Controlador.</GlossaryItem>
-          <GlossaryItem term="Encarregado (DPO)">Responsável pela comunicação entre Controlador, titulares de dados e a ANPD: {ld.dpoName}.</GlossaryItem>
+          <GlossaryItem term="Encarregado (DPO)">Responsável pela comunicação entre Controlador, titulares de dados e a ANPD{ld.dpoName ? `: ${ld.dpoName}` : ''}.</GlossaryItem>
           <GlossaryItem term="Tratamento">Toda operação realizada com dados pessoais, como coleta, armazenamento, uso e exclusão.</GlossaryItem>
           <GlossaryItem term="Consentimento">Manifestação livre, informada e inequívoca do titular concordando com o tratamento de seus dados.</GlossaryItem>
           <GlossaryItem term="Anonimização">Processo que impossibilita a associação dos dados a um titular específico, de forma irreversível.</GlossaryItem>
@@ -393,24 +397,25 @@ function PrivacySections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalDa
           <T>Marco Civil da Internet (Lei nº 12.965/2014)</T>.
         </p>
         <p>
-          Fica eleito o <T>Foro da Comarca de {ld.legalCity}</T> como competente para
-          dirimir quaisquer controvérsias oriundas desta Política, com renúncia expressa a
-          qualquer outro, por mais privilegiado que seja.
+          {ld.legalCity
+            ? <>Fica eleito o <T>Foro da Comarca de {ld.legalCity}</T> como competente para
+                dirimir quaisquer controvérsias oriundas desta Política, com renúncia expressa a
+                qualquer outro, por mais privilegiado que seja.</>
+            : <>Fica eleito o foro do domicílio do consumidor como competente para dirimir
+                quaisquer controvérsias oriundas desta Política.</>}
         </p>
       </SectionBlock>
 
       <SectionBlock id="pp-14" number={14} title="Contato">
         <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 space-y-2.5 text-[14px]">
-          <p><T>Razão Social:</T> {ld.companyName}</p>
-          <p><T>CNPJ:</T> {ld.cnpj}</p>
-          <p><T>Encarregado (DPO):</T> {ld.dpoName}</p>
+          {ld.companyName && <p><T>Razão Social:</T> {ld.companyName}</p>}
+          {ld.cnpj && <p><T>CNPJ:</T> {ld.cnpj}</p>}
           <p>
-            <T>E-mail DPO:</T>{' '}
-            <a href={ld.dpoEmail !== PLACEHOLDER ? `mailto:${ld.dpoEmail}` : undefined} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
+            <T>E-mail:</T>{' '}
+            <a href={`mailto:${ld.dpoEmail}`} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
               {ld.dpoEmail}
             </a>
           </p>
-          <p><T>Foro:</T> Comarca de {ld.legalCity}</p>
         </div>
       </SectionBlock>
     </>
@@ -596,21 +601,23 @@ function CookiesSections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalDa
           <T>Marco Civil da Internet (Lei nº 12.965/2014)</T>.
         </p>
         <p>
-          Fica eleito o <T>Foro da Comarca de {ld.legalCity}</T> para dirimir
-          quaisquer controvérsias oriundas desta Política.
+          {ld.legalCity
+            ? <>Fica eleito o <T>Foro da Comarca de {ld.legalCity}</T> para dirimir
+                quaisquer controvérsias oriundas desta Política.</>
+            : <>Fica eleito o foro do domicílio do consumidor para dirimir
+                quaisquer controvérsias oriundas desta Política.</>}
         </p>
       </SectionBlock>
 
       <SectionBlock id="ck-10" number={10} title="Contato">
         <p>
           Para dúvidas ou solicitações relacionadas a cookies, entre em contato com
-          nosso Encarregado de Dados (DPO):
+          nosso canal de privacidade:
         </p>
         <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 space-y-2 text-[14px] mt-3">
-          <p><T>DPO:</T> {ld.dpoName}</p>
           <p>
             <T>E-mail:</T>{' '}
-            <a href={ld.dpoEmail !== PLACEHOLDER ? `mailto:${ld.dpoEmail}` : undefined} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
+            <a href={`mailto:${ld.dpoEmail}`} className="text-[#d4af37]/80 hover:text-[#d4af37] underline transition-colors">
               {ld.dpoEmail}
             </a>
           </p>
@@ -627,8 +634,8 @@ function TermsSections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalData
       <SectionBlock id="tu-01" number={1} title="Introdução">
         <p>
           Os presentes <T>Termos de Uso</T> regulam a utilização da plataforma{' '}
-          <T>Espaço Mix</T>, operada pela <T>{ld.companyName}</T>,
-          CNPJ nº {ld.cnpj}, e estabelecem os direitos e obrigações dos usuários
+          <T>Espaço Mix</T>, operada pela <T>{ld.companyName}</T>{ld.cnpj ? <>, CNPJ nº {ld.cnpj}</> : null},
+          e estabelecem os direitos e obrigações dos usuários
           e da empresa no contexto da comercialização de ingressos para eventos.
         </p>
         <p>
@@ -952,9 +959,12 @@ function TermsSections({ onTab, ld }: { onTab: (t: TabId) => void; ld: LegalData
           <T>LGPD (Lei nº 13.709/2018)</T>.
         </p>
         <p>
-          Fica eleito o <T>Foro da Comarca de {ld.legalCity}</T>, com exclusão de
-          qualquer outro, por mais privilegiado que seja, para dirimir quaisquer
-          controvérsias oriundas destes Termos ou da utilização da Plataforma.
+          {ld.legalCity
+            ? <>Fica eleito o <T>Foro da Comarca de {ld.legalCity}</T>, com exclusão de
+                qualquer outro, por mais privilegiado que seja, para dirimir quaisquer
+                controvérsias oriundas destes Termos ou da utilização da Plataforma.</>
+            : <>Fica eleito o foro do domicílio do consumidor para dirimir quaisquer
+                controvérsias oriundas destes Termos ou da utilização da Plataforma.</>}
         </p>
       </SectionBlock>
     </>

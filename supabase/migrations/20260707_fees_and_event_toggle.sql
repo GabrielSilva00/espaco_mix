@@ -1,19 +1,32 @@
 -- ════════════════════════════════════════════════════════════════════════════
--- Crédito "Desenvolvido por" configurável — jul/2026
+-- Taxas de gateway fixas + toggle "mostrar taxas separadas" por evento — jul/2026
 --
--- Adiciona system_config.developed_by (texto exibido no rodapé, editável pelo
--- Dev Panel) e o inclui na view pública system_config_public para o Footer ler.
+-- 1) events.show_fee_to_buyer: o dono do evento decide, por evento, se a taxa de
+--    conveniência aparece separada ("+ Taxa") no checkout. (Antes era global em
+--    system_config; agora é por evento.)
+-- 2) system_config: tarifas FIXAS do gateway por método (apenas estimativa de
+--    relatório — o Mercado Pago cobra a tarifa real dele) + modo de recebimento
+--    ('instant' = na hora, 'd30' = em 30 dias) que o dono pode alternar.
 --
--- Idempotente e aditivo (ADD COLUMN IF NOT EXISTS + CREATE OR REPLACE VIEW).
--- Obs.: em produção a coluna e a view já foram aplicadas; este arquivo apenas
--- documenta a mudança de forma reexecutável (o conteúdo anterior estava corrompido).
+-- Seguro para deploy: apenas ADD COLUMN IF NOT EXISTS + CREATE OR REPLACE VIEW
+-- (aditivo). A view recria a lista atual de colunas + as 4 novas de gateway ao
+-- final (o CREATE OR REPLACE VIEW do PG só permite anexar colunas no fim).
 -- ════════════════════════════════════════════════════════════════════════════
 
 BEGIN;
 
-ALTER TABLE public.system_config
-  ADD COLUMN IF NOT EXISTS developed_by text;
+-- 1) Toggle por evento
+ALTER TABLE public.events
+  ADD COLUMN IF NOT EXISTS show_fee_to_buyer boolean DEFAULT false;
 
+-- 2) Tarifas fixas de gateway (relatório) + modo de recebimento
+ALTER TABLE public.system_config
+  ADD COLUMN IF NOT EXISTS gateway_fee_credit_instant numeric DEFAULT 4.99,
+  ADD COLUMN IF NOT EXISTS gateway_fee_credit_30d     numeric DEFAULT 3.99,
+  ADD COLUMN IF NOT EXISTS gateway_fee_pix            numeric DEFAULT 0.99,
+  ADD COLUMN IF NOT EXISTS gateway_settlement_mode    text    DEFAULT 'instant';
+
+-- Recriar a view pública incluindo as 4 novas colunas de gateway ao final.
 CREATE OR REPLACE VIEW public.system_config_public AS
 SELECT
   id,
@@ -64,7 +77,11 @@ SELECT
   social_links,
   updated_at,
   platform_fee_type,
-  developed_by
+  developed_by,
+  gateway_fee_credit_instant,
+  gateway_fee_credit_30d,
+  gateway_fee_pix,
+  gateway_settlement_mode
 FROM public.system_config;
 
 GRANT SELECT ON public.system_config_public TO anon, authenticated;
