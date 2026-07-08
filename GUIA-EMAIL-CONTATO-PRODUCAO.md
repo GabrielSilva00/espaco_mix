@@ -17,26 +17,33 @@ Siga os passos abaixo, na ordem.
 
 > Sem domínio verificado, o Resend recusa o envio ou a mensagem cai em spam.
 
-## 2. Definir o remetente (`from`)
-Use **sempre** um endereço do domínio verificado — **nunca** `onboarding@resend.dev`.
+## 2. Definir o remetente (`from`) — `sac@` (no-reply)
+Todos os e-mails **automáticos** (confirmações, avisos de evento, lembretes) saem
+deste remetente. Use `sac@espacomix.com.br` — funciona como **no-reply** (o sistema
+não coloca `Reply-To` nesses e-mails). Use **sempre** um endereço do domínio
+verificado — **nunca** `onboarding@resend.dev`.
 
 Configure em **um** dos dois lugares:
 - **Vercel → Settings → Environment Variables:**
   - `EMAIL_SENDER_NAME=Espaço Mix`
-  - `EMAIL_SENDER_ADDRESS=contato@espacomix.com.br`
+  - `EMAIL_SENDER_ADDRESS=sac@espacomix.com.br`
 - **ou** no **painel admin → Configurações → E-mail** (`email_sender_address`).
 
 > Em produção, se o remetente não estiver configurado, o envio **falha com erro
 > claro** (não usamos mais o domínio de teste como fallback).
 
-## 3. Padronizar o destinatário das notificações
-Escolha **um** endereço (recomendado: `contato@espacomix.com.br`) e defina em
-**painel admin → Configurações → `contact_email`**.
+## 3. Definir a caixa do formulário de contato — `contato@` (conversa)
+As mensagens do formulário de contato são para **conversa com o usuário**. Elas
+chegam nesta caixa com `Reply-To` = e-mail do visitante, então o atendente responde
+direto a ele. Use `contato@espacomix.com.br` em
+**painel admin → Configurações → `contact_email`** (ou env `CONTACT_EMAIL`).
 
 Precedência aplicada pelo servidor:
 `system_config.contact_email` → `support_email` → env `CONTACT_EMAIL` → `EMAIL_SENDER_ADDRESS`.
 
-Evite divergência entre `contato@` e `sac@` — alinhe os dois para o mesmo endereço.
+> Resumo: **`sac@`** = envios automáticos (no-reply); **`contato@`** = conversa
+> (formulário de contato). Ambos os endereços são do mesmo domínio verificado, então
+> não precisam de verificação individual no Resend — basta o domínio estar verificado.
 
 ## 4. Confirmar a chave do Resend
 `RESEND_API_KEY` deve estar presente na Vercel (ou o segredo criptografado em

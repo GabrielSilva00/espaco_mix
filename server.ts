@@ -1069,8 +1069,10 @@ export async function createExpressApp() {
             if (!origin) return cb(null, true);
             const normalized = origin.replace(/\/+$/, "");
             if (corsAllowlist.includes(normalized)) return cb(null, true);
-            console.warn(`[CORS] Origem bloqueada: ${origin}`);
-            return cb(new Error("Origem não permitida por CORS."));
+            // Nega SEM lançar erro: retorna resposta sem os cabeçalhos CORS (o
+            // navegador bloqueia) em vez de estourar 500 no handler global.
+            console.warn(`[CORS] Origem bloqueada: ${origin} (esperado: ${corsAllowlist.join(", ") || "APP_URL não configurada"})`);
+            return cb(null, false);
           }
         : true,
       credentials: true,
