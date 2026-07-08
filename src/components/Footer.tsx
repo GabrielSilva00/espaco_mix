@@ -246,23 +246,27 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
         <div className="max-w-7xl mx-auto px-6 md:px-10 py-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-4">
 
-            {/* Esquerda — dados legais */}
+            {/* Esquerda — dados legais (dados vazios são ocultados até o dono preenchê-los) */}
             <p className="text-[10px] text-white/30 leading-relaxed">
-              © 2026{' '}
-              {legalName || '[A PREENCHER]'}
-              {' — '}{docLabel}: {config.document || '[A PREENCHER]'}
+              © 2026 {legalName || siteName}
+              {config.document ? `${' — '}${docLabel}: ${config.document}` : ''}
             </p>
 
             {/* Direita — crédito + acesso restrito */}
             <div className="flex items-center gap-4 shrink-0">
-            <button
-              onClick={() => onNavigate('staff-portal')}
-              className="text-[9px] text-white/20 hover:text-[#B5E254]/70 uppercase tracking-widest transition-colors duration-200 whitespace-nowrap"
-              title="Acesso da administração e da equipe de portaria"
-            >
-              Acesso Master
-            </button>
-            <span className="w-px h-3 bg-white/10 hidden sm:block" />
+            {/* "Acesso Master" só aparece quando ninguém está logado. */}
+            {!isAuthenticated && (
+              <>
+                <button
+                  onClick={() => onNavigate('staff-portal')}
+                  className="text-[9px] text-white/20 hover:text-[#B5E254]/70 uppercase tracking-widest transition-colors duration-200 whitespace-nowrap"
+                  title="Acesso da administração e da equipe de portaria"
+                >
+                  Acesso Master
+                </button>
+                <span className="w-px h-3 bg-white/10 hidden sm:block" />
+              </>
+            )}
             <p className="text-[9px] text-white/20 uppercase tracking-widest whitespace-nowrap shrink-0">
               Desenvolvido por{' '}
               <span className="text-[#B5E254]/40 font-bold">

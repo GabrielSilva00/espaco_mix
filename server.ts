@@ -760,7 +760,7 @@ async function computeOrderTotal(sel: OrderSelection): Promise<number> {
 
   const { data: event, error: evErr } = await admin
     .from("events")
-    .select("status, price_type, has_tables, table_total, total_bistros, table_price, bistro_price, table_seats, table_layout")
+    .select("status, price_type, has_tables, table_total, total_bistros, table_price, bistro_price, table_seats, table_layout, show_fee_to_buyer")
     .eq("id", sel.eventId)
     .maybeSingle();
   if (evErr || !event) throw new Error("Evento não encontrado.");
@@ -857,6 +857,22 @@ async function computeOrderTotal(sel: OrderSelection): Promise<number> {
   }
 
   const subTotal = tablesTotal + ticketsTotal;
+
+  // Taxa de conveniência separada ("+ Taxa"): só quando o evento a exibe ao
+  // comprador. Usa a MESMA fonte que o frontend (system_config.platform_fee_*)
+  // para o total do servidor bater com o total mostrado no checkout.
+  if (event.show_fee_to_buyer && subTotal > 0) {
+    const { data: cfg } = await admin
+      .from("system_config")
+      .select("platform_fee_percent, platform_fee_type")
+      .eq("id", "main")
+      .maybeSingle();
+    const feePct = typeof cfg?.platform_fee_percent === "number" ? cfg.platform_fee_percent : 10;
+    const rawFee = cfg?.platform_fee_type === "fixed" ? feePct : subTotal * (feePct / 100);
+    const fee = Math.round(rawFee * 100) / 100;
+    return Math.round((subTotal + fee) * 100) / 100;
+  }
+
   return Math.round(subTotal * 100) / 100;
 }
 
