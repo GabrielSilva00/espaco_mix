@@ -224,6 +224,15 @@ export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
     cfg = c ?? {}; secrets = s ?? {};
   }
   const provider: 'resend' | 'smtp' = cfg.email_provider === 'smtp' ? 'smtp' : 'resend';
+  // Remetente configurado (domínio verificado). Em produção NÃO usamos o domínio
+  // de teste onboarding@resend.dev como fallback: ele não entrega a partir de um
+  // domínio próprio e cai em spam. Falhar claro força a configuração correta.
+  const senderAddress = cfg.email_sender_address || process.env.EMAIL_SENDER_ADDRESS || '';
+  if (!senderAddress && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Remetente de e-mail não configurado — defina EMAIL_SENDER_ADDRESS (ou email_sender_address no painel) com um domínio verificado no Resend.',
+    );
+  }
   return {
     provider,
     resendApiKey: decryptSecret(secrets.resend_api_key) || process.env.RESEND_API_KEY || '',
@@ -235,7 +244,8 @@ export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
       secure: cfg.smtp_secure ?? true,
     },
     senderName: cfg.email_sender_name || process.env.EMAIL_SENDER_NAME || 'Espaço Mix',
-    senderAddress: cfg.email_sender_address || process.env.EMAIL_SENDER_ADDRESS || 'onboarding@resend.dev',
+    // Fora de produção, mantém o domínio de teste do Resend para facilitar dev/testes.
+    senderAddress: senderAddress || 'onboarding@resend.dev',
   };
 }
 

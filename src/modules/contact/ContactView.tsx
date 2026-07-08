@@ -104,6 +104,8 @@ export function ContactView() {
       }
       setSubmitted(true);
     } catch (err: any) {
+      // Loga no console para que a falha apareça no painel "Logs do Sistema".
+      console.error('[CONTACT] Falha ao enviar mensagem:', err?.message ?? err);
       setSubmitError(err?.message || 'Falha ao enviar. Tente novamente.');
     } finally {
       setSubmitting(false);

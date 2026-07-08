@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Settings, Save, Check, Filter,
   Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, RefreshCcw, CreditCard, Mail, Loader2
 } from 'lucide-react';
-import { getSystemConfigAdmin, updateSystemConfig, updateMyCredentials, getMyFullProfile, updateProfile } from '../lib/supabase';
+import { getSystemConfigAdmin, updateSystemConfig, updateMyCredentials, getMyFullProfile, updateProfile, logAudit } from '../lib/supabase';
 import { User, Phone, FileText } from 'lucide-react';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { MercadoPagoSettings } from './MercadoPagoSettings';
@@ -159,11 +159,15 @@ export function AdminSettings({
   };
 
   const [settings, setSettings] = useState(defaultSettings);
+  // Último valor PERSISTIDO do toggle "PII (Master)", para auditar a transição
+  // (ativar/desativar) em vez de logar em todo salvamento.
+  const lastSensitiveRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!userRole) return;
     getSystemConfigAdmin()
       .then((c) => {
+        lastSensitiveRef.current = c.show_sensitive_data ?? false;
         setSettings((prev) => ({
           ...prev,
           platformName:         c.site_name              ?? prev.platformName,
@@ -325,6 +329,16 @@ export function AdminSettings({
       ]);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
+      // Auditoria da visualização de PII (Master): registra apenas a transição.
+      if (settings.showSensitiveData !== lastSensitiveRef.current) {
+        logAudit(
+          myProfile?.id ?? null,
+          settings.showSensitiveData ? 'pii_master_enabled' : 'pii_master_disabled',
+          'system_config',
+          'main',
+        ).catch((e) => console.error('[AdminSettings] Falha ao registrar auditoria de PII:', (e as Error)?.message));
+        lastSensitiveRef.current = settings.showSensitiveData;
+      }
       onSettingsSaved?.(settings.platformName, null, settings);
     } catch (err) {
       setSaveError((err as Error)?.message || 'Erro ao salvar configurações.');

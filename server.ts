@@ -1054,9 +1054,25 @@ export async function createExpressApp() {
     })
   );
 
+  // Allowlist de origens em produção: aceita apenas os valores exatos de APP_URL
+  // (suporta múltiplos separados por vírgula, ex.: apex + www), com a barra final
+  // normalizada. Qualquer outra origem — inclusive previews *.vercel.app — é negada.
+  const corsAllowlist = (appUrl || "")
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
   app.use(
     cors({
-      origin: isProduction ? appUrl : true,
+      origin: isProduction
+        ? (origin, cb) => {
+            // Requisições sem Origin (curl, health checks, same-origin) são liberadas.
+            if (!origin) return cb(null, true);
+            const normalized = origin.replace(/\/+$/, "");
+            if (corsAllowlist.includes(normalized)) return cb(null, true);
+            console.warn(`[CORS] Origem bloqueada: ${origin}`);
+            return cb(new Error("Origem não permitida por CORS."));
+          }
+        : true,
       credentials: true,
     })
   );
@@ -1550,9 +1566,27 @@ export async function createExpressApp() {
         estado: String(b.estado ?? "").trim(),
         evento: String(b.evento ?? "").trim(),
       });
+      try {
+        const admin = await getAdminClient();
+        await admin?.from("audit_logs").insert({
+          user_id: null,
+          action: "contact_email_sent",
+          entity_type: "contact",
+          changes: { from: email },
+        });
+      } catch { /* auditoria é best-effort, não bloqueia a resposta */ }
       res.json({ success: true });
     } catch (e: any) {
       console.error("[CONTACT] Falha ao enviar mensagem:", e?.message ?? e);
+      try {
+        const admin = await getAdminClient();
+        await admin?.from("audit_logs").insert({
+          user_id: null,
+          action: "contact_email_failed",
+          entity_type: "contact",
+          changes: { from: email, error: String(e?.message ?? e) },
+        });
+      } catch { /* auditoria é best-effort */ }
       res.status(502).json({ error: "Não foi possível enviar sua mensagem agora. Tente novamente mais tarde." });
     }
   });
