@@ -243,8 +243,8 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
 
       {/* ── Barra legal inferior ───────────────────────────────────────── */}
       <div className="bg-[#0c0c0c] border-t border-white/[0.05]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-3">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-4">
+        <div className="max-w-7xl mx-auto px-6 md:px-10 py-4 sm:py-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 text-center sm:text-left">
 
             {/* Esquerda — dados legais (dados vazios são ocultados até o dono preenchê-los) */}
             <p className="text-[10px] text-white/30 leading-relaxed">
@@ -252,8 +252,9 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
               {config.document ? `${' — '}${docLabel}: ${config.document}` : ''}
             </p>
 
-            {/* Direita — crédito + acesso restrito */}
-            <div className="flex items-center gap-4 shrink-0">
+            {/* Direita — crédito + acesso restrito. No mobile pode quebrar em linhas
+                (flex-wrap) e fica centralizado para não estourar em telas estreitas. */}
+            <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-4 gap-y-1.5 sm:shrink-0">
             {/* "Acesso Master" só aparece quando ninguém está logado. */}
             {!isAuthenticated && (
               <>
@@ -267,7 +268,7 @@ export function Footer({ onNavigate, showCookies, isAuthenticated }: FooterProps
                 <span className="w-px h-3 bg-white/10 hidden sm:block" />
               </>
             )}
-            <p className="text-[9px] text-white/20 uppercase tracking-widest whitespace-nowrap shrink-0">
+            <p className="text-[9px] text-white/20 uppercase tracking-widest">
               Desenvolvido por{' '}
               <span className="text-[#B5E254]/40 font-bold">
                 {developedBy}
