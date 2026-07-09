@@ -504,22 +504,38 @@ async function refundMpOrder(
   idempotencyKey: string,
 ): Promise<{ ok: boolean; status: number; body: any }> {
   const amount = (amountCents / 100).toFixed(2);
-  const res = await fetch(`https://api.mercadopago.com/v1/orders/${orderId}/refund`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "X-Idempotency-Key": idempotencyKey,
-    },
-    body: JSON.stringify({
-      transactions: [{ id: innerPaymentId, amount }],
-    }),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    console.error(`[REFUND] Falha Orders API (order ${orderId}, ${amount}):`, res.status, JSON.stringify(body));
+  // O MP às vezes responde 500 (internal_error) de forma transitória. Como a
+  // X-Idempotency-Key é a MESMA em todas as tentativas, reprocessar é seguro (o
+  // MP não estorna em duplicidade). Tenta até 3 vezes com backoff em 5xx/rede.
+  let last: { ok: boolean; status: number; body: any } = { ok: false, status: 0, body: null };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(`https://api.mercadopago.com/v1/orders/${orderId}/refund`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify({
+          transactions: [{ id: innerPaymentId, amount }],
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      last = { ok: res.ok, status: res.status, body };
+      if (res.ok || res.status < 500) {
+        if (!res.ok) console.error(`[REFUND] Falha Orders API (order ${orderId}, ${amount}):`, res.status, JSON.stringify(body));
+        return last;
+      }
+      console.warn(`[REFUND] MP ${res.status} (tentativa ${attempt}/3) — order ${orderId}, ${amount}. Repetindo…`);
+    } catch (netErr: any) {
+      last = { ok: false, status: 0, body: { error: String(netErr?.message ?? netErr) } };
+      console.warn(`[REFUND] Erro de rede (tentativa ${attempt}/3) — order ${orderId}:`, last.body.error);
+    }
+    if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 800));
   }
-  return { ok: res.ok, status: res.status, body };
+  console.error(`[REFUND] Falha Orders API após retries (order ${orderId}, ${amount}):`, last.status, JSON.stringify(last.body));
+  return last;
 }
 
 // ─── E-mail de confirmação a partir do BANCO (fonte da verdade) ──────────────
@@ -1058,7 +1074,9 @@ export async function createExpressApp() {
   // múltiplos separados por vírgula), com a barra final normalizada. Para cada
   // origem, ACEITA automaticamente a variante com e sem "www." do mesmo host —
   // assim o domínio apex (espacomix.com.br) e o www funcionam mesmo que a env
-  // liste só um deles. Qualquer outra origem (inclusive previews *.vercel.app) é negada.
+  // liste só um deles. Inclui também a URL de produção da Vercel
+  // (VERCEL_PROJECT_PRODUCTION_URL, ex.: espaco-mix.vercel.app) para o domínio
+  // padrão do deploy funcionar. Previews efêmeras *.vercel.app continuam negadas.
   const expandWwwVariants = (url: string): string[] => {
     try {
       const u = new URL(url);
@@ -1069,9 +1087,11 @@ export async function createExpressApp() {
       return [url];
     }
   };
+  const vercelProdUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, "").replace(/\/+$/, "")}`
+    : "";
   const corsAllowlist = Array.from(new Set(
-    (appUrl || "")
-      .split(",")
+    [...(appUrl || "").split(","), vercelProdUrl]
       .map((s) => s.trim().replace(/\/+$/, ""))
       .filter(Boolean)
       .flatMap(expandWwwVariants)
@@ -1421,7 +1441,15 @@ export async function createExpressApp() {
         .maybeSingle();
       if (selErr) throw selErr;
       if (!staff) { res.status(404).json({ error: "Colaborador não encontrado." }); return; }
-      const linked = Array.isArray(staff.event_ids) && staff.event_ids.length > 0;
+      // Vínculo pode estar no staff (event_ids legado) OU nos eventos (assigned_staff,
+      // fonte da verdade). Bloqueia exclusão se linkado em qualquer um dos lados.
+      let linked = Array.isArray(staff.event_ids) && staff.event_ids.length > 0;
+      if (!linked) {
+        const { data: allEvents } = await admin.from("events").select("id, assigned_staff");
+        linked = (allEvents ?? []).some((e: any) =>
+          Array.isArray(e.assigned_staff) && e.assigned_staff.map(String).includes(String(staff.id))
+        );
+      }
       if (linked) {
         res.status(409).json({ error: "Colaborador já vinculado a eventos. Inative-o em vez de excluir." });
         return;
@@ -1487,7 +1515,23 @@ export async function createExpressApp() {
           console.error("[STAFF] Falha ao re-hashear senha legada:", e?.message ?? e);
         }
       }
-      const eventIds = Array.isArray(staff.event_ids) ? staff.event_ids.map(String) : [];
+      // Fonte da verdade do vínculo: o evento guarda a lista de operadores em
+      // `assigned_staff` (definido no editor do evento). O `staff_accounts.event_ids`
+      // é mantido por compatibilidade. Une as duas fontes para não depender de
+      // sincronização — resolve "operador sem evento vinculado" após atribuí-lo pelo evento.
+      const fromStaff = Array.isArray(staff.event_ids) ? staff.event_ids.map(String) : [];
+      let fromEvents: string[] = [];
+      try {
+        // Filtra em JS (não `.contains`) para funcionar tanto se assigned_staff for
+        // jsonb quanto text[] — o Supabase devolve ambos como array JS.
+        const { data: allEvents } = await admin.from("events").select("id, assigned_staff");
+        fromEvents = (allEvents ?? [])
+          .filter((e: any) => Array.isArray(e.assigned_staff) && e.assigned_staff.map(String).includes(String(staff.id)))
+          .map((e: any) => String(e.id));
+      } catch (e: any) {
+        console.error("[STAFF] Falha ao derivar eventos vinculados:", e?.message ?? e);
+      }
+      const eventIds = [...new Set([...fromStaff, ...fromEvents])];
       const token = signStaffToken({
         sid: staff.id, name: staff.name, eventIds,
         exp: Date.now() + 12 * 60 * 60 * 1000, // 12h
@@ -4192,6 +4236,8 @@ export async function createExpressApp() {
         process.env.VITE_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
       );
+      // Apenas compradores com pagamento APROVADO (exclui pendentes, cancelados e
+      // reembolsados). Reservas totalmente canceladas viram 'refunded' e não entram.
       const { data: reservations, error } = await adminClient
         .from("reservations")
         .select("buyer_name, buyer_email, event_id")
@@ -4200,13 +4246,22 @@ export async function createExpressApp() {
 
       if (error) throw error;
 
+      // Deduplica por e-mail: um comprador com várias reservas recebe um só aviso.
+      const seen = new Set<string>();
+      const recipients = (reservations ?? []).filter((r) => {
+        const key = String(r.buyer_email ?? "").trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
       const broadcastEmailCfg = await resolveEmailConfig();
       const { Resend: BroadcastResend } = await import("resend");
       const broadcastResend = new BroadcastResend(broadcastEmailCfg.resendApiKey);
       let sent = 0;
       let errors = 0;
 
-      for (const r of reservations ?? []) {
+      for (const r of recipients) {
         try {
           await broadcastResend.emails.send({
             from: `${broadcastEmailCfg.senderName} <${broadcastEmailCfg.senderAddress}>`,
@@ -4224,7 +4279,7 @@ export async function createExpressApp() {
           errors++;
         }
       }
-      res.json({ sent, errors, total: reservations?.length ?? 0 });
+      res.json({ sent, errors, total: recipients.length });
     } catch (err: any) {
       console.error("[BROADCAST] Erro:", err.message);
       res.status(500).json({ error: "Erro ao enviar mensagens." });

@@ -2708,7 +2708,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dbTicketItems = (created as any).ticket_items ?? [];
       } catch (e: any) {
         console.error('[Reserva] Falha ao registrar reserva:', e?.message);
-        throw new Error('Não foi possível registrar a reserva. Tente novamente.');
+        const msg = String(e?.message || '');
+        // Conflito de disponibilidade (mesa já reservada / lote esgotado): o
+        // servidor já devolve uma mensagem amigável. Preserva-a e atualiza o mapa
+        // de mesas ocupadas para o usuário ver a mesa bloqueada.
+        if (/mesa|reservad|esgotad|lugar|dispon/i.test(msg)) {
+          setReloadKey(k => k + 1);
+          throw new Error(msg);
+        }
+        throw new Error(msg || 'Não foi possível registrar a reserva. Tente novamente.');
       }
 
       if (selectedPaymentMethod === 'pix') {

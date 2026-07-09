@@ -952,20 +952,13 @@ export function DashboardView() {
                            ? feePct * evMetrics.paidOrders
                            : evMetrics.revenue * (feePct / 100);
                          const afterPlatform = evMetrics.revenue - evPlatformFee;
-                         const feeLabel = feeType === 'fixed' ? `R$ ${feePct.toFixed(2)}/venda` : `${feePct}%`;
-                         // Mostra a taxa da plataforma deduzida e o valor líquido.
-                         // A taxa do gateway (MP) não é exibida no dashboard.
+                         // Mostra apenas o valor líquido (após taxa). As linhas de
+                         // taxa (plataforma e MP) não são exibidas no dashboard.
                          return (
-                           <>
-                             <div className="flex justify-between border-t border-white/5 pt-1.5">
-                               <p className="text-[9px] uppercase opacity-30">Taxa plataforma ({feeLabel})</p>
-                               <p className="text-xs text-orange-400 font-mono">- {brl(evPlatformFee)}</p>
-                             </div>
-                             <div className="flex justify-between">
-                               <p className="text-[9px] uppercase opacity-40 font-bold">Líquido (após taxa)</p>
-                               <p className="text-xs text-emerald-400 font-mono font-bold">{brl(afterPlatform)}</p>
-                             </div>
-                           </>
+                           <div className="flex justify-between border-t border-white/5 pt-1.5">
+                             <p className="text-[9px] uppercase opacity-40 font-bold">Líquido (após taxa)</p>
+                             <p className="text-xs text-emerald-400 font-mono font-bold">{brl(afterPlatform)}</p>
+                           </div>
                          );
                        })()}
                      </div>

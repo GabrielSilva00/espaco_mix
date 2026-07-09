@@ -866,9 +866,21 @@ export function App() {
               </p>
               <div className="flex items-center gap-2 mb-6 p-3 bg-white/5 border border-white/10 rounded-xl">
                 <Users className="w-4 h-4 text-[#d4af37] opacity-70" />
-                <span className="text-[11px] text-white/60">
-                  <strong className="text-white">{buyers.length}</strong> destinatário{buyers.length !== 1 ? 's' : ''} receberão este aviso
-                </span>
+                {(() => {
+                  // Somente compradores com pagamento aprovado (não cancelados) do
+                  // evento selecionado, deduplicados por e-mail — espelha o filtro do servidor.
+                  const emails = new Set(
+                    buyers
+                      .filter(b => b.eventId === selectedDashboardEvent && b.status === 'Pago' && b.email)
+                      .map(b => b.email.trim().toLowerCase())
+                  );
+                  const count = emails.size;
+                  return (
+                    <span className="text-[11px] text-white/60">
+                      <strong className="text-white">{count}</strong> comprador{count !== 1 ? 'es' : ''} (pagamento aprovado) receberá{count !== 1 ? 'ão' : ''} este aviso
+                    </span>
+                  );
+                })()}
               </div>
               <div className="space-y-4 mb-6">
                 <div>
