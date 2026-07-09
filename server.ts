@@ -1054,13 +1054,28 @@ export async function createExpressApp() {
     })
   );
 
-  // Allowlist de origens em produção: aceita apenas os valores exatos de APP_URL
-  // (suporta múltiplos separados por vírgula, ex.: apex + www), com a barra final
-  // normalizada. Qualquer outra origem — inclusive previews *.vercel.app — é negada.
-  const corsAllowlist = (appUrl || "")
-    .split(",")
-    .map((s) => s.trim().replace(/\/+$/, ""))
-    .filter(Boolean);
+  // Allowlist de origens em produção: aceita os valores de APP_URL (suporta
+  // múltiplos separados por vírgula), com a barra final normalizada. Para cada
+  // origem, ACEITA automaticamente a variante com e sem "www." do mesmo host —
+  // assim o domínio apex (espacomix.com.br) e o www funcionam mesmo que a env
+  // liste só um deles. Qualquer outra origem (inclusive previews *.vercel.app) é negada.
+  const expandWwwVariants = (url: string): string[] => {
+    try {
+      const u = new URL(url);
+      const host = u.host;
+      const altHost = host.startsWith("www.") ? host.slice(4) : `www.${host}`;
+      return [`${u.protocol}//${host}`, `${u.protocol}//${altHost}`];
+    } catch {
+      return [url];
+    }
+  };
+  const corsAllowlist = Array.from(new Set(
+    (appUrl || "")
+      .split(",")
+      .map((s) => s.trim().replace(/\/+$/, ""))
+      .filter(Boolean)
+      .flatMap(expandWwwVariants)
+  ));
   app.use(
     cors({
       origin: isProduction
@@ -2133,7 +2148,10 @@ export async function createExpressApp() {
   app.post("/api/checkin", requireAuthOrStaff, async (req, res) => {
     const user = (req as any).user;
     const staff = (req as any).staff as StaffTokenPayload | undefined;
-    const { ticketId } = req.body as { ticketId?: string };
+    const { ticketId, dryRun: dryRunBody } = req.body as { ticketId?: string; dryRun?: boolean };
+    // dryRun = apenas VALIDA (não grava o check-in). Usado pela leitura de QR na
+    // portaria: a entrada só é registrada quando o operador confirma.
+    const dryRun = dryRunBody === true || req.query.dryRun === "1";
     if (!ticketId || typeof ticketId !== "string") {
       res.status(400).json({ result: "notfound" });
       return;
@@ -2146,7 +2164,7 @@ export async function createExpressApp() {
     try {
       const { data: ticket, error } = await admin
         .from("ticket_items")
-        .select("id, reservation_id, event_id, name, owner_name, status, checked_in_at")
+        .select("id, reservation_id, event_id, name, owner_name, owner_cpf, status, checked_in_at")
         .eq("id", ticketId.trim())
         .maybeSingle();
       if (error) throw error;
@@ -2154,7 +2172,7 @@ export async function createExpressApp() {
 
       const { data: reservation } = await admin
         .from("reservations")
-        .select("id, payment_status, buyer_name, event_id")
+        .select("id, payment_status, buyer_name, buyer_cpf, event_id")
         .eq("id", ticket.reservation_id)
         .maybeSingle();
 
@@ -2178,16 +2196,24 @@ export async function createExpressApp() {
       if (!allowed) { res.status(403).json({ result: "forbidden" }); return; }
 
       const name = ticket.owner_name || reservation?.buyer_name || "Convidado";
+      // CPF do ocupante (convidado) ou, na ausência, do comprador — exibido na
+      // confirmação de entrada para o operador conferir a identidade.
+      const cpf = ticket.owner_cpf || reservation?.buyer_cpf || "";
       if (ticket.status === "cancelled") {
-        res.json({ result: "cancelled", name, ticketName: ticket.name });
+        res.json({ result: "cancelled", name, cpf, ticketName: ticket.name });
         return;
       }
       if (!reservation || reservation.payment_status !== "approved") {
-        res.json({ result: "unpaid", name, ticketName: ticket.name });
+        res.json({ result: "unpaid", name, cpf, ticketName: ticket.name });
         return;
       }
       if (ticket.checked_in_at) {
-        res.json({ result: "duplicate", name, ticketName: ticket.name, checkedInAt: ticket.checked_in_at });
+        res.json({ result: "duplicate", name, cpf, ticketName: ticket.name, checkedInAt: ticket.checked_in_at });
+        return;
+      }
+      // Validação sem gravar: retorna "ok" sem registrar o check-in.
+      if (dryRun) {
+        res.json({ result: "ok", name, cpf, ticketName: ticket.name, dryRun: true });
         return;
       }
       const { error: upErr } = await admin
@@ -2195,7 +2221,7 @@ export async function createExpressApp() {
         .update({ checked_in_at: new Date().toISOString() })
         .eq("id", ticket.id);
       if (upErr) throw upErr;
-      res.json({ result: "ok", name, ticketName: ticket.name });
+      res.json({ result: "ok", name, cpf, ticketName: ticket.name });
     } catch (err: any) {
       console.error("[CHECKIN] Erro:", err?.message ?? err);
       res.status(500).json({ result: "error", error: "Erro ao validar ingresso." });
@@ -2484,6 +2510,76 @@ export async function createExpressApp() {
     } catch (err: any) {
       console.error("[TICKET/CANCEL] Erro:", err?.message ?? err);
       res.status(500).json({ error: "Erro ao cancelar ingresso." });
+    }
+  });
+
+  // ── Atualizar dados do participante (convidado) de um ingresso ────────────
+  // Grava nome/CPF/e-mail do ocupante de um ingresso. Fonte da verdade: valida o
+  // CPF e impede que o MESMO CPF seja usado em mais de um ingresso da reserva.
+  app.patch("/api/ticket/:ticketId/owner", requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const { ticketId } = req.params;
+    const { name, cpf, email } = req.body as { name?: string; cpf?: string; email?: string };
+    if (!ticketId) { res.status(400).json({ error: "ticketId obrigatório." }); return; }
+    const ownerName = String(name ?? "").trim();
+    const cpfDigits = String(cpf ?? "").replace(/\D/g, "");
+    const ownerEmail = String(email ?? "").trim().toLowerCase();
+    if (!ownerName) { res.status(400).json({ error: "Nome obrigatório." }); return; }
+    if (!validateCpf(cpfDigits)) { res.status(400).json({ error: "CPF inválido." }); return; }
+    if (ownerEmail && !ownerEmail.includes("@")) { res.status(400).json({ error: "E-mail inválido." }); return; }
+    const admin = await getAdminClient();
+    if (!admin) { res.status(503).json({ error: "Serviço não configurado." }); return; }
+    try {
+      const { data: ticket } = await admin
+        .from("ticket_items")
+        .select("id, reservation_id, status, checked_in_at, holder_user_id")
+        .eq("id", ticketId)
+        .maybeSingle();
+      if (!ticket) { res.status(404).json({ error: "Ingresso não encontrado." }); return; }
+      if (ticket.status !== "active") { res.status(400).json({ error: `Ingresso não pode ser editado (status: ${ticket.status}).` }); return; }
+      if (ticket.checked_in_at) { res.status(409).json({ error: "Ingresso já utilizado — dados não podem ser alterados." }); return; }
+
+      const { data: reservation } = await admin
+        .from("reservations")
+        .select("id, user_id, ticket_items(id, owner_cpf, status)")
+        .eq("id", ticket.reservation_id)
+        .maybeSingle();
+      if (!reservation) { res.status(404).json({ error: "Reserva não encontrada." }); return; }
+
+      // Autorização: detentor do ingresso, dono da reserva ou admin.
+      const currentHolder = (ticket as any).holder_user_id ?? (reservation as any).user_id;
+      const role = await getProfileRole(user.uid);
+      const isAdmin = role === "admin" || role === "developer";
+      if (!isAdmin && currentHolder !== user.uid && (reservation as any).user_id !== user.uid) {
+        res.status(403).json({ error: "Sem permissão para editar este ingresso." });
+        return;
+      }
+
+      // Unicidade: nenhum OUTRO ingresso ativo da reserva pode ter o mesmo CPF.
+      const siblings: any[] = (reservation as any).ticket_items ?? [];
+      const duplicate = siblings.some((t) =>
+        t.id !== ticket.id &&
+        t.status !== "cancelled" &&
+        String(t.owner_cpf ?? "").replace(/\D/g, "") === cpfDigits
+      );
+      if (duplicate) {
+        res.status(409).json({ error: "Este CPF já está vinculado a outro ingresso desta reserva." });
+        return;
+      }
+
+      // Armazena o CPF formatado completo (consistente com owner_cpf do checkout
+      // e com buyer_cpf) — o painel/lista de portaria exibe esse valor.
+      const cpfFormatted = cpfDigits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+      await admin
+        .from("ticket_items")
+        .update({ owner_name: ownerName, owner_cpf: cpfFormatted, owner_email: ownerEmail || null })
+        .eq("id", ticket.id);
+
+      console.log(`[TICKET/OWNER] Ticket ${ticket.id} atualizado por ${user.uid}`);
+      res.json({ updated: true });
+    } catch (err: any) {
+      console.error("[TICKET/OWNER] Erro:", err?.message ?? err);
+      res.status(500).json({ error: "Erro ao salvar os dados do participante." });
     }
   });
 

@@ -72,6 +72,7 @@ function mapDbReservationToApp(r: any): Reservation {
     checkedIn: items.length > 0 && items.some((t) => !!t.checked_in_at),
     eventId: r.event_id,
     buyerName: r.buyer_name,
+    buyerCpf: r.buyer_cpf ?? '',
     paymentStatus: r.payment_status,
     paymentMethod: r.payment_method,
     paymentId: r.payment_id ?? undefined,
@@ -306,7 +307,8 @@ interface AppContextValue {
   setCheckInSearchInput: React.Dispatch<React.SetStateAction<string>>;
   checkInFilter: 'all' | 'pendentes' | 'check-ins';
   setCheckInFilter: React.Dispatch<React.SetStateAction<'all' | 'pendentes' | 'check-ins'>>;
-  checkInResult: { type: 'success' | 'error' | 'warning'; message: string; data?: { name?: string; type?: string } } | null;
+  checkInResult: { type: 'success' | 'error' | 'warning'; message: string; data?: { name?: string; type?: string; cpf?: string }; ticketId?: string; awaitingConfirm?: boolean } | null;
+  setCheckInResult: React.Dispatch<React.SetStateAction<{ type: 'success' | 'error' | 'warning'; message: string; data?: { name?: string; type?: string; cpf?: string }; ticketId?: string; awaitingConfirm?: boolean } | null>>;
   checkinTab: 'scanner' | 'list';
   setCheckinTab: React.Dispatch<React.SetStateAction<'scanner' | 'list'>>;
   checkInHistory: { id: string; name: string; type: string; time: Date }[];
@@ -391,7 +393,8 @@ interface AppContextValue {
   handleToggleStaffActive: (id: string, isActive: boolean) => Promise<void>;
   handleEditStaff: (id: string, updates: { name?: string; username?: string; password?: string }) => Promise<void>;
   handleStaffLogin: (e: React.FormEvent) => Promise<void>;
-  handleCheckIn: (input: string) => Promise<void>;
+  validateCheckIn: (input: string) => Promise<void>;
+  commitCheckIn: (ticketId: string) => Promise<void>;
   handleUndoCheckIn: (id: string) => Promise<void>;
   handleScannerError: (err: unknown) => void;
   toggleTableSelection: (tableId: number, status: 'available' | 'reserved') => void;
@@ -658,7 +661,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [checkInSearch, setCheckInSearch] = useState('');
   const [checkInSearchInput, setCheckInSearchInput] = useState('');
   const [checkInFilter, setCheckInFilter] = useState<'all' | 'pendentes' | 'check-ins'>('pendentes');
-  const [checkInResult, setCheckInResult] = useState<{ type: 'success' | 'error' | 'warning'; message: string; data?: { name?: string; type?: string } } | null>(null);
+  const [checkInResult, setCheckInResult] = useState<{ type: 'success' | 'error' | 'warning'; message: string; data?: { name?: string; type?: string; cpf?: string }; ticketId?: string; awaitingConfirm?: boolean } | null>(null);
   const [checkinTab, setCheckinTab] = useState<'scanner' | 'list'>('scanner');
   const [checkInHistory, setCheckInHistory] = useState<{ id: string; name: string; type: string; time: Date }[]>([]);
   const [scannerKey, setScannerKey] = useState(0);
@@ -746,12 +749,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const derivedTables: TableDef[] = layoutTableElements.length > 0
     ? layoutTableElements.map((el, i) => {
         const existing = tables.find(t => t.id === i + 1);
-        const defaultPrice = el.type === 'bistro-table'
+        const isBistro = el.type === 'bistro-table';
+        const defaultPrice = isBistro
           ? (activeEvent?.tableConfig?.bistroPrice ?? 200)
           : (activeEvent?.tableConfig?.tablePrice ?? 300);
+        // Mesas seguem a config global "lugares por mesa" do evento (o dono
+        // altera pelo painel); bistrôs mantêm a capacidade própria da peça (2).
+        const capacity = isBistro
+          ? (el.capacity ?? 2)
+          : (activeEvent?.tableConfig?.seatsPerTable ?? el.capacity ?? 4);
         return {
           id: i + 1,
-          capacity: el.capacity ?? activeEvent?.tableConfig?.seatsPerTable ?? 4,
+          capacity,
+          isBistro,
           status: (isOccupied(i + 1) ? 'reserved' : (existing?.status || 'available')) as 'available' | 'reserved',
           price: el.price ?? existing?.price ?? defaultPrice,
         };
@@ -762,6 +772,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return {
             id: i + 1,
             capacity: activeEvent?.tableConfig?.seatsPerTable ?? existing?.capacity ?? 4,
+            isBistro: false,
             status: (isOccupied(i + 1) ? 'reserved' : (existing?.status || 'available')) as 'available' | 'reserved',
             price: existing?.price ?? activeEvent?.tableConfig?.tablePrice ?? 300,
           };
@@ -772,6 +783,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return {
             id,
             capacity: 2,
+            isBistro: true,
             status: (isOccupied(id) ? 'reserved' : (existing?.status || 'available')) as 'available' | 'reserved',
             price: existing?.price ?? activeEvent?.tableConfig?.bistroPrice ?? 200,
           };
@@ -2177,88 +2189,124 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return v.trim();
   };
 
-  const handleCheckIn = async (input: string) => {
+  const vibrate = (p: number | number[]) => { if ('vibrate' in navigator) navigator.vibrate(p as any); };
+
+  const getCheckinBearer = async (): Promise<string | null> => {
+    // Operador admin/organizador usa o token Supabase; equipe de portaria usa o
+    // token de staff emitido em /api/staff/login (guardado no localStorage).
+    const token = await getAccessTokenSafe();
+    const staffToken = (() => { try { return localStorage.getItem('eventix-staff-token'); } catch { return null; } })();
+    return token || staffToken;
+  };
+
+  // Traduz o `result` do servidor em uma tela de erro/aviso (não grava nada).
+  // Retorna true quando é um caso de erro tratado (para o chamador parar).
+  const showCheckInError = (result: string): boolean => {
+    switch (result) {
+      case 'duplicate':
+        setCheckInResult(prev => ({ type: 'error', message: 'DUPLICATA - CHECK-IN JÁ REALIZADO', data: prev?.data }));
+        vibrate([300, 100, 300]); return true;
+      case 'unpaid':
+        setCheckInResult(prev => ({ type: 'warning', message: 'PAGAMENTO PENDENTE - NÃO AUTORIZADO', data: prev?.data }));
+        vibrate([200, 100, 200]); return true;
+      case 'cancelled':
+        setCheckInResult(prev => ({ type: 'error', message: 'INGRESSO CANCELADO', data: prev?.data }));
+        vibrate([300, 100, 300]); return true;
+      case 'forbidden':
+        setCheckInResult({ type: 'error', message: 'SEM PERMISSÃO PARA CHECK-IN' });
+        vibrate([100, 100, 100]); return true;
+      case 'error':
+        setCheckInResult({ type: 'error', message: 'ERRO AO VALIDAR — TENTE NOVAMENTE' });
+        vibrate([100, 100, 100]); return true;
+      case 'ok':
+        return false;
+      default:
+        setCheckInResult({ type: 'error', message: 'TICKET INVÁLIDO OU NÃO ENCONTRADO' });
+        vibrate([100, 100, 100]); return true;
+    }
+  };
+
+  // Passo 1 (leitura de QR): VALIDA o ingresso sem gravar e abre a tela de
+  // confirmação. A entrada só é registrada quando o operador confirma
+  // (commitCheckIn). Antes o check-in era gravado no instante da leitura e a
+  // tela sumia sozinha em 3s.
+  const validateCheckIn = async (input: string) => {
     const ticketId = extractTicketId(input);
     if (!ticketId) return;
     const now = Date.now();
-    // Dedup: enquanto uma validação está em andamento (lock) OU o MESMO código foi
-    // lido há menos de 3,5s, ignora — assim a leitura contínua (allowMultiple) não
-    // dispara o mesmo ingresso várias vezes. Códigos diferentes passam na hora.
+    // Enquanto há uma validação em andamento OU uma confirmação pendente na tela,
+    // ignora novas leituras (a câmera lê em loop). Mesmo código < 3,5s: ignora.
     if (checkinBusyRef.current) return;
+    if (checkInResult?.awaitingConfirm) return;
     if (ticketId === lastScanRef.current.value && now - lastScanRef.current.at < 3500) return;
     lastScanRef.current = { value: ticketId, at: now };
     checkinBusyRef.current = true;
     setCheckInInput('');
-    const vibrate = (p: number | number[]) => { if ('vibrate' in navigator) navigator.vibrate(p as any); };
     try {
-      // Valida o ingresso REAL no banco (o QR carrega o id do ticket_items).
-      // Operador admin/organizador usa o token Supabase; equipe de portaria usa o
-      // token de staff emitido em /api/staff/login (guardado no localStorage).
-      const token = await getAccessTokenSafe();
-      const staffToken = (() => { try { return localStorage.getItem('eventix-staff-token'); } catch { return null; } })();
-      const bearer = token || staffToken;
-      const resp = await fetch('/api/checkin', {
+      const bearer = await getCheckinBearer();
+      const resp = await fetch('/api/checkin?dryRun=1', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
-        body: JSON.stringify({ ticketId }),
+        body: JSON.stringify({ ticketId, dryRun: true }),
       });
-      // Falhas de autenticação NÃO são "ticket inválido" — antes isso fazia um
-      // ingresso válido aparecer como inválido quando a sessão não tinha token.
-      if (resp.status === 401) {
-        setCheckInResult({ type: 'error', message: 'SESSÃO EXPIRADA — FAÇA LOGIN NOVAMENTE' });
-        vibrate([100, 100, 100]);
-        return;
-      }
-      if (resp.status === 403) {
-        setCheckInResult({ type: 'error', message: 'SEM PERMISSÃO PARA ESTE EVENTO' });
-        vibrate([100, 100, 100]);
-        return;
-      }
+      if (resp.status === 401) { setCheckInResult({ type: 'error', message: 'SESSÃO EXPIRADA — FAÇA LOGIN NOVAMENTE' }); vibrate([100, 100, 100]); return; }
+      if (resp.status === 403) { setCheckInResult({ type: 'error', message: 'SEM PERMISSÃO PARA ESTE EVENTO' }); vibrate([100, 100, 100]); return; }
       const d = await resp.json().catch(() => ({} as any));
-      const data = { name: (d as any).name, type: (d as any).ticketName };
-      switch ((d as any).result) {
-        case 'ok':
-          setCheckInResult({ type: 'success', message: '✔ PODE ENTRAR!', data });
-          setCheckInHistory(prev => [{ id: ticketId, name: data.name || '', type: data.type || '', time: new Date() }, ...prev]);
-          // Atualiza o estado local para refletir o check-in imediatamente nos KPIs
-          setReservations(prev => prev.map(r => ({
-            ...r,
-            ticketsObj: r.ticketsObj?.map(t =>
-              t.id === ticketId ? { ...t, checkedIn: true, checked_in_at: new Date().toISOString() } : t
-            ),
-          })));
-          vibrate(200);
-          break;
-        case 'duplicate':
-          setCheckInResult({ type: 'error', message: 'DUPLICATA - CHECK-IN JÁ REALIZADO', data });
-          vibrate([300, 100, 300]);
-          break;
-        case 'unpaid':
-          setCheckInResult({ type: 'warning', message: 'PAGAMENTO PENDENTE - NÃO AUTORIZADO', data });
-          vibrate([200, 100, 200]);
-          break;
-        case 'cancelled':
-          setCheckInResult({ type: 'error', message: 'INGRESSO CANCELADO', data });
-          vibrate([300, 100, 300]);
-          break;
-        case 'forbidden':
-          setCheckInResult({ type: 'error', message: 'SEM PERMISSÃO PARA CHECK-IN' });
-          vibrate([100, 100, 100]);
-          break;
-        case 'error':
-          setCheckInResult({ type: 'error', message: 'ERRO AO VALIDAR — TENTE NOVAMENTE' });
-          vibrate([100, 100, 100]);
-          break;
-        default:
-          setCheckInResult({ type: 'error', message: 'TICKET INVÁLIDO OU NÃO ENCONTRADO' });
-          vibrate([100, 100, 100]);
+      const data = { name: (d as any).name, type: (d as any).ticketName, cpf: (d as any).cpf };
+      if ((d as any).result === 'ok') {
+        // Aguarda confirmação — NÃO grava o check-in ainda.
+        setCheckInResult({ type: 'success', message: 'CONFIRMAR ENTRADA?', data, ticketId, awaitingConfirm: true });
+        vibrate(120);
+      } else {
+        setCheckInResult({ type: 'error', message: '', data });
+        showCheckInError((d as any).result);
       }
     } catch {
       setCheckInResult({ type: 'error', message: 'ERRO DE CONEXÃO AO VALIDAR INGRESSO' });
       vibrate([100, 100, 100]);
     } finally {
       checkinBusyRef.current = false;
-      setTimeout(() => setCheckInResult(null), 3000);
+    }
+  };
+
+  // Passo 2: REGISTRA o check-in de fato (grava no banco). Usado pela confirmação
+  // da tela do scanner, pela lista manual e pela busca por CPF.
+  const commitCheckIn = async (input: string) => {
+    const ticketId = extractTicketId(input);
+    if (!ticketId) return;
+    if (checkinBusyRef.current) return;
+    checkinBusyRef.current = true;
+    try {
+      const bearer = await getCheckinBearer();
+      const resp = await fetch('/api/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
+        body: JSON.stringify({ ticketId }),
+      });
+      if (resp.status === 401) { setCheckInResult({ type: 'error', message: 'SESSÃO EXPIRADA — FAÇA LOGIN NOVAMENTE' }); vibrate([100, 100, 100]); return; }
+      if (resp.status === 403) { setCheckInResult({ type: 'error', message: 'SEM PERMISSÃO PARA ESTE EVENTO' }); vibrate([100, 100, 100]); return; }
+      const d = await resp.json().catch(() => ({} as any));
+      const data = { name: (d as any).name, type: (d as any).ticketName, cpf: (d as any).cpf };
+      if ((d as any).result === 'ok') {
+        setCheckInHistory(prev => [{ id: ticketId, name: data.name || '', type: data.type || '', time: new Date() }, ...prev]);
+        setReservations(prev => prev.map(r => ({
+          ...r,
+          ticketsObj: r.ticketsObj?.map(t =>
+            t.id === ticketId ? { ...t, checkedIn: true, checked_in_at: new Date().toISOString() } : t
+          ),
+        })));
+        setCheckInResult(null);
+        showToast(`Entrada confirmada${data.name ? ` — ${data.name}` : ''}.`, 'success');
+        vibrate(200);
+      } else {
+        setCheckInResult({ type: 'error', message: '', data });
+        showCheckInError((d as any).result);
+      }
+    } catch {
+      setCheckInResult({ type: 'error', message: 'ERRO DE CONEXÃO AO VALIDAR INGRESSO' });
+      vibrate([100, 100, 100]);
+    } finally {
+      checkinBusyRef.current = false;
     }
   };
 
@@ -2416,10 +2464,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     selectedTables.forEach((tableId) => {
       const tbl = derivedTables.find(t => t.id === tableId);
       const seats = tbl?.capacity ?? 4;
+      const spotLabel = tbl?.isBistro ? 'Bistrô' : 'Mesa';
       for (let i = 0; i < seats; i++) {
         generatedTickets.push({
           id: ticketIdAt(tIndex),
-          name: `Mesa #${tableId} — Assento ${i + 1}`,
+          name: `${spotLabel} #${tableId} — Assento ${i + 1}`,
           isTable: true,
           tableNumber: tableId,
           occupantIndex: i,
@@ -2448,6 +2497,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       total: grandTotal,
       eventId: activeEvent?.id ?? 1,
       buyerName: buyer.name,
+      buyerCpf: buyer.cpf,
       paymentStatus: 'approved',
       paymentMethod: method || 'credit_card',
       platformFee: taxAmount,
@@ -2609,10 +2659,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         selectedTables.forEach((tableId) => {
           const tbl = derivedTables.find(t => t.id === tableId);
           const seats = tbl?.capacity ?? 4;
+          const spotLabel = tbl?.isBistro ? 'Bistrô' : 'Mesa';
           for (let i = 0; i < seats; i++) {
             items.push({
               reservation_id: '', event_id: activeEvent?.id ?? 0,
-              name: `Mesa #${tableId} — Assento ${i + 1}`,
+              name: `${spotLabel} #${tableId} — Assento ${i + 1}`,
               is_table: true, table_number: tableId, occupant_index: i,
               status: 'active', ...ownerFor(idx === 0),
             });
@@ -2891,7 +2942,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     checkInSearch, setCheckInSearch,
     checkInSearchInput, setCheckInSearchInput,
     checkInFilter, setCheckInFilter,
-    checkInResult,
+    checkInResult, setCheckInResult,
     checkinTab, setCheckinTab,
     checkInHistory,
     scannerKey, setScannerKey,
@@ -2920,7 +2971,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     showToastFn: showToast,
     handleAdminLogin, handleLogout, handleRegister, handleVerifyCode, handleResendCode, handleCheckoutVerifyAndRegister, handleForgotPassword,
     handleEditEvent, handleCreateEvent, handleSaveEvent, handleUpdateEventStatus, handleImageFileChange,
-    handleAddStaff, handleDeleteStaff, handleToggleStaffActive, handleEditStaff, handleStaffLogin, handleCheckIn, handleUndoCheckIn, handleScannerError,
+    handleAddStaff, handleDeleteStaff, handleToggleStaffActive, handleEditStaff, handleStaffLogin, validateCheckIn, commitCheckIn, handleUndoCheckIn, handleScannerError,
     toggleTableSelection, getTableStatus, handleCheckout, handleConfirmReservation, handleCreateReservation,
   };
 

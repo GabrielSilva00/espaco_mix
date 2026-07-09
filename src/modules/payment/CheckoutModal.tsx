@@ -76,7 +76,7 @@ export function CheckoutModal() {
     users, setUsers, setUserRole, setSessionUser, setLoggedInUserId, setIsApprovedEventCreator,
     setSelectedTables, clearTicketSelections,
     reservations,
-    handleCheckIn,
+    commitCheckIn,
   } = useApp();
 
   useEffect(() => {
@@ -1181,7 +1181,7 @@ export function CheckoutModal() {
                    {!selectedBuyerForDetails.checkedIn && (
                       <button 
                         onClick={() => {
-                          handleCheckIn(selectedBuyerForDetails.id);
+                          commitCheckIn(selectedBuyerForDetails.id);
                           setSelectedBuyerForDetails(null);
                         }}
                         className="flex-1 py-5 bg-[#d4af37] text-black rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:brightness-110 shadow-lg shadow-[#d4af374d] transition-all"

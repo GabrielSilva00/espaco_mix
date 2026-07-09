@@ -27,6 +27,7 @@ import { CompleteProfileModal } from './components/CompleteProfileModal';
 import { EmailCodeModal } from './components/EmailCodeModal';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
 import { generateDefaultLayout } from './shared/utils/defaultLayout';
+import { isValidCpf, formatCpf } from './shared/utils/validators';
 import type { TableLayoutElement } from './components/TableLayoutEditor';
 
 function isDefaultLayout(layout: TableLayoutElement[], def: TableLayoutElement[]): boolean {
@@ -96,6 +97,64 @@ export function App() {
 
   const [resendingEmail, setResendingEmail] = React.useState(false);
   const [cancellingTicket, setCancellingTicket] = React.useState(false);
+  const [savingOwner, setSavingOwner] = React.useState(false);
+
+  // Salva o nome/CPF do participante (convidado) de um ingresso. Valida o CPF,
+  // impede que o MESMO CPF seja usado em mais de um ingresso da reserva e
+  // persiste no banco (a edição anterior só alterava o estado local, perdendo-se
+  // ao recarregar).
+  const handleSaveOwnerData = async () => {
+    if (!actionTicket || savingOwner) return;
+    const name = (actionTicket.data?.name ?? '').trim();
+    const cpfRaw = actionTicket.data?.cpf ?? '';
+    const email = (actionTicket.data?.email ?? '').trim();
+    setActionError('');
+    if (!name) { setActionError('Informe o nome completo.'); return; }
+    if (!isValidCpf(cpfRaw)) { setActionError('CPF inválido. Confira os 11 dígitos.'); return; }
+    const cpfDigits = cpfRaw.replace(/\D/g, '');
+
+    // Reserva que contém este ingresso.
+    const res = reservations.find(r => r.ticketsObj?.some(t => t.id === actionTicket.id));
+    // Unicidade dentro da reserva: nenhum OUTRO ingresso ativo pode ter o mesmo CPF.
+    const duplicate = res?.ticketsObj?.some(t =>
+      t.id !== actionTicket.id &&
+      t.status !== 'cancelled' &&
+      (t.ownerCpf ?? '').replace(/\D/g, '') === cpfDigits
+    );
+    if (duplicate) {
+      setActionError('Este CPF já está vinculado a outro ingresso desta reserva.');
+      return;
+    }
+
+    setSavingOwner(true);
+    try {
+      const token = await getAccessTokenSafe();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const resp = await fetch(`/api/ticket/${actionTicket.id}/owner`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ name, cpf: cpfDigits, email }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Erro ao salvar os dados do participante');
+      }
+      setReservations(reservations.map(r => ({
+        ...r,
+        ticketsObj: r.ticketsObj?.map(t => t.id === actionTicket.id
+          ? { ...t, ownerName: name, ownerCpf: formatCpf(cpfDigits), ownerEmail: email }
+          : t
+        ),
+      })));
+      setActionTicket(null);
+      showToast('Dados do participante salvos.', 'success');
+    } catch (err: any) {
+      setActionError(err.message ?? 'Erro ao salvar os dados do participante');
+    } finally {
+      setSavingOwner(false);
+    }
+  };
 
   // Splash screen — exibe apenas 1x por sessão
   const [showSplash, setShowSplash] = useState(() => {
@@ -676,8 +735,10 @@ export function App() {
                       <label className="text-[10px] uppercase tracking-widest opacity-40 block mb-2 px-1">CPF</label>
                       <input
                         type="text"
+                        inputMode="numeric"
+                        placeholder="000.000.000-00"
                         value={actionTicket.data?.cpf || ''}
-                        onChange={(e) => setActionTicket({ ...actionTicket, data: { ...actionTicket.data, cpf: e.target.value } })}
+                        onChange={(e) => { setActionTicket({ ...actionTicket, data: { ...actionTicket.data, cpf: formatCpf(e.target.value) } }); setActionError(''); }}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#d4af37]/50 transition"
                       />
                     </div>
@@ -690,22 +751,13 @@ export function App() {
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#d4af37]/50 transition"
                       />
                     </div>
+                    {actionError && <p className="text-red-400 text-xs text-center">{actionError}</p>}
                     <button
-                      onClick={() => {
-                        const updated = reservations.map(res => ({
-                          ...res,
-                          ticketsObj: res.ticketsObj?.map(t => t.id === actionTicket.id
-                            ? { ...t, ownerName: actionTicket.data?.name || '', ownerCpf: actionTicket.data?.cpf || '', ownerEmail: actionTicket.data?.email || '' }
-                            : t
-                          )
-                        }));
-                        setReservations(updated);
-                        setActionTicket(null);
-                      }}
-                      disabled={!actionTicket.data?.name || !actionTicket.data?.cpf}
+                      onClick={handleSaveOwnerData}
+                      disabled={savingOwner || !actionTicket.data?.name || !actionTicket.data?.cpf}
                       className="w-full mt-4 py-4 text-[11px] font-bold tracking-[0.2em] uppercase text-[#0a0a0a] bg-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.2)] rounded-xl hover:brightness-110 transition disabled:opacity-50"
                     >
-                      Salvar Dados
+                      {savingOwner ? 'Salvando...' : 'Salvar Dados'}
                     </button>
                   </>
                 )}

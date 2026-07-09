@@ -165,8 +165,9 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
         <ChevronRight className="w-5 h-5 text-[#d4af37]/60 group-hover:translate-x-0.5 transition-transform" />
       </button>
 
-      {/* Receitas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Receitas — bruta e líquida após a taxa da plataforma (a taxa do gateway/MP
+          não é exibida no dashboard) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-2xl p-5">
           <div className="mb-3 text-[#d4af37]"><BarChart3 className="w-5 h-5" /></div>
           <p className="text-2xl font-bold text-[#d4af37]">{brl(totalRevenue)}</p>
@@ -176,11 +177,6 @@ function AdminOverviewPanel({ events, reservations, registeredUsersCount, platfo
           <div className="mb-3 text-green-400"><TrendingUp className="w-5 h-5" /></div>
           <p className="text-2xl font-bold text-white">{brl(revenueAfterPlatformFee)}</p>
           <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Após taxa da plataforma ({platformFeeType === 'fixed' ? `R$ ${platformFeePercent.toFixed(2)}/venda` : `${platformFeePercent}%`})</p>
-        </div>
-        <div className="bg-[#0d0d0d] border border-white/8 rounded-2xl p-5">
-          <div className="mb-3 text-emerald-400"><DollarSign className="w-5 h-5" /></div>
-          <p className="text-2xl font-bold text-white">{brl(revenueAfterGatewayFee)}</p>
-          <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Após taxa do MP ({gatewayFeePercent}%)</p>
         </div>
       </div>
 
@@ -428,7 +424,7 @@ export function DashboardView() {
     showDefaultCredentialsWarning,
     loadingEvents,
     handleCreateEvent, handleEditEvent, handleSaveEvent, handleUpdateEventStatus,
-    handleCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff, handleDeleteStaff, handleToggleStaffActive, handleEditStaff,
+    validateCheckIn, commitCheckIn, handleUndoCheckIn, handleScannerError, handleAddStaff, handleDeleteStaff, handleToggleStaffActive, handleEditStaff,
     showToast,
     systemLogs, clearSystemLogs,
     reservations,
@@ -446,7 +442,7 @@ export function DashboardView() {
     isMessageModalOpen, setIsMessageModalOpen,
     isLogsModalOpen, setIsLogsModalOpen,
     checkinTab, setCheckinTab,
-    checkInResult,
+    checkInResult, setCheckInResult,
     scannerError, setScannerError,
     scannerKey, setScannerKey,
     scannerConstraints, setScannerConstraints,
@@ -484,6 +480,8 @@ export function DashboardView() {
 
   type CheckInRow = { ticketId: string; name: string; cpf: string; type: string; status: string; checkedIn: boolean };
   const [pendingCheckin, setPendingCheckin] = React.useState<CheckInRow | null>(null);
+  // Confirmação antes de desfazer um check-in (item: cancelar entrada exige confirmação).
+  const [pendingUndo, setPendingUndo] = React.useState<{ ticketId: string; name: string } | null>(null);
 
   const checkInRows = React.useMemo<CheckInRow[]>(() => {
     return reservations
@@ -491,7 +489,7 @@ export function DashboardView() {
       .flatMap(r => (r.ticketsObj ?? []).filter(t => t.status !== 'cancelled').map(t => ({
         ticketId: t.id,
         name: t.ownerName || r.buyerName || '—',
-        cpf: t.ownerCpf || '',
+        cpf: t.ownerCpf || r.buyerCpf || '',
         type: t.name || (t.isTable ? `Mesa ${t.tableNumber}` : 'Ingresso'),
         status: 'Pago',
         checkedIn: !!t.checkedIn,
@@ -954,17 +952,18 @@ export function DashboardView() {
                            ? feePct * evMetrics.paidOrders
                            : evMetrics.revenue * (feePct / 100);
                          const afterPlatform = evMetrics.revenue - evPlatformFee;
-                         const afterGateway = afterPlatform * (1 - (siteConfig.gatewayFeePercent ?? 0) / 100);
                          const feeLabel = feeType === 'fixed' ? `R$ ${feePct.toFixed(2)}/venda` : `${feePct}%`;
+                         // Mostra a taxa da plataforma deduzida e o valor líquido.
+                         // A taxa do gateway (MP) não é exibida no dashboard.
                          return (
                            <>
                              <div className="flex justify-between border-t border-white/5 pt-1.5">
-                               <p className="text-[9px] uppercase opacity-30">-Taxa plat. ({feeLabel})</p>
-                               <p className="text-xs text-orange-400 font-mono">{brl(afterPlatform)}</p>
+                               <p className="text-[9px] uppercase opacity-30">Taxa plataforma ({feeLabel})</p>
+                               <p className="text-xs text-orange-400 font-mono">- {brl(evPlatformFee)}</p>
                              </div>
                              <div className="flex justify-between">
-                               <p className="text-[9px] uppercase opacity-30">-Taxa MP ({siteConfig.gatewayFeePercent ?? 0}%)</p>
-                               <p className="text-xs text-emerald-400 font-mono">{brl(afterGateway)}</p>
+                               <p className="text-[9px] uppercase opacity-40 font-bold">Líquido (após taxa)</p>
+                               <p className="text-xs text-emerald-400 font-mono font-bold">{brl(afterPlatform)}</p>
                              </div>
                            </>
                          );
@@ -1417,7 +1416,7 @@ export function DashboardView() {
                           ) : (
                             <Scanner
                               key={scannerKey}
-                              onScan={(detectedCodes) => { if(detectedCodes?.[0]?.rawValue) handleCheckIn(detectedCodes[0].rawValue); }}
+                              onScan={(detectedCodes) => { if(detectedCodes?.[0]?.rawValue) validateCheckIn(detectedCodes[0].rawValue); }}
                               formats={['qr_code']}
                               allowMultiple={true}
                               scanDelay={500}
@@ -1439,18 +1438,38 @@ export function DashboardView() {
                                   'bg-red-500/95 backdrop-blur-xl'
                                 }`}
                               >
-                                {checkInResult.type === 'success' ? <ShieldCheck className="w-24 h-24 text-white mb-6 drop-shadow-xl" /> : 
-                                 checkInResult.type === 'warning' ? <Activity className="w-24 h-24 text-white mb-6 drop-shadow-xl" /> : 
-                                 <X className="w-24 h-24 text-white mb-6 drop-shadow-xl" />}
-                                <h1 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-wider drop-shadow-xl mb-4 leading-tight">{checkInResult.message}</h1>
-                                
-                                {checkInResult.data && (
-                                  <div className="bg-black/20 p-6 rounded-2xl w-full max-w-sm mt-4 backdrop-blur-sm border border-white/10 shadow-inner">
+                                {checkInResult.type === 'success' ? <ShieldCheck className="w-20 h-20 text-white mb-5 drop-shadow-xl" /> :
+                                 checkInResult.type === 'warning' ? <Activity className="w-20 h-20 text-white mb-5 drop-shadow-xl" /> :
+                                 <X className="w-20 h-20 text-white mb-5 drop-shadow-xl" />}
+                                <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-wider drop-shadow-xl mb-4 leading-tight">{checkInResult.message}</h1>
+
+                                {checkInResult.data && (checkInResult.data.name || checkInResult.data.type) && (
+                                  <div className="bg-black/20 p-5 rounded-2xl w-full max-w-sm backdrop-blur-sm border border-white/10 shadow-inner">
                                     <p className="text-lg font-bold text-white mb-1 uppercase drop-shadow-md">{checkInResult.data.name}</p>
+                                    {checkInResult.data.cpf && <p className="text-sm font-mono text-white/80 mb-2">{checkInResult.data.cpf}</p>}
                                     <div className="flex items-center justify-center gap-3">
                                       <span className="text-sm font-black bg-white text-black px-3 py-1 rounded uppercase tracking-widest">{checkInResult.data.type}</span>
                                     </div>
                                   </div>
+                                )}
+
+                                {/* Ações: confirmar entrada (só valida ao bipar) ou fechar. */}
+                                {checkInResult.awaitingConfirm ? (
+                                  <div className="flex gap-3 w-full max-w-sm mt-6">
+                                    <button
+                                      onClick={() => commitCheckIn(checkInResult.ticketId ?? '')}
+                                      className="flex-1 py-4 bg-white text-black rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/90 active:scale-95 transition-all shadow-lg"
+                                    >Confirmar Entrada</button>
+                                    <button
+                                      onClick={() => setCheckInResult(null)}
+                                      className="flex-1 py-4 bg-black/25 border border-white/20 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-black/40 active:scale-95 transition-all"
+                                    >Cancelar</button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setCheckInResult(null)}
+                                    className="mt-6 w-full max-w-sm py-4 bg-black/25 border border-white/20 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-black/40 active:scale-95 transition-all"
+                                  >Fechar</button>
                                 )}
                               </motion.div>
                             )}
@@ -1466,11 +1485,11 @@ export function DashboardView() {
                            placeholder="Digite o ID do ingresso..."
                            value={checkInInput}
                            onChange={(e) => setCheckInInput(e.target.value)}
-                           onKeyPress={(e) => e.key === 'Enter' && handleCheckIn(checkInInput)}
+                           onKeyPress={(e) => e.key === 'Enter' && validateCheckIn(checkInInput)}
                            className="w-full sm:flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-sm focus:border-[#d4af37] outline-none transition-colors text-white"
                          />
                          <button 
-                           onClick={() => handleCheckIn(checkInInput)}
+                           onClick={() => validateCheckIn(checkInInput)}
                            className="w-full sm:w-auto px-10 py-4 bg-[#d4af37] text-black font-black text-[10px] uppercase tracking-[0.1em] rounded-xl hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-[#d4af371a] flex items-center justify-center"
                          >
                            <Search className="w-4 h-4 mr-2" /> Validar
@@ -1479,7 +1498,7 @@ export function DashboardView() {
                     </div>
 
                     {/* Busca por CPF */}
-                    <CpfSearch eventId={selectedDashboardEvent ?? undefined} onCheckIn={handleCheckIn} />
+                    <CpfSearch eventId={selectedDashboardEvent ?? undefined} onCheckIn={commitCheckIn} />
                   </div>
                 )}
 
@@ -1540,7 +1559,7 @@ export function DashboardView() {
                                     ENTRAR
                                   </button>
                                 ) : (
-                                  <button onClick={() => handleUndoCheckIn(b.ticketId)} className="px-3 py-2 text-[9px] uppercase tracking-widest font-bold text-white/40 hover:text-red-400 bg-white/5 hover:bg-red-500/10 rounded-lg transition-all">
+                                  <button onClick={() => setPendingUndo({ ticketId: b.ticketId, name: b.name })} className="px-3 py-2 text-[9px] uppercase tracking-widest font-bold text-white/40 hover:text-red-400 bg-white/5 hover:bg-red-500/10 rounded-lg transition-all">
                                     Desfazer
                                   </button>
                                 )}
@@ -1578,13 +1597,48 @@ export function DashboardView() {
                         </div>
                         <div className="flex gap-3">
                           <button
-                            onClick={() => { handleCheckIn(pendingCheckin.ticketId); setPendingCheckin(null); }}
+                            onClick={() => { commitCheckIn(pendingCheckin.ticketId); setPendingCheckin(null); }}
                             className="flex-1 py-3 bg-[#d4af37] text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition"
                           >Confirmar</button>
                           <button
                             onClick={() => setPendingCheckin(null)}
                             className="flex-1 py-3 bg-white/5 border border-white/10 text-white/70 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition"
                           >Cancelar</button>
+                        </div>
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Modal de confirmação para desfazer check-in */}
+                <AnimatePresence>
+                  {pendingUndo && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4"
+                      onClick={() => setPendingUndo(null)}
+                    >
+                      <motion.div
+                        initial={{ scale: 0.95, y: 10 }}
+                        animate={{ scale: 1, y: 0 }}
+                        exit={{ scale: 0.95, y: 10 }}
+                        className="bg-[#0d0d0d] border border-white/15 rounded-2xl p-6 max-w-sm w-full"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <h3 className="text-base font-bold text-red-400 uppercase tracking-widest mb-3">Desfazer Check-in</h3>
+                        <p className="text-sm text-white/70 mb-1">Tem certeza que deseja cancelar a entrada de <span className="font-bold text-white">{pendingUndo.name || 'este convidado'}</span>?</p>
+                        <p className="text-xs text-white/40 mb-6">O QR Code voltará a ser válido para uma nova entrada.</p>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => { handleUndoCheckIn(pendingUndo.ticketId); setPendingUndo(null); }}
+                            className="flex-1 py-3 bg-red-500/15 text-red-400 border border-red-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-500/25 transition"
+                          >Desfazer Entrada</button>
+                          <button
+                            onClick={() => setPendingUndo(null)}
+                            className="flex-1 py-3 bg-white/5 border border-white/10 text-white/70 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition"
+                          >Manter</button>
                         </div>
                       </motion.div>
                     </motion.div>
@@ -1606,7 +1660,7 @@ export function DashboardView() {
                              <p className="text-[9px] opacity-40 uppercase tracking-widest">{h.type} • Agora</p>
                            </div>
                          </div>
-                         <button onClick={() => handleUndoCheckIn(h.id)} className="text-[9px] uppercase tracking-widest font-bold text-red-500 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 px-3 py-2 rounded-lg transition-all flex items-center">
+                         <button onClick={() => setPendingUndo({ ticketId: h.id, name: h.name })} className="text-[9px] uppercase tracking-widest font-bold text-red-500 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 px-3 py-2 rounded-lg transition-all flex items-center">
                             <RefreshCcw className="w-3 h-3 mr-1" /> Desfazer
                          </button>
                        </div>

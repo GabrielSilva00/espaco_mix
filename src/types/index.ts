@@ -20,6 +20,7 @@ export interface TableDef {
   capacity: number;
   status: 'available' | 'reserved';
   price: number;
+  isBistro?: boolean;
 }
 
 export interface TicketOwner {
@@ -59,6 +60,7 @@ export interface Reservation {
   checkedIn?: boolean;
   eventId?: number;
   buyerName?: string;
+  buyerCpf?: string;
   paymentStatus?: 'pending' | 'approved' | 'cancelled' | 'refunded';
   paymentMethod?: 'pix' | 'credit_card' | 'debit_card';
   paymentId?: string;

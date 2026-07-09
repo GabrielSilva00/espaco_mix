@@ -40,6 +40,35 @@ function formatEventDateTime(date: string | undefined, time: string | undefined)
   return time ? `${datePart} · ${time}` : datePart;
 }
 
+// Um ingresso está "encerrado" (não pendente de uso) quando já entrou, foi
+// cancelado ou transferido.
+function ticketDone(t: TicketItem): boolean {
+  return !!t.checkedIn || t.status === 'cancelled' || t.status === 'transferred';
+}
+
+// Ingressos que EXIGEM check-in para a reserva ser considerada "utilizada":
+// individuais entram sempre; nas mesas, apenas os assentos COM convidado
+// atribuído (ownerName preenchido). Se a mesa não tem nenhum convidado atribuído,
+// considera todos os assentos (evita a mesa ficar presa em "Próximos" para sempre).
+function relevantTickets(tickets: TicketItem[]): TicketItem[] {
+  const nonTable = tickets.filter(t => !t.isTable);
+  const tableSeats = tickets.filter(t => t.isTable);
+  const named = tableSeats.filter(t => !!t.ownerName);
+  return [...nonTable, ...(named.length > 0 ? named : tableSeats)];
+}
+
+// Reserva "utilizada": todos os ingressos relevantes já foram encerrados.
+function reservationFullyUsed(tickets: TicketItem[]): boolean {
+  const rel = relevantTickets(tickets);
+  return rel.length > 0 && rel.every(ticketDone);
+}
+
+// Reserva com entrada 100% confirmada (para o selo "Utilizado").
+function reservationAllCheckedIn(tickets: TicketItem[]): boolean {
+  const rel = relevantTickets(tickets);
+  return rel.length > 0 && rel.every(t => !!t.checkedIn);
+}
+
 function useCountdown(expiresAt: number | undefined): string {
   const [remaining, setRemaining] = useState('');
   useEffect(() => {
@@ -177,7 +206,9 @@ export function ReservationsView() {
     const ev = events.find(e => e.id === r.eventId);
     const tickets = r.ticketsObj ?? [];
     const eventPassed = !!ev?.date && new Date(`${ev.date}T${ev.time ?? '23:59'}:00`).getTime() < Date.now();
-    const allDone = tickets.length > 0 && tickets.every(t => t.checkedIn || t.status === 'cancelled' || t.status === 'transferred');
+    // Mesa só vai ao histórico quando todos os assentos COM convidado entrarem
+    // (assentos sem convidado atribuído não bloqueiam).
+    const allDone = reservationFullyUsed(tickets);
     const isCancelled = r.paymentStatus === 'cancelled' || r.paymentStatus === 'refunded';
     return eventPassed || allDone || isCancelled;
   }, [events]);
@@ -270,7 +301,7 @@ export function ReservationsView() {
                            <div className="flex items-center gap-2 mb-1">
                             {(() => {
                               const tickets = res.ticketsObj ?? [];
-                              const allCheckedIn = tickets.length > 0 && tickets.every(t => t.checkedIn);
+                              const allCheckedIn = reservationAllCheckedIn(tickets);
                               const allCancelled = tickets.length > 0 && tickets.every(t => t.status === 'cancelled');
                               const allTransferred = tickets.length > 0 && tickets.every(t => t.status === 'transferred');
                               const ev = events.find(e => e.id === res.eventId);
@@ -321,7 +352,7 @@ export function ReservationsView() {
                             <div className="flex flex-wrap items-center gap-3 mb-2">
                               {(() => {
                                 const tickets = res.ticketsObj ?? [];
-                                const allCheckedIn = tickets.length > 0 && tickets.every(t => t.checkedIn);
+                                const allCheckedIn = reservationAllCheckedIn(tickets);
                                 const allCancelled = tickets.length > 0 && tickets.every(t => t.status === 'cancelled');
                                 const allTransferred = tickets.length > 0 && tickets.every(t => t.status === 'transferred');
                                 const ev2 = events.find(e => e.id === res.eventId);
@@ -434,11 +465,12 @@ export function ReservationsView() {
                               <div className="space-y-6">
                                 {Array.from(tablesMap.entries()).map(([tableNumber, tickets]) => {
                                   const allCancelled = tickets.every(t => t.status === 'cancelled');
+                                  const spotLabel = tickets[0]?.name?.startsWith('Bistrô') ? 'Bistrô' : 'Mesa';
                                   return (
                                     <div key={`table-${tableNumber}`} className={`p-4 rounded-xl border ${allCancelled ? 'border-red-500/20 bg-red-500/5' : 'border-white/10 bg-white/5'}`}>
                                       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 pb-4 border-b border-white/10">
                                         <div>
-                                          <h5 className="text-sm font-bold text-[#d4af37]">Reserva: Mesa {tableNumber}</h5>
+                                          <h5 className="text-sm font-bold text-[#d4af37]">Reserva: {spotLabel} {tableNumber}</h5>
                                           {allCancelled && <span className="text-[10px] text-red-500 uppercase font-bold tracking-widest mt-1 block">Mesa Cancelada</span>}
                                         </div>
                                         {!allCancelled && (
