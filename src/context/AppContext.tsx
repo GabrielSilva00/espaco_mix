@@ -977,6 +977,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  // ─── Falha de login social (OAuth) devolvida na URL ───────────────────────
+  // Quando o login com Google falha, o Supabase redireciona de volta com os
+  // parâmetros de erro na URL (?error=...&error_description=... ou no #hash).
+  // Caso mais comum: o e-mail já tem conta criada por senha e o GoTrue não
+  // vincula a identidade Google automaticamente → server_error / "User not
+  // found". Sem tratamento, o usuário só via o erro cru na barra de endereço.
+  // Mostra uma mensagem clara, limpa a URL e o marcador de OAuth que fica preso.
+  useEffect(() => {
+    try {
+      const readParams = (raw: string) =>
+        new URLSearchParams(raw.startsWith('#') || raw.startsWith('?') ? raw.slice(1) : raw);
+      const search = readParams(window.location.search);
+      const hash = readParams(window.location.hash);
+      const errCode = search.get('error') || hash.get('error');
+      if (!errCode) return;
+      const errDesc = (search.get('error_description') || hash.get('error_description') || '').toLowerCase();
+
+      // O marcador do OAuth fica preso quando o login falha (o SIGNED_IN que o
+      // removeria nunca dispara) — limpa para não afetar um login futuro.
+      try { localStorage.removeItem('eventix-oauth-login'); } catch { /* ignore */ }
+
+      let msg = 'Não foi possível entrar com o Google. Tente novamente ou use e-mail e senha.';
+      if (errDesc.includes('user not found') || errDesc.includes('database error')) {
+        msg = 'Este e-mail já possui uma conta criada com e-mail e senha. Entre com sua senha para acessar.';
+      } else if (errCode === 'access_denied') {
+        msg = 'Login com Google cancelado.';
+      } else if (errCode === 'server_error') {
+        msg = 'Não foi possível entrar com o Google agora. Se você já tem uma conta, entre com e-mail e senha.';
+      }
+      showToast(msg, 'error');
+
+      // Remove só os parâmetros de erro, preservando o resto da URL. O #hash do
+      // app é uma rota simples (ex.: #eventos), não um query string — por isso
+      // só reprocessamos (via URLSearchParams) a parte que de fato continha o
+      // erro; a outra é mantida crua para não corromper a rota.
+      try {
+        const strip = (p: URLSearchParams) => {
+          ['error', 'error_code', 'error_description', 'provider'].forEach(k => p.delete(k));
+          return p.toString();
+        };
+        const rawSearch = window.location.search.replace(/^\?/, '');
+        const rawHash = window.location.hash.replace(/^#/, '');
+        const newSearch = /(^|&)error=/.test(rawSearch) ? strip(search) : rawSearch;
+        const newHash = /(^|&)error=/.test(rawHash) ? strip(hash) : rawHash;
+        window.history.replaceState({}, document.title, window.location.pathname + (newSearch ? '?' + newSearch : '') + (newHash ? '#' + newHash : ''));
+      } catch { /* ignore */ }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ─── Browser/PWA back button ─────────────────────────────────────────────
   // Mantém uma pilha lógica de navegação. O "voltar" (botão ou gesto no mobile)
   // percorre essa pilha até a home, sem cair em telas de login. Na home, em vez
