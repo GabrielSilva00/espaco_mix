@@ -347,6 +347,11 @@ export const supabase = createClient(
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    // PKCE é o padrão do supabase-js v2; explícito para não quebrar em upgrades
+    // futuros. No retorno do OAuth o SDK troca o ?code= por sessão usando o
+    // code_verifier salvo neste storage — por isso o domínio de início e fim do
+    // fluxo precisa ser o MESMO (sem pulo apex↔www no meio).
+    flowType: 'pkce',
     storageKey: 'eventix-auth-v2',
   },
   realtime: {
