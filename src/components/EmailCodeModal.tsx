@@ -6,9 +6,9 @@ import { getAccessTokenSafe } from '../lib/supabase';
 /**
  * Verificação por código para contas criadas via Google (1º acesso).
  * Envia um código ao e-mail do usuário logado e pede a confirmação no site.
- * Não bloqueia: o usuário pode "Pular por agora" e o pedido reaparece no próximo
- * acesso até confirmar (o servidor grava `otp_verified_at`). Aparece só depois
- * de o perfil estar completo (não empilha com o CompleteProfileModal).
+ * Obrigatória: não há opção de pular — o usuário precisa confirmar o código
+ * para prosseguir (o servidor grava `otp_verified_at`). Aparece só depois de o
+ * perfil estar completo (não empilha com o CompleteProfileModal).
  */
 export function EmailCodeModal() {
   const { needsCodeVerification, needsProfileCompletion, setNeedsCodeVerification, sessionUser, showToast } = useApp();
@@ -111,7 +111,7 @@ export function EmailCodeModal() {
           {verifying ? 'Verificando…' : 'Confirmar'}
         </button>
 
-        <div className="flex items-center justify-between mt-3">
+        <div className="flex items-center justify-center mt-3">
           <button
             type="button"
             onClick={sendCode}
@@ -119,13 +119,6 @@ export function EmailCodeModal() {
             className="text-[10px] uppercase tracking-widest text-white/50 hover:text-white/80 transition disabled:opacity-40"
           >
             {sending ? 'Enviando…' : 'Reenviar código'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setNeedsCodeVerification(false)}
-            className="text-[10px] uppercase tracking-widest text-white/40 hover:text-white/70 transition"
-          >
-            Pular por agora
           </button>
         </div>
       </motion.div>

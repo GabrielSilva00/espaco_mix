@@ -985,7 +985,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try { localStorage.removeItem('eventix-oauth-login'); } catch { /* ignore */ }
 
       let msg = 'Não foi possível entrar com o Google. Tente novamente ou use e-mail e senha.';
-      if (errDesc.includes('user not found') || errDesc.includes('database error')) {
+      if (errDesc.includes('database error')) {
+        // "Database error saving new user" = falha ao CRIAR o usuário (ex.: registro
+        // órfão em auth.identities), não conflito de conta. Não sugerir senha aqui.
+        msg = 'Não foi possível concluir o cadastro com o Google agora. Tente novamente; se o problema persistir, entre em contato com o suporte.';
+      } else if (errDesc.includes('user not found')) {
         msg = 'Este e-mail já possui uma conta criada com e-mail e senha. Entre com sua senha para acessar.';
       } else if (errCode === 'access_denied') {
         msg = 'Login com Google cancelado.';
