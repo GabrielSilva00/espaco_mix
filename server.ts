@@ -570,7 +570,7 @@ async function sendReservationConfirmation(
   try {
     const { data: reservation, error } = await admin
       .from("reservations")
-      .select("id, buyer_name, buyer_email, total, payment_method, payment_status, event_id, ticket_items(id, name, status)")
+      .select("id, buyer_name, buyer_email, buyer_cpf, created_at, total, payment_method, payment_status, event_id, ticket_items(id, name, status)")
       .eq("id", reservationId)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -586,7 +586,7 @@ async function sendReservationConfirmation(
 
     const { data: event } = await admin
       .from("events")
-      .select("title, date, time, location")
+      .select("title, date, time, location, img")
       .eq("id", reservation.event_id)
       .maybeSingle();
 
@@ -594,14 +594,24 @@ async function sendReservationConfirmation(
       .filter((t: any) => t.status !== "cancelled")
       .map((t: any) => ({ id: String(t.id), name: String(t.name ?? "Ingresso") }));
 
+    const purchaseDate = reservation.created_at
+      ? new Date(reservation.created_at).toLocaleString("pt-BR", {
+          day: "2-digit", month: "2-digit", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        })
+      : undefined;
+
     const sent = await sendConfirmationEmail({
       buyerName: reservation.buyer_name ?? "Cliente",
       buyerEmail: reservation.buyer_email,
+      buyerDocument: reservation.buyer_cpf ? maskCpf(reservation.buyer_cpf) : undefined,
+      purchaseDate,
       reservationId: reservation.id,
       eventTitle: event?.title ?? "Evento",
       eventDate: event?.date ?? "",
       eventTime: event?.time ?? undefined,
       eventLocation: event?.location ?? "",
+      eventImage: (event as any)?.img ?? undefined,
       total: Number(reservation.total ?? 0),
       paymentMethod: reservation.payment_method ?? "pix",
       tickets,
@@ -2038,7 +2048,7 @@ export async function createExpressApp() {
       if (!db) { res.status(503).json({ error: "Serviço indisponível." }); return; }
       const { data: event } = await db
         .from("events")
-        .select("id, title, date, time, location")
+        .select("id, title, date, time, location, img")
         .eq("id", eventId)
         .single();
       if (!event) { res.status(404).json({ error: "Evento não encontrado." }); return; }
@@ -2058,6 +2068,12 @@ export async function createExpressApp() {
       if (kind === "confirmation" || kind === "both") {
         confirmationSent = await sendConfirmationEmail({
           ...fictitious,
+          buyerDocument: maskCpf("12345678909"),
+          purchaseDate: new Date().toLocaleString("pt-BR", {
+            day: "2-digit", month: "2-digit", year: "numeric",
+            hour: "2-digit", minute: "2-digit",
+          }),
+          eventImage: (event as any).img ?? undefined,
           total: 100,
           paymentMethod: "pix",
           tickets: [{ id: "TESTE-IngressoA", name: "Ingresso Teste" }],
