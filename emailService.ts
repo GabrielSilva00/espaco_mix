@@ -2,6 +2,8 @@ import { Resend } from 'resend';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import QRCode from 'qrcode';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 // ─── Templates padrão ────────────────────────────────────────────────────────
 
@@ -104,10 +106,12 @@ const REMINDER_BODY_DEFAULT = `<!DOCTYPE html>
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function processTemplate(template: string, vars: Record<string, string>): string {
-  return Object.entries(vars).reduce(
-    (tpl, [key, value]) => tpl.replaceAll(`{{${key}}}`, value),
-    template
-  );
+  // Resolve placeholders {{nome}} de forma tolerante a caixa e espaços:
+  // {{EVENT_TITLE}}, {{ event_title }} e {{Event_Title}} resolvem igual.
+  // Placeholder desconhecido permanece literal (fallback ?? m).
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(vars)) normalized[key.toLowerCase()] = value;
+  return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, name) => normalized[name.toLowerCase()] ?? m);
 }
 
 function formatDate(dateStr: string): string {
@@ -155,6 +159,69 @@ function buildTicketsHtml(tickets: Array<{ id: string; name: string }>): string 
         <h3 style="color:#d4af37;font-size:15px;text-transform:uppercase;letter-spacing:2px;margin:0 0 16px;text-align:center;">Seus ingressos</h3>
         ${cards}
       </div>`;
+}
+
+// Nome de arquivo seguro (sem acentos/caracteres especiais) para o anexo PDF.
+function slugifyFilename(value: string): string {
+  return value
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'ingresso';
+}
+
+// Gera um PDF (1 página) do ingresso com o QR code embutido, para o comprador
+// baixar/apresentar na portaria. O QR codifica o id do ticket_items (mesmo
+// conteúdo do QR inline do e-mail). Identidade visual: fundo escuro + ouro.
+async function buildTicketPdf(
+  ticket: { id: string; name: string },
+  event: { title: string; date: string; time?: string; location: string },
+): Promise<Buffer> {
+  const qrPng = await QRCode.toBuffer(ticket.id, { width: 600, margin: 1 });
+
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([595.28, 841.89]); // A4 retrato (pt)
+  const { width, height } = page.getSize();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const gold = rgb(0.831, 0.686, 0.216); // #d4af37
+  const white = rgb(1, 1, 1);
+  const gray = rgb(0.6, 0.6, 0.6);
+
+  // Fundo escuro
+  page.drawRectangle({ x: 0, y: 0, width, height, color: rgb(0.04, 0.04, 0.04) });
+
+  const centerText = (text: string, y: number, size: number, f = font, color = white) => {
+    const w = f.widthOfTextAtSize(text, size);
+    page.drawText(text, { x: (width - w) / 2, y, size, font: f, color });
+  };
+
+  centerText('ESPAÇO MIX', height - 70, 12, fontBold, gold);
+  centerText(event.title.slice(0, 60), height - 110, 22, fontBold, white);
+  const dateLine = `${formatDate(event.date)}${event.time ? ` • ${event.time}` : ''}`;
+  centerText(dateLine, height - 138, 12, font, gray);
+  centerText(event.location.slice(0, 70), height - 158, 12, font, gray);
+
+  // Cartão branco com o QR ao centro
+  const cardSize = 320;
+  const cardX = (width - cardSize) / 2;
+  const cardY = height - 158 - 40 - cardSize;
+  page.drawRectangle({ x: cardX, y: cardY, width: cardSize, height: cardSize, color: white });
+  const qrImg = await pdf.embedPng(qrPng);
+  const qrSize = 260;
+  page.drawImage(qrImg, {
+    x: (width - qrSize) / 2,
+    y: cardY + (cardSize - qrSize) / 2,
+    width: qrSize,
+    height: qrSize,
+  });
+
+  centerText(ticket.name.slice(0, 50), cardY - 40, 16, fontBold, gold);
+  centerText(ticket.id, cardY - 62, 9, font, gray);
+  centerText('Apresente este QR code na entrada do evento.', cardY - 100, 11, font, gray);
+
+  const bytes = await pdf.save();
+  return Buffer.from(bytes);
 }
 
 function getAdminClient() {
@@ -254,8 +321,16 @@ export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
  * `replyTo` (opcional) define o endereço de resposta — usado, por exemplo, no
  * formulário de contato para que o atendente responda direto ao visitante.
  */
-export async function sendMail(cfg: ResolvedEmailConfig, to: string, subject: string, html: string, replyTo?: string): Promise<void> {
+export async function sendMail(
+  cfg: ResolvedEmailConfig,
+  to: string,
+  subject: string,
+  html: string,
+  replyTo?: string,
+  attachments?: Array<{ filename: string; content: Buffer }>,
+): Promise<void> {
   const from = `${cfg.senderName} <${cfg.senderAddress}>`;
+  const hasAttachments = !!attachments && attachments.length > 0;
   if (cfg.provider === 'smtp' && cfg.smtp.host) {
     const transporter = nodemailer.createTransport({
       host: cfg.smtp.host,
@@ -263,12 +338,19 @@ export async function sendMail(cfg: ResolvedEmailConfig, to: string, subject: st
       secure: !!cfg.smtp.secure,
       auth: cfg.smtp.user ? { user: cfg.smtp.user, pass: cfg.smtp.password } : undefined,
     });
-    await transporter.sendMail({ from, to, subject, html, replyTo });
+    await transporter.sendMail({
+      from, to, subject, html, replyTo,
+      ...(hasAttachments ? { attachments: attachments!.map(a => ({ filename: a.filename, content: a.content })) } : {}),
+    });
     return;
   }
   if (!cfg.resendApiKey) throw new Error('Provedor de e-mail não configurado.');
   const resend = new Resend(cfg.resendApiKey);
-  const { error } = await resend.emails.send({ from, to, subject, html, ...(replyTo ? { replyTo } : {}) });
+  const { error } = await resend.emails.send({
+    from, to, subject, html,
+    ...(replyTo ? { replyTo } : {}),
+    ...(hasAttachments ? { attachments: attachments!.map(a => ({ filename: a.filename, content: a.content })) } : {}),
+  });
   if (error) throw new Error((error as any).message || 'Falha no envio (Resend).');
 }
 
@@ -421,9 +503,84 @@ export async function sendConfirmationEmail(data: ConfirmationData): Promise<boo
   }
   const html = processTemplate(bodyTemplate, vars);
 
-  await sendMail(email, data.buyerEmail, subject, html);
+  // 1 PDF por ingresso, para o comprador baixar/apresentar na portaria.
+  // Os QRs continuam também no corpo do e-mail (tickets_html).
+  let attachments: Array<{ filename: string; content: Buffer }> | undefined;
+  const tickets = data.tickets ?? [];
+  if (tickets.length > 0) {
+    const evt = {
+      title: data.eventTitle,
+      date: data.eventDate,
+      time: data.eventTime,
+      location: data.eventLocation,
+    };
+    try {
+      attachments = await Promise.all(
+        tickets.map(async t => ({
+          filename: `ingresso-${slugifyFilename(t.name)}-${t.id.slice(0, 8)}.pdf`,
+          content: await buildTicketPdf(t, evt),
+        })),
+      );
+    } catch (err: any) {
+      // Falha ao gerar PDF não deve impedir o e-mail (QR já está no corpo).
+      console.error('[EMAIL] Falha ao gerar PDF do ingresso:', err?.message);
+      attachments = undefined;
+    }
+  }
+
+  await sendMail(email, data.buyerEmail, subject, html, undefined, attachments);
   const masked = data.buyerEmail.replace(/(^.).*(@.*$)/, '$1***$2');
   console.log(`[EMAIL] Confirmação enviada → ${masked}`);
+  return true;
+}
+
+export interface ReminderData {
+  buyerName?: string;
+  buyerEmail: string;
+  eventTitle: string;
+  eventDate: string;
+  eventTime?: string;
+  eventLocation: string;
+  reservationId: string;
+}
+
+// Monta assunto+corpo do lembrete a partir do template (custom ou padrão).
+// Compartilhado pelo cron (sendReminderEmails) e pelo envio avulso/teste.
+function buildReminderContent(
+  config: EmailConfig | null,
+  data: ReminderData,
+): { subject: string; html: string } {
+  const vars: Record<string, string> = {
+    buyer_name: data.buyerName ?? 'Participante',
+    event_title: data.eventTitle,
+    event_date: formatDate(data.eventDate),
+    event_time: data.eventTime ?? 'A confirmar',
+    event_location: data.eventLocation,
+    reservation_id: data.reservationId,
+    total: '',
+  };
+  const subject = processTemplate(config?.email_reminder_subject ?? REMINDER_SUBJECT_DEFAULT, vars);
+  const html = processTemplate(config?.email_reminder_body ?? REMINDER_BODY_DEFAULT, vars);
+  return { subject, html };
+}
+
+/**
+ * Envia um lembrete avulso para um destinatário específico (ex.: e-mail de
+ * teste do painel). Respeita notify_reminder. Retorna false quando pulado.
+ */
+export async function sendReminderEmailTo(data: ReminderData): Promise<boolean> {
+  const config = await loadConfig();
+  if (config?.notify_reminder === false) return false;
+
+  const email = await resolveEmailConfig();
+  if (email.provider === 'resend' && !email.resendApiKey) {
+    throw new Error('Provedor de e-mail não configurado (Resend sem API key e SMTP ausente).');
+  }
+
+  const { subject, html } = buildReminderContent(config, data);
+  await sendMail(email, data.buyerEmail, subject, html);
+  const masked = data.buyerEmail.replace(/(^.).*(@.*$)/, '$1***$2');
+  console.log(`[EMAIL] Lembrete avulso enviado → ${masked}`);
   return true;
 }
 
@@ -473,18 +630,15 @@ export async function sendReminderEmails(): Promise<{ sent: number; errors: numb
     const event = (events as any[]).find((e: any) => e.id === res.event_id);
     if (!event) continue;
 
-    const vars: Record<string, string> = {
-      buyer_name: res.buyer_name ?? 'Participante',
-      event_title: event.title,
-      event_date: formatDate(event.date),
-      event_time: event.time ?? 'A confirmar',
-      event_location: event.location,
-      reservation_id: res.id,
-      total: '',
-    };
-
-    const subject = processTemplate(config?.email_reminder_subject ?? REMINDER_SUBJECT_DEFAULT, vars);
-    const html = processTemplate(config?.email_reminder_body ?? REMINDER_BODY_DEFAULT, vars);
+    const { subject, html } = buildReminderContent(config, {
+      buyerName: res.buyer_name,
+      buyerEmail: res.buyer_email,
+      eventTitle: event.title,
+      eventDate: event.date,
+      eventTime: event.time,
+      eventLocation: event.location,
+      reservationId: res.id,
+    });
 
     try {
       await sendMail(email, res.buyer_email, subject, html);

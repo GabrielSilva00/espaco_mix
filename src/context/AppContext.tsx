@@ -704,6 +704,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // profileNeedsCompletion ANTES dos dados sensíveis (cpf/telefone/nascimento)
   // serem gravados. Enquanto verdadeiro, suprime o modal "Complete seu cadastro".
   const registrationInProgressRef = useRef(false);
+  // Timer do toast atual: limpo a cada novo showToast para que toasts em
+  // sequência não sejam apagados prematuramente pelo timer de um anterior.
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // URL personalizada do evento: captura o slug do path no primeiro carregamento
   // (ex.: domain.com/reveillon-2025) para abrir a página do evento correspondente
   // assim que os eventos carregarem. O roteamento normal usa apenas o hash.
@@ -823,12 +826,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // logins FRESCOS via Google carregam esse marcador — restauração de sessão
     // (reabrir navegador) não tem. Remove sempre para não ficar "preso" quando
     // o login falha e o SIGNED_IN que o removeria nunca dispara.
-    const readAndClearOAuthMarker = (): boolean => {
+    const readAndClearOAuthMarker = (): { fromOAuth: boolean; intent: 'login' | 'signup' } => {
       try {
-        const v = localStorage.getItem('eventix-oauth-login') === '1';
+        const fromOAuth = localStorage.getItem('eventix-oauth-login') === '1';
+        const rawIntent = localStorage.getItem('eventix-oauth-intent');
+        const intent: 'login' | 'signup' = rawIntent === 'login' ? 'login' : 'signup';
         localStorage.removeItem('eventix-oauth-login');
-        return v;
-      } catch { return false; }
+        localStorage.removeItem('eventix-oauth-intent');
+        return { fromOAuth, intent };
+      } catch { return { fromOAuth: false, intent: 'signup' }; }
     };
 
     // Carrega o perfil e aplica ao estado, com retry para falhas transitórias.
@@ -838,7 +844,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Só um erro de RLS confirmado (recursão/política) encerra a sessão.
     const applyProfileToState = async (
       session: Session,
-      opts: { attemptsLeft: number; fromOAuth: boolean },
+      opts: { attemptsLeft: number; fromOAuth: boolean; intent: 'login' | 'signup' },
     ): Promise<void> => {
       const uid = session.user.id;
       try {
@@ -851,6 +857,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           await signOut().catch(() => {});
           showToast('Contas administrativas entram pelo Acesso Master (link no rodapé do site).', 'error');
           return;
+        }
+        // "Entrar com Google" (intent=login) com conta INEXISTENTE: o Supabase
+        // cria a conta automaticamente no 1º acesso — não há "só logar". Se a
+        // conta é recém-criada (agora) e ainda sem dados de cadastro, tratamos
+        // como "conta não existe": removemos a conta e pedimos cadastro. Quem
+        // veio por "Cadastrar" (intent=signup) mantém a conta e completa depois.
+        if (opts.fromOAuth && opts.intent === 'login' && profile) {
+          const createdAtMs = new Date(session.user.created_at).getTime();
+          const isBrandNew = Number.isFinite(createdAtMs) && (Date.now() - createdAtMs < 60_000);
+          if (isBrandNew && profileNeedsCompletion(profile)) {
+            try {
+              const token = session.access_token;
+              await fetch('/api/auth/reject-oauth-signin', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+            } catch { /* best-effort: a conta órfã é removida no servidor */ }
+            await signOut().catch(() => {});
+            showToast('Conta não encontrada. Cadastre-se primeiro para acessar.', 'error');
+            return;
+          }
         }
         if (profile) {
           const r = profile.role as UserRole;
@@ -921,20 +948,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Seta o userId imediatamente a partir do token (previne flash de "deslogado"
           // durante o carregamento do perfil completo).
           setLoggedInUserId(session.user.id);
-          const fromOAuth = readAndClearOAuthMarker();
+          const { fromOAuth, intent } = readAndClearOAuthMarker();
           // Difere para fora do callback: o supabase-js ainda segura o lock de
           // auth durante o INITIAL_SESSION; chamar queries aqui dentro causa
           // deadlock (eventos não carregam, login trava — só "Clear site data"
           // resolvia). O setTimeout(0) libera o lock antes de prosseguir.
-          setTimeout(() => { applyProfileToState(session, { attemptsLeft: 2, fromOAuth }); }, 0);
+          setTimeout(() => { applyProfileToState(session, { attemptsLeft: 2, fromOAuth, intent }); }, 0);
         }
       } else if (event === 'SIGNED_IN') {
         // Login explícito pelo formulário (ou retorno do Google OAuth).
         // Difere para fora do callback (setTimeout 0): evita o mesmo deadlock do
         // lock de auth que o INITIAL_SESSION sofre ao chamar queries aqui dentro.
         if (session?.user) {
-          const fromOAuth = readAndClearOAuthMarker();
-          setTimeout(() => { applyProfileToState(session, { attemptsLeft: 2, fromOAuth }); }, 0);
+          const { fromOAuth, intent } = readAndClearOAuthMarker();
+          setTimeout(() => { applyProfileToState(session, { attemptsLeft: 2, fromOAuth, intent }); }, 0);
         }
       } else if (event === 'SIGNED_OUT') {
         // Limpar token inválido do localStorage (previne loop de refresh_token 400)
@@ -1603,8 +1630,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ─── Handlers ────────────────────────────────────────────────────────────
 
   const showToast = (message: string, type: ToastType = 'info') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setActionToast({ message, type });
-    setTimeout(() => setActionToast(null), 3500);
+    toastTimerRef.current = setTimeout(() => setActionToast(null), 6000);
   };
 
   const saveConsent = (data: ConsentData) => {

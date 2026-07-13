@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
-import { sendConfirmationEmail, sendReminderEmails, sendTestEmail, resolveEmailConfig, sendTransferInvitation, sendContactMessage } from "./emailService.js";
+import { sendConfirmationEmail, sendReminderEmails, sendReminderEmailTo, sendTestEmail, resolveEmailConfig, sendTransferInvitation, sendContactMessage } from "./emailService.js";
 
 dotenv.config();
 
@@ -2010,6 +2010,77 @@ export async function createExpressApp() {
     }
   });
 
+  // ── E-mail de teste de um evento (confirmação/lembrete com dados fictícios) ──
+  // Admin escolhe o evento, o tipo e um destinatário; enviamos com um comprador
+  // fictício ("Usuário Teste"). Não toca em reservas nem em confirmation_email_sent_at.
+  app.post("/api/admin/test-event-email", requireAuth, requireAdmin, async (req, res) => {
+    const { eventId, email, type } = req.body as {
+      eventId?: number;
+      email?: string;
+      type?: "confirmation" | "reminder" | "both";
+    };
+    const target = String(email ?? "").trim().slice(0, 254);
+    const kind = type ?? "both";
+    if (!eventId || typeof eventId !== "number") {
+      res.status(400).json({ error: "Selecione um evento." });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) {
+      res.status(400).json({ error: "E-mail de destino inválido." });
+      return;
+    }
+    if (!["confirmation", "reminder", "both"].includes(kind)) {
+      res.status(400).json({ error: "Tipo de e-mail inválido." });
+      return;
+    }
+    try {
+      const db = await getAdminClient();
+      if (!db) { res.status(503).json({ error: "Serviço indisponível." }); return; }
+      const { data: event } = await db
+        .from("events")
+        .select("id, title, date, time, location")
+        .eq("id", eventId)
+        .single();
+      if (!event) { res.status(404).json({ error: "Evento não encontrado." }); return; }
+
+      const fictitious = {
+        buyerName: "Usuário Teste",
+        buyerEmail: target,
+        eventTitle: (event as any).title,
+        eventDate: (event as any).date,
+        eventTime: (event as any).time ?? undefined,
+        eventLocation: (event as any).location,
+        reservationId: "TESTE-0000",
+      };
+
+      let confirmationSent = true;
+      let reminderSent = true;
+      if (kind === "confirmation" || kind === "both") {
+        confirmationSent = await sendConfirmationEmail({
+          ...fictitious,
+          total: 100,
+          paymentMethod: "pix",
+          tickets: [{ id: "TESTE-IngressoA", name: "Ingresso Teste" }],
+        });
+      }
+      if (kind === "reminder" || kind === "both") {
+        reminderSent = await sendReminderEmailTo(fictitious);
+      }
+
+      const skipped = (!confirmationSent && (kind === "confirmation" || kind === "both"))
+        || (!reminderSent && (kind === "reminder" || kind === "both"));
+      res.json({
+        success: true,
+        message: skipped
+          ? `E-mail de teste enviado para ${target} (algum tipo foi pulado pois as notificações estão desativadas nas configurações).`
+          : `E-mail de teste enviado para ${target}.`,
+      });
+    } catch (e: any) {
+      console.error("[EMAIL] Falha no e-mail de teste do evento:", e?.message ?? e);
+      res.status(500).json({ error: e?.message || "Falha ao enviar e-mail de teste." });
+    }
+  });
+
   // ── Criar reserva (convidado OU logado) ───────────────────────────────────
   // Roteada pelo servidor (service role) porque o cliente anônimo não tem
   // política de RLS para ler de volta a reserva criada (.select()) nem para
@@ -3721,6 +3792,53 @@ export async function createExpressApp() {
     } catch (err: any) {
       console.error("[DELETE] Failed to delete account:", err.message);
       res.status(500).json({ error: "Erro ao excluir conta. Contate o suporte." });
+    }
+  });
+
+  // ── Rejeitar login OAuth de conta inexistente ─────────────────────────────
+  // "Entrar com Google" cria a conta automaticamente no 1º acesso (limitação do
+  // Supabase). Quando o usuário usou o botão ENTRAR (não CADASTRAR) e a conta é
+  // recém-criada + sem dados de cadastro, o front pede a remoção aqui: tratamos
+  // como "conta não existe". Fail-closed: só remove se a conta for realmente
+  // nova (< ~2min) e sem dados — nunca apaga conta legítima/preenchida.
+  app.post("/api/auth/reject-oauth-signin", authLimiter, requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    try {
+      const adminClient = await getAdminClient();
+      if (!adminClient) { res.status(503).json({ error: "Serviço indisponível." }); return; }
+
+      // Revalida server-side: idade da conta e ausência de dados de cadastro.
+      const { data: authUser } = await adminClient.auth.admin.getUserById(user.uid);
+      const createdAt = authUser?.user?.created_at ? new Date(authUser.user.created_at).getTime() : NaN;
+      const isBrandNew = Number.isFinite(createdAt) && (Date.now() - createdAt < 120_000);
+
+      const { data: profile } = await adminClient
+        .from("profiles")
+        .select("role, is_approved_event_creator, cpf, phone, birth_date, passport_doc")
+        .eq("id", user.uid)
+        .maybeSingle();
+
+      // Nunca remove admin/dev/organizador aqui.
+      if (profile && (profile.role === "admin" || profile.role === "developer" || profile.is_approved_event_creator)) {
+        res.status(409).json({ error: "Conta não elegível." });
+        return;
+      }
+      const hasData = !!(profile?.cpf || profile?.phone || profile?.birth_date || profile?.passport_doc);
+
+      if (!isBrandNew || hasData) {
+        // Conta não é nova ou já tem dados: preservar. O front seguirá o fluxo
+        // normal (modal de completar cadastro), sem remover nada.
+        res.status(409).json({ error: "Conta preservada (não elegível para remoção)." });
+        return;
+      }
+
+      const { error } = await adminClient.auth.admin.deleteUser(user.uid);
+      if (error) throw error;
+      console.log(`[AUTH] Conta OAuth órfã removida (login sem cadastro): ${user.uid}`);
+      res.status(200).json({ success: true });
+    } catch (err: any) {
+      console.error("[AUTH] Falha ao remover conta OAuth órfã:", err?.message ?? err);
+      res.status(500).json({ error: "Falha ao processar." });
     }
   });
 

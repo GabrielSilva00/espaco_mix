@@ -394,10 +394,15 @@ export async function signIn(email: string, password: string) {
 
 /** Login/cadastro com Google (OAuth). Requer o provedor Google habilitado no
  *  painel do Supabase (Auth > Providers > Google) com as credenciais OAuth. */
-export async function signInWithGoogle() {
+export async function signInWithGoogle(intent: 'login' | 'signup' = 'signup') {
   // Marcador persistente (sobrevive ao redirect do OAuth): o handler SIGNED_IN
   // usa isso para barrar admin/dev que tentem entrar por fora do Acesso Master.
-  try { localStorage.setItem('eventix-oauth-login', '1'); } catch { /* ignore */ }
+  // O `intent` distingue "Entrar" de "Cadastrar": entrar com conta inexistente
+  // (recém-criada pelo OAuth) é rejeitado e a conta é removida.
+  try {
+    localStorage.setItem('eventix-oauth-login', '1');
+    localStorage.setItem('eventix-oauth-intent', intent);
+  } catch { /* ignore */ }
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo: window.location.origin },
