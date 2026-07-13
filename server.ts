@@ -3666,6 +3666,21 @@ export async function createExpressApp() {
       const { createClient } = await import("@supabase/supabase-js");
       const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
+      // 0. Regra: contas de organizador/admin NÃO se autoexcluem por aqui — isso
+      // evita deixar eventos, ingressos vendidos e repasses sem responsável.
+      // Espelha o bloqueio da UI (DeleteAccountModal) no servidor (fail-closed).
+      const { data: roleRow } = await adminClient
+        .from("profiles")
+        .select("role, is_approved_event_creator")
+        .eq("id", user.uid)
+        .maybeSingle();
+      if (roleRow && (roleRow.role === "admin" || roleRow.role === "developer" || roleRow.is_approved_event_creator)) {
+        res.status(403).json({
+          error: "Contas de organizador/administrador não podem ser excluídas por aqui. Entre em contato com o suporte.",
+        });
+        return;
+      }
+
       // 1. Busca reservas do usuário (necessário para apagar ticket_items)
       const { data: userReservations } = await adminClient
         .from("reservations")
