@@ -512,7 +512,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
                     </div>
                     <button
                       type="button"
-                      onClick={() => signInWithGoogle().catch((e) => setAdminError(e?.message || 'Falha ao entrar com Google'))}
+                      onClick={() => signInWithGoogle('login').catch((e) => setAdminError(e?.message || 'Falha ao entrar com Google'))}
                       className="w-full bg-white text-black py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-neutral-200 transition flex justify-center items-center gap-2"
                     >
                       <GoogleIcon className="w-4 h-4" /> Entrar com Google
@@ -550,7 +550,7 @@ export function AuthView({ portal = false }: { portal?: boolean }) {
                     </div>
                     <button
                       type="button"
-                      onClick={() => signInWithGoogle().catch((e) => setAdminError(e?.message || 'Falha ao cadastrar com Google'))}
+                      onClick={() => signInWithGoogle('signup').catch((e) => setAdminError(e?.message || 'Falha ao cadastrar com Google'))}
                       className="w-full bg-white text-black py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-neutral-200 transition flex justify-center items-center gap-2"
                     >
                       <GoogleIcon className="w-4 h-4" /> Cadastrar com Google

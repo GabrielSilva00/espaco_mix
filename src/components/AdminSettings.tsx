@@ -944,6 +944,10 @@ export function AdminSettings({
                   rows={7}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20 resize-y font-mono"
                 />
+                <p className="text-[11px] text-white/30 mt-2 leading-relaxed">
+                  Variáveis disponíveis (não diferencia maiúsculas de minúsculas):{' '}
+                  <span className="font-mono text-white/50">{'{{buyer_name}}'} {'{{event_title}}'} {'{{event_date}}'} {'{{event_time}}'} {'{{event_location}}'} {'{{reservation_id}}'} {'{{total}}'} {'{{payment_method}}'} {'{{tickets_html}}'}</span> (bloco com os QR codes dos ingressos).
+                </p>
               </div>
             </div>
           </div>
@@ -973,6 +977,10 @@ export function AdminSettings({
                   rows={7}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20 resize-y font-mono"
                 />
+                <p className="text-[11px] text-white/30 mt-2 leading-relaxed">
+                  Variáveis disponíveis (não diferencia maiúsculas de minúsculas):{' '}
+                  <span className="font-mono text-white/50">{'{{buyer_name}}'} {'{{event_title}}'} {'{{event_date}}'} {'{{event_time}}'} {'{{event_location}}'} {'{{reservation_id}}'}</span>.
+                </p>
               </div>
             </div>
           </div>

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import {
   ArrowLeft, Shield, Cookie, BarChart3, Megaphone, Lock,
-  Trash2, Check, AlertTriangle, X, RefreshCw,
+  Trash2, Check,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { supabase } from '../../lib/supabase';
+import { DeleteAccountModal } from './DeleteAccountModal';
 import type { ConsentData } from '../../types';
 
 const CONSENT_VERSION = '2026-05-26';
@@ -56,9 +56,7 @@ const CATEGORIES = [
 export function PrivacySettingsView() {
   const {
     consentData, saveConsent,
-    sessionUser, loggedInUserId,
-    reservations,
-    handleLogout,
+    sessionUser,
     setCurrentView,
     showToast,
   } = useApp();
@@ -70,8 +68,6 @@ export function PrivacySettingsView() {
     marketing: consentData?.marketing ?? false,
   });
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
-  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const handleSaveConsent = () => {
     saveConsent({
@@ -82,43 +78,6 @@ export function PrivacySettingsView() {
     });
     setEditingConsent(false);
     showToast('Preferências de privacidade atualizadas.', 'success');
-  };
-
-  const handleDeleteAccount = async () => {
-    if (deleteConfirmEmail.trim().toLowerCase() !== sessionUser?.email?.toLowerCase()) {
-      showToast('O e-mail informado não corresponde à sua conta.', 'error');
-      return;
-    }
-    setDeletingAccount(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-
-      const response = await fetch('/api/users/me', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || 'Erro ao excluir conta.');
-      }
-
-      // Limpar dados locais
-      localStorage.removeItem('lgpd-consent-v2');
-      localStorage.removeItem('lgpd-consent');
-      localStorage.removeItem('eventix-session');
-      localStorage.removeItem('eventix_developer_config');
-
-      showToast('Conta excluída com sucesso. Até logo!', 'info');
-      await handleLogout();
-    } catch (err: any) {
-      showToast(err.message || 'Erro ao excluir conta. Contate o suporte.', 'error');
-      setDeletingAccount(false);
-    }
   };
 
   const formatDate = (isoString?: string) => {
@@ -260,66 +219,7 @@ export function PrivacySettingsView() {
 
       </motion.div>
 
-      {/* Modal de confirmação de exclusão */}
-      <AnimatePresence>
-        {showDeleteModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-md bg-[#0f0f0f] border border-red-500/30 rounded-3xl p-6 shadow-2xl"
-            >
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
-                    <AlertTriangle className="w-5 h-5 text-red-400" />
-                  </div>
-                  <h3 className="text-base font-bold text-white">Confirmar Exclusão</h3>
-                </div>
-                <button onClick={() => { setShowDeleteModal(false); setDeleteConfirmEmail(''); }} className="text-white/30 hover:text-white/70 transition">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <p className="text-[11px] text-white/60 leading-relaxed mb-5">
-                Para confirmar, digite o e-mail da sua conta:{' '}
-                <strong className="text-white/80">{sessionUser?.email}</strong>
-              </p>
-
-              <input
-                type="email"
-                value={deleteConfirmEmail}
-                onChange={e => setDeleteConfirmEmail(e.target.value)}
-                placeholder="Seu e-mail de acesso"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-red-500/50 outline-none transition mb-4"
-              />
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { setShowDeleteModal(false); setDeleteConfirmEmail(''); }}
-                  className="flex-1 py-3 border border-white/10 text-white/40 rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-white/5 transition"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleDeleteAccount}
-                  disabled={deletingAccount || !deleteConfirmEmail.trim()}
-                  className="flex-1 py-3 bg-red-500/80 hover:bg-red-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest transition disabled:opacity-30 flex items-center justify-center gap-2"
-                >
-                  {deletingAccount ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  {deletingAccount ? 'Excluindo...' : 'Excluir Conta'}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <DeleteAccountModal open={showDeleteModal} onClose={() => setShowDeleteModal(false)} />
     </div>
   );
 }

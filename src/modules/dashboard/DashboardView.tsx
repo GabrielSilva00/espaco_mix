@@ -9,7 +9,7 @@ import {
   Calendar, MapPin, Users, ChevronRight, ChevronDown, Check, X,
   Plus, Minus, AlertCircle, ShieldAlert, ScanLine, Edit2, Activity,
   DollarSign, TrendingUp, Filter, Search, Download, Mail, StopCircle,
-  QrCode, User, ShieldCheck, RefreshCcw,
+  QrCode, User, ShieldCheck, RefreshCcw, Send,
   ArrowLeft, Info, Trash2, UploadCloud, Square, UserCog,
   Link as LinkIcon, BarChart3, Code2, Layers, AlertTriangle, Info as InfoIcon, Trash,
 } from 'lucide-react';
@@ -27,7 +27,7 @@ import { ReportsPanel } from './ReportsPanel';
 import ImageCropModal from './ImageCropModal';
 import { FocusPointPicker } from './FocusPointPicker';
 import { CpfSearch } from './CpfSearch';
-import { uploadEventImage } from '../../lib/supabase';
+import { uploadEventImage, getAccessTokenSafe } from '../../lib/supabase';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { isEventPast } from '../../shared/utils/eventMapper';
 import type { Event, Buyer, Reservation } from '../../types';
@@ -462,6 +462,43 @@ export function DashboardView() {
 
   const [eventFilter, setEventFilter] = React.useState<'upcoming' | 'past'>('upcoming');
   const [cropModalOpen, setCropModalOpen] = React.useState(false);
+
+  // ── E-mail de teste (painel do evento) ──────────────────────────────────
+  const [isTestEmailModalOpen, setIsTestEmailModalOpen] = React.useState(false);
+  const [testEmailTarget, setTestEmailTarget] = React.useState('');
+  const [testEmailType, setTestEmailType] = React.useState<'confirmation' | 'reminder' | 'both'>('confirmation');
+  const [testEmailEventId, setTestEmailEventId] = React.useState<number | null>(null);
+  const [testEmailSending, setTestEmailSending] = React.useState(false);
+
+  const openTestEmailModal = () => {
+    setTestEmailEventId(selectedDashboardEvent ?? (events[0]?.id ?? null));
+    setTestEmailTarget(sessionUser?.email ?? '');
+    setTestEmailType('confirmation');
+    setIsTestEmailModalOpen(true);
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!testEmailEventId) { showToast('Selecione um evento.', 'error'); return; }
+    const target = testEmailTarget.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) { showToast('Informe um e-mail de destino válido.', 'error'); return; }
+    setTestEmailSending(true);
+    try {
+      const token = await getAccessTokenSafe();
+      const resp = await fetch('/api/admin/test-event-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ eventId: testEmailEventId, email: target, type: testEmailType }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.error || 'Falha ao enviar e-mail de teste.');
+      showToast(data?.message || 'E-mail de teste enviado.', 'success');
+      setIsTestEmailModalOpen(false);
+    } catch (err: any) {
+      showToast(err?.message || 'Falha ao enviar e-mail de teste.', 'error');
+    } finally {
+      setTestEmailSending(false);
+    }
+  };
 
   // Recorte 16:9: gera o blob, sobe pro Storage e atualiza a imagem do evento em edição.
   const handleCropConfirm = async (blob: Blob) => {
@@ -1272,6 +1309,12 @@ export function DashboardView() {
                            <Mail className="w-4 h-4 opacity-50 group-hover:opacity-100 group-hover:text-blue-400 transition" />
                          </div>
                          <span className="text-[9px] uppercase tracking-widest font-bold opacity-70 text-center">Aviso a todos</span>
+                       </button>
+                       <button onClick={openTestEmailModal} className="col-span-2 bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-center gap-3 hover:bg-white/10 transition group">
+                         <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                           <Send className="w-4 h-4 opacity-50 group-hover:opacity-100 group-hover:text-[#d4af37] transition" />
+                         </div>
+                         <span className="text-[10px] uppercase tracking-widest font-bold opacity-70 text-center">E-mail de teste</span>
                        </button>
                        <button onClick={async () => {
                          const currentEvt = events.find(e => e.id === selectedDashboardEvent);
@@ -2804,6 +2847,97 @@ export function DashboardView() {
             ) : null}
             </>
           )}
+
+          {/* Modal: E-mail de teste (confirmação/lembrete com dados fictícios) */}
+          <AnimatePresence>
+            {isTestEmailModalOpen && (
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+                onClick={() => !testEmailSending && setIsTestEmailModalOpen(false)}
+              >
+                <motion.div
+                  initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+                  className="w-full max-w-md bg-[#0d0d0d] border border-white/10 rounded-3xl p-6 md:p-8"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-serif text-white">E-mail de teste</h3>
+                    <button onClick={() => !testEmailSending && setIsTestEmailModalOpen(false)} className="text-white/40 hover:text-white transition">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <p className="text-[12px] text-white/40 mb-5 leading-relaxed">
+                    Envia um e-mail com dados fictícios (<span className="text-white/60">Usuário Teste</span>) usando os dados reais do evento selecionado.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Evento</label>
+                      <select
+                        value={testEmailEventId ?? ''}
+                        onChange={e => setTestEmailEventId(Number(e.target.value))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition"
+                      >
+                        <option value="" disabled>Selecione um evento</option>
+                        {events.map(ev => (
+                          <option key={ev.id} value={ev.id} className="bg-[#0d0d0d]">{ev.title}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">E-mail de destino</label>
+                      <input
+                        type="email"
+                        value={testEmailTarget}
+                        onChange={e => setTestEmailTarget(e.target.value)}
+                        placeholder="destino@email.com"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] uppercase opacity-40 mb-2 font-bold tracking-[0.2em]">Tipo de e-mail</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {([
+                          { key: 'confirmation', label: 'Confirmação' },
+                          { key: 'reminder', label: 'Lembrete' },
+                          { key: 'both', label: 'Ambos' },
+                        ] as const).map(opt => (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() => setTestEmailType(opt.key)}
+                            className={`rounded-xl px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider transition border ${testEmailType === opt.key ? 'bg-[#d4af37] text-black border-[#d4af37]' : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'}`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 mt-7">
+                    <button
+                      onClick={() => setIsTestEmailModalOpen(false)}
+                      disabled={testEmailSending}
+                      className="flex-1 rounded-xl px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-white/60 border border-white/10 hover:bg-white/5 transition disabled:opacity-40"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleSendTestEmail}
+                      disabled={testEmailSending}
+                      className="flex-1 rounded-xl px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-black bg-[#d4af37] hover:bg-[#e5c456] transition disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {testEmailSending ? 'Enviando...' : (<><Send className="w-3.5 h-3.5" /> Enviar</>)}
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
   );
 }

@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { User, AtSign, Edit2, Save, X, Camera, Phone, FileText, Calendar, Mail, ShieldCheck, Shield } from 'lucide-react';
+import { User, AtSign, Edit2, Save, X, Camera, Phone, FileText, Calendar, Mail, ShieldCheck, Shield, Trash2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { updateProfile, getMyFullProfile, isUsernameAvailable } from '../../lib/supabase';
 import { supabase } from '../../lib/supabase';
+import { DeleteAccountModal } from './DeleteAccountModal';
 
 export function ProfileView() {
   const { sessionUser, setSessionUser, loggedInUserId, userRole, setCurrentView, showToast } = useApp();
@@ -11,6 +12,7 @@ export function ProfileView() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const avatarRef = useRef<HTMLInputElement>(null);
 
   // Dados atuais carregados do banco (cpf/phone/birth_date descriptografados)
@@ -284,6 +286,23 @@ export function ProfileView() {
             </button>
           </div>
 
+          {/* Excluir conta */}
+          <div className="mt-4">
+            <button
+              onClick={() => setShowDeleteAccount(true)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-red-500/20 bg-red-500/[0.03] hover:bg-red-500/[0.06] transition group"
+            >
+              <div className="flex items-center gap-3">
+                <Trash2 className="w-4 h-4 text-red-400/60 group-hover:text-red-400 transition" />
+                <div className="text-left">
+                  <p className="text-[11px] font-bold text-white/70 group-hover:text-white transition">Excluir minha conta</p>
+                  <p className="text-[10px] text-white/30">Remove sua conta e dados de perfil — ação irreversível</p>
+                </div>
+              </div>
+              <span className="text-red-400/40 group-hover:text-red-400 transition text-lg leading-none">›</span>
+            </button>
+          </div>
+
           {/* Voltar */}
           <button
             onClick={() => setCurrentView('home')}
@@ -293,6 +312,8 @@ export function ProfileView() {
           </button>
         </div>
       </motion.div>
+
+      <DeleteAccountModal open={showDeleteAccount} onClose={() => setShowDeleteAccount(false)} />
     </div>
   );
 }

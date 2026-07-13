@@ -25,6 +25,7 @@ import type {
 import { loadDeveloperConfig, saveDeveloperConfig } from '../services/developerConfig';
 import type { DeveloperConfig } from '../types/developer';
 import { isInStandaloneMode as isStandaloneMode } from '../components/InstallPrompt';
+import type { Session } from '@supabase/supabase-js';
 import Lenis from 'lenis';
 
 // 'in_review': cartão aceito pelo MP mas ainda em análise — os ingressos só
@@ -703,6 +704,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // profileNeedsCompletion ANTES dos dados sensíveis (cpf/telefone/nascimento)
   // serem gravados. Enquanto verdadeiro, suprime o modal "Complete seu cadastro".
   const registrationInProgressRef = useRef(false);
+  // Timer do toast atual: limpo a cada novo showToast para que toasts em
+  // sequência não sejam apagados prematuramente pelo timer de um anterior.
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // URL personalizada do evento: captura o slug do path no primeiro carregamento
   // (ex.: domain.com/reveillon-2025) para abrir a página do evento correspondente
   // assim que os eventos carregarem. O roteamento normal usa apenas o hash.
@@ -818,137 +822,146 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Gerencia sessão do Supabase: admin/developer jamais são auto-logados ao abrir a página
   useEffect(() => {
+    // Lê e consome o marcador do OAuth (setado antes do redirect do Google). Só
+    // logins FRESCOS via Google carregam esse marcador — restauração de sessão
+    // (reabrir navegador) não tem. Remove sempre para não ficar "preso" quando
+    // o login falha e o SIGNED_IN que o removeria nunca dispara.
+    const readAndClearOAuthMarker = (): { fromOAuth: boolean; intent: 'login' | 'signup' } => {
+      try {
+        const fromOAuth = localStorage.getItem('eventix-oauth-login') === '1';
+        const rawIntent = localStorage.getItem('eventix-oauth-intent');
+        const intent: 'login' | 'signup' = rawIntent === 'login' ? 'login' : 'signup';
+        localStorage.removeItem('eventix-oauth-login');
+        localStorage.removeItem('eventix-oauth-intent');
+        return { fromOAuth, intent };
+      } catch { return { fromOAuth: false, intent: 'signup' }; }
+    };
+
+    // Carrega o perfil e aplica ao estado, com retry para falhas transitórias.
+    // Compartilhado por INITIAL_SESSION (restauração) e SIGNED_IN (login fresco)
+    // para não divergir. IMPORTANTE: uma falha transitória (rede/RLS temporário)
+    // NUNCA desloga o usuário — mantém a sessão e apenas não popula o perfil.
+    // Só um erro de RLS confirmado (recursão/política) encerra a sessão.
+    const applyProfileToState = async (
+      session: Session,
+      opts: { attemptsLeft: number; fromOAuth: boolean; intent: 'login' | 'signup' },
+    ): Promise<void> => {
+      const uid = session.user.id;
+      try {
+        const profile = await getMyProfile(uid);
+        // Acesso de admin/dev SÓ é permitido pelo Acesso Master (portal). O
+        // único caminho fresco que escapa é o Google OAuth, sinalizado pelo
+        // marcador. Barra tanto no login (SIGNED_IN) quanto quando o retorno
+        // do OAuth chega como INITIAL_SESSION (depende do timing do exchange).
+        if (opts.fromOAuth && profile && (profile.role === 'admin' || profile.role === 'developer')) {
+          await signOut().catch(() => {});
+          showToast('Contas administrativas entram pelo Acesso Master (link no rodapé do site).', 'error');
+          return;
+        }
+        // "Entrar com Google" (intent=login) com conta INEXISTENTE: o Supabase
+        // cria a conta automaticamente no 1º acesso — não há "só logar". Se a
+        // conta é recém-criada (agora) e ainda sem dados de cadastro, tratamos
+        // como "conta não existe": removemos a conta e pedimos cadastro. Quem
+        // veio por "Cadastrar" (intent=signup) mantém a conta e completa depois.
+        if (opts.fromOAuth && opts.intent === 'login' && profile) {
+          const createdAtMs = new Date(session.user.created_at).getTime();
+          const isBrandNew = Number.isFinite(createdAtMs) && (Date.now() - createdAtMs < 60_000);
+          if (isBrandNew && profileNeedsCompletion(profile)) {
+            try {
+              const token = session.access_token;
+              await fetch('/api/auth/reject-oauth-signin', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+            } catch { /* best-effort: a conta órfã é removida no servidor */ }
+            await signOut().catch(() => {});
+            showToast('Conta não encontrada. Cadastre-se primeiro para acessar.', 'error');
+            return;
+          }
+        }
+        if (profile) {
+          const r = profile.role as UserRole;
+          // Login via Google não popula avatar: aproveita a foto do Google
+          // (user_metadata.picture/avatar_url) na 1ª vez, se ainda não houver.
+          let avatarUrl = profile.avatar_url;
+          if (!avatarUrl) {
+            const meta: any = session.user.user_metadata || {};
+            const googlePic = meta.avatar_url || meta.picture;
+            if (googlePic) {
+              avatarUrl = googlePic;
+              updateProfile(profile.id, { avatar_url: googlePic }).catch(() => { /* best-effort */ });
+            }
+          }
+          setUserRole(r);
+          setLoggedInUserId(profile.id);
+          setIsApprovedEventCreator(profile.is_approved_event_creator);
+          setSessionUser({
+            id: profile.id,
+            email: profile.email,
+            name: profile.name,
+            role: r,
+            isApprovedEventCreator: profile.is_approved_event_creator,
+            avatarUrl,
+          });
+          // Durante o cadastro por OTP, os dados sensíveis ainda não foram
+          // gravados quando este callback roda — não exibir "Complete seu
+          // cadastro" (o próprio handleVerifyCode reavalia ao final).
+          setNeedsProfileCompletion(registrationInProgressRef.current ? false : profileNeedsCompletion(profile));
+          setNeedsCodeVerification(needsLoginCode(profile, session.user));
+          // Rebusca eventos com o contexto de auth do usuário logado
+          getEvents()
+            .then(data => setEvents(data.map(mapDbEventToApp)))
+            .catch(e => console.error('[Context] Erro ao buscar eventos:', (e as Error)?.message))
+            .finally(() => setLoadingEvents(false));
+        }
+      } catch (err) {
+        const errMsg = String(err).toLowerCase();
+        const isRlsError = errMsg.includes('infinite recursion') || errMsg.includes('policies');
+        if (opts.attemptsLeft > 0 && !isRlsError) {
+          // Retry após 300ms para erros transitórios de rede/banco — não desloga.
+          await new Promise(r => setTimeout(r, 300));
+          return applyProfileToState(session, { ...opts, attemptsLeft: opts.attemptsLeft - 1 });
+        }
+        if (isRlsError) {
+          console.error('[Context] Erro de RLS ao carregar perfil:', err);
+          showToast('Não foi possível restaurar sua sessão (erro de permissão no banco). Faça login novamente.', 'error');
+          // Limpar sessão corrompida somente em caso de erro de RLS confirmado.
+          try {
+            ['eventix-auth-v2', 'eventix-auth'].forEach(k => localStorage.removeItem(k));
+            Object.keys(localStorage)
+              .filter(k => k.startsWith('sb-') || k.includes('supabase'))
+              .forEach(k => localStorage.removeItem(k));
+            sessionStorage.clear();
+          } catch {}
+          return;
+        }
+        // Erro genérico/transitório após esgotar as tentativas: mantém a sessão
+        // (userId já setado) — NÃO chamar signOut(). Era isso que derrubava um
+        // usuário recém-logado via Google e o mandava de volta à home.
+        console.error('[Context] Erro ao carregar perfil após login/sessão:', err);
+      }
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') {
         if (session?.user) {
           // Seta o userId imediatamente a partir do token (previne flash de "deslogado"
           // durante o carregamento do perfil completo).
-          const uid = session.user.id;
-          setLoggedInUserId(uid);
-
-          // Carrega o perfil com retry — falha temporária não desloga o usuário.
-          const loadProfile = async (attemptsLeft: number): Promise<void> => {
-            try {
-              const profile = await getMyProfile(uid);
-              if (profile) {
-                const r = profile.role as UserRole;
-                setUserRole(r);
-                setLoggedInUserId(profile.id);
-                setIsApprovedEventCreator(profile.is_approved_event_creator);
-                setSessionUser({
-                  id: profile.id,
-                  email: profile.email,
-                  name: profile.name,
-                  role: r,
-                  isApprovedEventCreator: profile.is_approved_event_creator,
-                  avatarUrl: profile.avatar_url,
-                });
-                setNeedsProfileCompletion(profileNeedsCompletion(profile));
-                setNeedsCodeVerification(needsLoginCode(profile, session.user));
-                // Rebusca eventos com sessão restaurada (subscribeToEvents pode ter rodado sem auth)
-                getEvents()
-                  .then(data => setEvents(data.map(mapDbEventToApp)))
-                  .catch(e => console.error('[Context] Erro ao buscar eventos (INITIAL_SESSION):', (e as Error)?.message))
-                  .finally(() => setLoadingEvents(false));
-              }
-            } catch (err) {
-              const errMsg = String(err).toLowerCase();
-              if (attemptsLeft > 0 && !errMsg.includes('infinite recursion') && !errMsg.includes('policies')) {
-                // Retry após 300ms para erros transitórios de rede/banco.
-                await new Promise(r => setTimeout(r, 300));
-                return loadProfile(attemptsLeft - 1);
-              }
-              console.error('[Context] Erro ao verificar sessão inicial:', err);
-              if (errMsg.includes('infinite recursion') || errMsg.includes('policies')) {
-                console.error('[Context] Erro de RLS ao restaurar a sessão:', err);
-                showToast('Não foi possível restaurar sua sessão (erro de permissão no banco). Faça login novamente.', 'error');
-                // Limpar sessão corrompida somente em caso de erro de RLS confirmado.
-                try {
-                  ['eventix-auth-v2', 'eventix-auth'].forEach(k => localStorage.removeItem(k));
-                  Object.keys(localStorage)
-                    .filter(k => k.startsWith('sb-') || k.includes('supabase'))
-                    .forEach(k => localStorage.removeItem(k));
-                  sessionStorage.clear();
-                } catch {}
-              }
-              // Mantém userId setado acima — usuário está autenticado mesmo sem perfil carregado.
-            }
-          };
+          setLoggedInUserId(session.user.id);
+          const { fromOAuth, intent } = readAndClearOAuthMarker();
           // Difere para fora do callback: o supabase-js ainda segura o lock de
           // auth durante o INITIAL_SESSION; chamar queries aqui dentro causa
           // deadlock (eventos não carregam, login trava — só "Clear site data"
           // resolvia). O setTimeout(0) libera o lock antes de prosseguir.
-          setTimeout(() => { loadProfile(2); }, 0);
+          setTimeout(() => { applyProfileToState(session, { attemptsLeft: 2, fromOAuth, intent }); }, 0);
         }
       } else if (event === 'SIGNED_IN') {
-        // Login explícito pelo formulário — atualiza estado normalmente.
+        // Login explícito pelo formulário (ou retorno do Google OAuth).
         // Difere para fora do callback (setTimeout 0): evita o mesmo deadlock do
         // lock de auth que o INITIAL_SESSION sofre ao chamar queries aqui dentro.
         if (session?.user) {
-          const uid = session.user.id;
-          setTimeout(async () => {
-          try {
-            const profile = await getMyProfile(uid);
-            // Acesso de admin/dev SÓ é permitido pelo Acesso Master (portal). O
-            // login pelo formulário público já é barrado em handleAdminLogin; o
-            // único caminho fresco que escapa é o Google OAuth, sinalizado pelo
-            // marcador persistente 'eventix-oauth-login' (setado antes do
-            // redirect). Restauração de sessão (reabrir navegador) NÃO tem esse
-            // marcador, então não desloga o admin.
-            const fromOAuth = (() => { try { return localStorage.getItem('eventix-oauth-login') === '1'; } catch { return false; } })();
-            try { localStorage.removeItem('eventix-oauth-login'); } catch { /* ignore */ }
-            if (profile && (profile.role === 'admin' || profile.role === 'developer') && fromOAuth) {
-              await signOut().catch(() => {});
-              showToast('Contas administrativas entram pelo Acesso Master (link no rodapé do site).', 'error');
-              return;
-            }
-            if (profile) {
-              const r = profile.role as UserRole;
-              // Login via Google não popula avatar: aproveita a foto do Google
-              // (user_metadata.picture/avatar_url) na 1ª vez, se ainda não houver.
-              let avatarUrl = profile.avatar_url;
-              if (!avatarUrl) {
-                const meta: any = session.user.user_metadata || {};
-                const googlePic = meta.avatar_url || meta.picture;
-                if (googlePic) {
-                  avatarUrl = googlePic;
-                  updateProfile(profile.id, { avatar_url: googlePic }).catch(() => { /* best-effort */ });
-                }
-              }
-              setUserRole(r);
-              setLoggedInUserId(profile.id);
-              setIsApprovedEventCreator(profile.is_approved_event_creator);
-              setSessionUser({
-                id: profile.id,
-                email: profile.email,
-                name: profile.name,
-                role: r,
-                isApprovedEventCreator: profile.is_approved_event_creator,
-                avatarUrl,
-              });
-              // Durante o cadastro por OTP, os dados sensíveis ainda não foram
-              // gravados quando este callback roda — não exibir "Complete seu
-              // cadastro" (o próprio handleVerifyCode reavalia ao final).
-              setNeedsProfileCompletion(registrationInProgressRef.current ? false : profileNeedsCompletion(profile));
-              setNeedsCodeVerification(needsLoginCode(profile, session.user));
-              // Rebusca eventos com o contexto de auth do usuário logado
-              getEvents()
-                .then(data => setEvents(data.map(mapDbEventToApp)))
-                .catch(e => console.error('[Context] Erro ao buscar eventos:', (e as Error)?.message))
-                .finally(() => setLoadingEvents(false));
-            }
-          } catch (err) {
-            const errMsg = String(err).toLowerCase();
-            if (errMsg.includes('infinite recursion') || errMsg.includes('policies')) {
-              console.error('[Context] Erro ao carregar perfil: problema com configuração do banco de dados');
-            } else {
-              console.error('[Context] Erro ao carregar perfil após login:', err);
-            }
-            try {
-              await signOut();
-            } catch {}
-          }
-          }, 0);
+          const { fromOAuth, intent } = readAndClearOAuthMarker();
+          setTimeout(() => { applyProfileToState(session, { attemptsLeft: 2, fromOAuth, intent }); }, 0);
         }
       } else if (event === 'SIGNED_OUT') {
         // Limpar token inválido do localStorage (previne loop de refresh_token 400)
@@ -975,6 +988,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // ─── Falha de login social (OAuth) devolvida na URL ───────────────────────
+  // Quando o login com Google falha, o Supabase redireciona de volta com os
+  // parâmetros de erro na URL (?error=...&error_description=... ou no #hash).
+  // Caso mais comum: o e-mail já tem conta criada por senha e o GoTrue não
+  // vincula a identidade Google automaticamente → server_error / "User not
+  // found". Sem tratamento, o usuário só via o erro cru na barra de endereço.
+  // Mostra uma mensagem clara, limpa a URL e o marcador de OAuth que fica preso.
+  useEffect(() => {
+    try {
+      const readParams = (raw: string) =>
+        new URLSearchParams(raw.startsWith('#') || raw.startsWith('?') ? raw.slice(1) : raw);
+      const search = readParams(window.location.search);
+      const hash = readParams(window.location.hash);
+      const errCode = search.get('error') || hash.get('error');
+      if (!errCode) return;
+      const errDesc = (search.get('error_description') || hash.get('error_description') || '').toLowerCase();
+
+      // O marcador do OAuth fica preso quando o login falha (o SIGNED_IN que o
+      // removeria nunca dispara) — limpa para não afetar um login futuro.
+      try { localStorage.removeItem('eventix-oauth-login'); } catch { /* ignore */ }
+
+      let msg = 'Não foi possível entrar com o Google. Tente novamente ou use e-mail e senha.';
+      if (errDesc.includes('database error')) {
+        // "Database error saving new user" = falha ao CRIAR o usuário (ex.: registro
+        // órfão em auth.identities), não conflito de conta. Não sugerir senha aqui.
+        msg = 'Não foi possível concluir o cadastro com o Google agora. Tente novamente; se o problema persistir, entre em contato com o suporte.';
+      } else if (errDesc.includes('user not found')) {
+        msg = 'Este e-mail já possui uma conta criada com e-mail e senha. Entre com sua senha para acessar.';
+      } else if (errCode === 'access_denied') {
+        msg = 'Login com Google cancelado.';
+      } else if (errCode === 'server_error') {
+        msg = 'Não foi possível entrar com o Google agora. Se você já tem uma conta, entre com e-mail e senha.';
+      }
+      showToast(msg, 'error');
+
+      // Remove só os parâmetros de erro, preservando o resto da URL. O #hash do
+      // app é uma rota simples (ex.: #eventos), não um query string — por isso
+      // só reprocessamos (via URLSearchParams) a parte que de fato continha o
+      // erro; a outra é mantida crua para não corromper a rota.
+      try {
+        const strip = (p: URLSearchParams) => {
+          ['error', 'error_code', 'error_description', 'provider'].forEach(k => p.delete(k));
+          return p.toString();
+        };
+        const rawSearch = window.location.search.replace(/^\?/, '');
+        const rawHash = window.location.hash.replace(/^#/, '');
+        const newSearch = /(^|&)error=/.test(rawSearch) ? strip(search) : rawSearch;
+        const newHash = /(^|&)error=/.test(rawHash) ? strip(hash) : rawHash;
+        window.history.replaceState({}, document.title, window.location.pathname + (newSearch ? '?' + newSearch : '') + (newHash ? '#' + newHash : ''));
+      } catch { /* ignore */ }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── Browser/PWA back button ─────────────────────────────────────────────
@@ -1563,8 +1630,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ─── Handlers ────────────────────────────────────────────────────────────
 
   const showToast = (message: string, type: ToastType = 'info') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setActionToast({ message, type });
-    setTimeout(() => setActionToast(null), 3500);
+    toastTimerRef.current = setTimeout(() => setActionToast(null), 6000);
   };
 
   const saveConsent = (data: ConsentData) => {
