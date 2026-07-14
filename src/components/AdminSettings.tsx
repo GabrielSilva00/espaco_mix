@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Settings, Save, Check, Filter,
-  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, RefreshCcw, CreditCard, Mail, Loader2, Send
+  Shield, Calendar, Ticket, Repeat, XCircle, Bell, BarChart2, Info, Building2, RefreshCcw, CreditCard, Mail, Loader2
 } from 'lucide-react';
-import { getSystemConfigAdmin, updateSystemConfig, updateMyCredentials, getMyFullProfile, updateProfile, logAudit, getAccessTokenSafe } from '../lib/supabase';
+import { getSystemConfigAdmin, updateSystemConfig, updateMyCredentials, getMyFullProfile, updateProfile, logAudit } from '../lib/supabase';
 import { User, Phone, FileText } from 'lucide-react';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { MercadoPagoSettings } from './MercadoPagoSettings';
@@ -27,29 +27,6 @@ export function AdminSettings({
   const [credForm, setCredForm] = useState({ username: '', password: '', confirmPassword: '' });
   const [credStatus, setCredStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [credError, setCredError] = useState('');
-
-  // ── Teste do e-mail de confirmação (novo template) ───────────────────────
-  const [testEmailTo, setTestEmailTo] = useState('');
-  const [testEmailStatus, setTestEmailStatus] = useState<'idle' | 'sending' | 'ok' | 'err'>('idle');
-  const [testEmailMsg, setTestEmailMsg] = useState('');
-
-  const sendTestConfirmation = async () => {
-    setTestEmailStatus('sending'); setTestEmailMsg('');
-    try {
-      const token = await getAccessTokenSafe();
-      const res = await fetch('/api/admin/test-confirmation-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ to: testEmailTo.trim() || undefined }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Falha ao enviar e-mail de teste.');
-      setTestEmailStatus('ok'); setTestEmailMsg(data.message || 'E-mail de teste enviado!');
-    } catch (err) {
-      setTestEmailStatus('err'); setTestEmailMsg((err as Error)?.message || 'Falha ao enviar e-mail de teste.');
-    }
-    setTimeout(() => setTestEmailStatus('idle'), 8000);
-  };
 
   // ── Meus Dados (perfil do admin) ─────────────────────────────────────────
   const [myProfile, setMyProfile] = useState<{ id: string; email: string; username?: string } | null>(null);
@@ -957,32 +934,10 @@ export function AdminSettings({
                 />
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-                <p className="text-[11px] text-white/50 leading-relaxed mb-3">
+                <p className="text-[11px] text-white/50 leading-relaxed">
                   O corpo deste e-mail usa o <span className="text-[#d4af37] font-semibold">template padrão de ingresso</span> do Espaço Mix
                   (cabeçalho, detalhes da compra, dados do comprador, QR codes e informações importantes) e não é editável por aqui.
-                  Use o botão abaixo para receber um e-mail de teste e conferir o layout.
                 </p>
-                <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-                  <input
-                    type="email"
-                    value={testEmailTo}
-                    onChange={e => setTestEmailTo(e.target.value)}
-                    placeholder="E-mail de destino (vazio = seu e-mail)"
-                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#d4af37]/50 transition placeholder:text-white/20"
-                  />
-                  <button
-                    type="button"
-                    onClick={sendTestConfirmation}
-                    disabled={testEmailStatus === 'sending'}
-                    className="px-5 py-2.5 rounded-xl bg-[#d4af37] text-black text-[10px] uppercase tracking-widest font-bold flex items-center justify-center gap-2 hover:brightness-110 disabled:opacity-50 whitespace-nowrap"
-                  >
-                    {testEmailStatus === 'sending' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                    Enviar e-mail de teste
-                  </button>
-                </div>
-                {testEmailMsg && (
-                  <p className={`text-[11px] mt-2 ${testEmailStatus === 'ok' ? 'text-green-400' : testEmailStatus === 'err' ? 'text-red-400' : 'text-white/50'}`}>{testEmailMsg}</p>
-                )}
               </div>
             </div>
           </div>
