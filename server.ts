@@ -570,7 +570,7 @@ async function sendReservationConfirmation(
   try {
     const { data: reservation, error } = await admin
       .from("reservations")
-      .select("id, buyer_name, buyer_email, total, payment_method, payment_status, event_id, ticket_items(id, name, status)")
+      .select("id, buyer_name, buyer_email, buyer_cpf, created_at, total, payment_method, payment_status, event_id, ticket_items(id, name, status)")
       .eq("id", reservationId)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -586,7 +586,7 @@ async function sendReservationConfirmation(
 
     const { data: event } = await admin
       .from("events")
-      .select("title, date, time, location")
+      .select("title, date, time, location, img")
       .eq("id", reservation.event_id)
       .maybeSingle();
 
@@ -594,14 +594,24 @@ async function sendReservationConfirmation(
       .filter((t: any) => t.status !== "cancelled")
       .map((t: any) => ({ id: String(t.id), name: String(t.name ?? "Ingresso") }));
 
+    const purchaseDate = reservation.created_at
+      ? new Date(reservation.created_at).toLocaleString("pt-BR", {
+          day: "2-digit", month: "2-digit", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        })
+      : undefined;
+
     const sent = await sendConfirmationEmail({
       buyerName: reservation.buyer_name ?? "Cliente",
       buyerEmail: reservation.buyer_email,
+      buyerDocument: reservation.buyer_cpf ? maskCpf(reservation.buyer_cpf) : undefined,
+      purchaseDate,
       reservationId: reservation.id,
       eventTitle: event?.title ?? "Evento",
       eventDate: event?.date ?? "",
       eventTime: event?.time ?? undefined,
       eventLocation: event?.location ?? "",
+      eventImage: (event as any)?.img ?? undefined,
       total: Number(reservation.total ?? 0),
       paymentMethod: reservation.payment_method ?? "pix",
       tickets,
@@ -2010,6 +2020,48 @@ export async function createExpressApp() {
     }
   });
 
+  // ── E-mail de teste da CONFIRMAÇÃO de compra (novo template de e-ticket) ──
+  // Envia o template de confirmação com dados fictícios, sem depender de um
+  // evento ou reserva reais — para o dono conferir o layout pela página de
+  // Configurações. Não grava nada no banco.
+  app.post("/api/admin/test-confirmation-email", requireAuth, requireAdmin, async (req, res) => {
+    const { to } = req.body as { to?: string };
+    const user = (req as any).user;
+    const target = ((to && to.trim()) || user?.email || "").slice(0, 254);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) {
+      res.status(400).json({ error: "Informe um e-mail de destino válido." });
+      return;
+    }
+    try {
+      const sent = await sendConfirmationEmail({
+        buyerName: "Usuário Teste",
+        buyerEmail: target,
+        buyerDocument: maskCpf("12345678909"),
+        purchaseDate: new Date().toLocaleString("pt-BR", {
+          day: "2-digit", month: "2-digit", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        }),
+        reservationId: "TESTE-0000",
+        eventTitle: "Evento de Demonstração",
+        eventDate: new Date().toISOString().slice(0, 10),
+        eventTime: "20:00",
+        eventLocation: "Espaço Mix",
+        total: 100,
+        paymentMethod: "pix",
+        tickets: [{ id: "TESTE-INGRESSO-A", name: "Ingresso Teste" }],
+      });
+      res.json({
+        success: true,
+        message: sent
+          ? `E-mail de teste de confirmação enviado para ${target}.`
+          : `Envio pulado: a notificação de compra está desativada nas configurações.`,
+      });
+    } catch (e: any) {
+      console.error("[EMAIL] Falha no teste de confirmação:", e?.message ?? e);
+      res.status(500).json({ error: e?.message || "Falha ao enviar e-mail de teste." });
+    }
+  });
+
   // ── E-mail de teste de um evento (confirmação/lembrete com dados fictícios) ──
   // Admin escolhe o evento, o tipo e um destinatário; enviamos com um comprador
   // fictício ("Usuário Teste"). Não toca em reservas nem em confirmation_email_sent_at.
@@ -2038,7 +2090,7 @@ export async function createExpressApp() {
       if (!db) { res.status(503).json({ error: "Serviço indisponível." }); return; }
       const { data: event } = await db
         .from("events")
-        .select("id, title, date, time, location")
+        .select("id, title, date, time, location, img")
         .eq("id", eventId)
         .single();
       if (!event) { res.status(404).json({ error: "Evento não encontrado." }); return; }
@@ -2058,6 +2110,12 @@ export async function createExpressApp() {
       if (kind === "confirmation" || kind === "both") {
         confirmationSent = await sendConfirmationEmail({
           ...fictitious,
+          buyerDocument: maskCpf("12345678909"),
+          purchaseDate: new Date().toLocaleString("pt-BR", {
+            day: "2-digit", month: "2-digit", year: "numeric",
+            hour: "2-digit", minute: "2-digit",
+          }),
+          eventImage: (event as any).img ?? undefined,
           total: 100,
           paymentMethod: "pix",
           tickets: [{ id: "TESTE-IngressoA", name: "Ingresso Teste" }],
