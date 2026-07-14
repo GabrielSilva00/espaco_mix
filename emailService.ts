@@ -572,15 +572,10 @@ export async function sendConfirmationEmail(data: ConfirmationData): Promise<boo
     event_title: data.eventTitle,
     event_location: data.eventLocation,
   });
-  let bodyTemplate = config?.email_purchase_body ?? PURCHASE_BODY_DEFAULT;
-  // Template customizado sem {{tickets_html}}: injetar QRs antes do </body>
-  if (config?.email_purchase_body && !bodyTemplate.includes('{{tickets_html}}') && (data.tickets?.length ?? 0) > 0) {
-    const qrBlock = buildTicketsHtml(data.tickets ?? []);
-    bodyTemplate = bodyTemplate.includes('</body>')
-      ? bodyTemplate.replace('</body>', `${qrBlock}</body>`)
-      : bodyTemplate + qrBlock;
-  }
-  const html = processTemplate(bodyTemplate, vars);
+  // A confirmação de compra usa SEMPRE o template padrão (novo layout de
+  // e-ticket). Qualquer corpo customizado antigo em system_config.email_purchase_body
+  // é ignorado de propósito — o dono não personaliza mais este e-mail pelo painel.
+  const html = processTemplate(PURCHASE_BODY_DEFAULT, vars);
 
   // 1 PDF por ingresso, para o comprador baixar/apresentar na portaria.
   // Os QRs continuam também no corpo do e-mail (tickets_html).

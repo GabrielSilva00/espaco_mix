@@ -2020,6 +2020,48 @@ export async function createExpressApp() {
     }
   });
 
+  // ── E-mail de teste da CONFIRMAÇÃO de compra (novo template de e-ticket) ──
+  // Envia o template de confirmação com dados fictícios, sem depender de um
+  // evento ou reserva reais — para o dono conferir o layout pela página de
+  // Configurações. Não grava nada no banco.
+  app.post("/api/admin/test-confirmation-email", requireAuth, requireAdmin, async (req, res) => {
+    const { to } = req.body as { to?: string };
+    const user = (req as any).user;
+    const target = ((to && to.trim()) || user?.email || "").slice(0, 254);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) {
+      res.status(400).json({ error: "Informe um e-mail de destino válido." });
+      return;
+    }
+    try {
+      const sent = await sendConfirmationEmail({
+        buyerName: "Usuário Teste",
+        buyerEmail: target,
+        buyerDocument: maskCpf("12345678909"),
+        purchaseDate: new Date().toLocaleString("pt-BR", {
+          day: "2-digit", month: "2-digit", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        }),
+        reservationId: "TESTE-0000",
+        eventTitle: "Evento de Demonstração",
+        eventDate: new Date().toISOString().slice(0, 10),
+        eventTime: "20:00",
+        eventLocation: "Espaço Mix",
+        total: 100,
+        paymentMethod: "pix",
+        tickets: [{ id: "TESTE-INGRESSO-A", name: "Ingresso Teste" }],
+      });
+      res.json({
+        success: true,
+        message: sent
+          ? `E-mail de teste de confirmação enviado para ${target}.`
+          : `Envio pulado: a notificação de compra está desativada nas configurações.`,
+      });
+    } catch (e: any) {
+      console.error("[EMAIL] Falha no teste de confirmação:", e?.message ?? e);
+      res.status(500).json({ error: e?.message || "Falha ao enviar e-mail de teste." });
+    }
+  });
+
   // ── E-mail de teste de um evento (confirmação/lembrete com dados fictícios) ──
   // Admin escolhe o evento, o tipo e um destinatário; enviamos com um comprador
   // fictício ("Usuário Teste"). Não toca em reservas nem em confirmation_email_sent_at.

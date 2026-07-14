@@ -238,7 +238,7 @@ export interface SystemConfig {
   email_sender_name?: string;
   email_sender_address?: string;
   email_purchase_subject?: string;
-  email_purchase_body?: string;
+  email_purchase_body?: string | null;
   email_reminder_subject?: string;
   email_reminder_body?: string;
   // Onboarding inicial do administrador (primeiro acesso)
