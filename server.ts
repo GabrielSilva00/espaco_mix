@@ -2033,6 +2033,36 @@ export async function createExpressApp() {
       return;
     }
     try {
+      // Usa um evento real (o mais recente com imagem) para o teste ficar fiel —
+      // assim o dono vê a imagem do evento no e-mail. Sem eventos, cai no fictício.
+      let demo = {
+        title: "Evento de Demonstração",
+        date: new Date().toISOString().slice(0, 10),
+        time: "20:00" as string | undefined,
+        location: "Espaço Mix",
+        img: undefined as string | undefined,
+      };
+      const admin = await getAdminClient();
+      if (admin) {
+        const { data: ev } = await admin
+          .from("events")
+          .select("title, date, time, location, img")
+          .not("img", "is", null)
+          .neq("img", "")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (ev) {
+          demo = {
+            title: (ev as any).title ?? demo.title,
+            date: (ev as any).date ?? demo.date,
+            time: (ev as any).time ?? demo.time,
+            location: (ev as any).location ?? demo.location,
+            img: (ev as any).img ?? undefined,
+          };
+        }
+      }
+
       const sent = await sendConfirmationEmail({
         buyerName: "Usuário Teste",
         buyerEmail: target,
@@ -2042,10 +2072,11 @@ export async function createExpressApp() {
           hour: "2-digit", minute: "2-digit",
         }),
         reservationId: "TESTE-0000",
-        eventTitle: "Evento de Demonstração",
-        eventDate: new Date().toISOString().slice(0, 10),
-        eventTime: "20:00",
-        eventLocation: "Espaço Mix",
+        eventTitle: demo.title,
+        eventDate: demo.date,
+        eventTime: demo.time,
+        eventLocation: demo.location,
+        eventImage: demo.img,
         total: 100,
         paymentMethod: "pix",
         tickets: [{ id: "TESTE-INGRESSO-A", name: "Ingresso Teste" }],
