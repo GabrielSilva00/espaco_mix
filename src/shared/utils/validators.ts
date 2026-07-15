@@ -4,7 +4,7 @@ export function validateGuestData(guestData: GuestData): Record<string, string> 
   const errors: Record<string, string> = {};
   if (!guestData.name.trim()) errors.name = 'Nome obrigatório';
   if (!guestData.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) errors.email = 'E-mail inválido';
-  if (!guestData.cpf.match(/^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$/)) errors.cpf = 'CPF inválido (11 dígitos)';
+  if (!isValidCpf(guestData.cpf)) errors.cpf = 'CPF inválido';
   return errors;
 }
 

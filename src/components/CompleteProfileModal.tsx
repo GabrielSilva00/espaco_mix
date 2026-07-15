@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Globe } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { updateProfile, signOut } from '../lib/supabase';
+import { isValidCpf } from '../shared/utils/validators';
 
 /**
  * Modal bloqueante para completar dados obrigatórios ausentes (CPF/telefone/
@@ -30,7 +31,7 @@ export function CompleteProfileModal() {
   const handleSave = async () => {
     setError('');
     if (nationality === 'br') {
-      if (cpf.replace(/\D/g, '').length !== 11) { setError('CPF inválido — informe os 11 dígitos'); return; }
+      if (!isValidCpf(cpf)) { setError('CPF inválido — verifique os números digitados'); return; }
     } else {
       if (!country) { setError('Selecione seu país'); return; }
       if (!passportDoc.trim()) { setError('Informe o número do documento/passaporte'); return; }

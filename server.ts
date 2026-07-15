@@ -4,7 +4,7 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import crypto from "crypto";
 import { sendConfirmationEmail, sendReminderEmails, sendReminderEmailTo, sendTestEmail, resolveEmailConfig, sendTransferInvitation, sendContactMessage } from "./emailService.js";
 
@@ -1149,6 +1149,18 @@ export async function createExpressApp() {
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Muitas tentativas de autenticação. Aguarde 15 minutos." },
+  });
+
+  // Código de verificação de login (fluxo Google): chaveado por usuário (uid do
+  // token), não por IP — assim um IP compartilhado (NAT/CGNAT) não bloqueia um
+  // usuário novo. Roda DEPOIS de requireAuth, então req.user está disponível.
+  const loginCodeLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 8, // envios+confirmações por usuário na janela (folgado p/ reenvio/reload)
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => (req as any).user?.uid ?? ipKeyGenerator(req.ip ?? ""),
+    message: { error: "Muitas solicitações de código. Aguarde alguns minutos e tente novamente." },
   });
 
   // O polling de status do pagamento (PIX em aberto consulta a cada poucos
@@ -3883,6 +3895,12 @@ export async function createExpressApp() {
       res.status(400).json({ error: "E-mail inválido." });
       return;
     }
+    // CPF (brasileiros) precisa ter dígito verificador válido — barra CPF forjado
+    // antes de criar a conta. Estrangeiros não enviam cpf, então o check é opt-in.
+    if (cpf && !validateCpf(cpf)) {
+      res.status(400).json({ error: "CPF inválido." });
+      return;
+    }
 
     // ── Anti-enumeração de contas (padrão Google/Slack/Notion) ──────────────────
     // NUNCA revelamos na resposta se o e-mail já existe. Se existir, respondemos
@@ -4036,7 +4054,7 @@ export async function createExpressApp() {
   // O login com Google não passa pelo OTP de cadastro. No 1º acesso, enviamos um
   // código ao e-mail do usuário logado para ele confirmar no site. O e-mail vem
   // SEMPRE do token (requireAuth) — nunca do corpo da requisição.
-  app.post("/api/auth/send-login-code", authLimiter, requireAuth, async (req, res) => {
+  app.post("/api/auth/send-login-code", requireAuth, loginCodeLimiter, async (req, res) => {
     const user = (req as any).user;
     const email: string | undefined = user?.email;
     if (!email) {
@@ -4091,7 +4109,7 @@ export async function createExpressApp() {
     }
   });
 
-  app.post("/api/auth/confirm-login-code", authLimiter, requireAuth, async (req, res) => {
+  app.post("/api/auth/confirm-login-code", requireAuth, loginCodeLimiter, async (req, res) => {
     const user = (req as any).user;
     const email: string | undefined = user?.email;
     const { code, ticket, exp } = req.body as { code?: string; ticket?: string; exp?: number };

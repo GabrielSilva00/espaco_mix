@@ -13,7 +13,7 @@ import {
 } from '../lib/supabase';
 import { UserRole, usePermissions } from '../hooks/usePermissions';
 import { mapDbEventToApp, mapAppEventToDb } from '../shared/utils/eventMapper';
-import { validateGuestData as validateGuestDataUtil } from '../shared/utils/validators';
+import { validateGuestData as validateGuestDataUtil, isValidCpf } from '../shared/utils/validators';
 import { type CardData, tokenizeCard, detectCardBrand } from '../lib/cardUtils';
 import { EVENT_TICKET_PRICE, CART_EXPIRATION_MS } from '../shared/constants/app';
 import type {
@@ -1712,7 +1712,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!registerForm.email.trim()) { setAdminError('Informe seu e-mail'); return; }
       if (registerForm.nationality === 'br') {
         const cpf = registerForm.cpf.replace(/\D/g, '');
-        if (cpf.length !== 11) { setAdminError('CPF inválido — informe os 11 dígitos'); return; }
+        if (!isValidCpf(cpf)) { setAdminError('CPF inválido — verifique os números digitados'); return; }
       } else {
         if (!registerForm.country) { setAdminError('Selecione seu país'); return; }
         if (!registerForm.passportDoc.trim()) { setAdminError('Informe o número do documento/passaporte'); return; }
